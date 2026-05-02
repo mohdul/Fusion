@@ -572,7 +572,7 @@ export function PluginManager({ addToast, projectId }: PluginManagerProps) {
       <div className="plugin-manager-header">
         <span className="plugin-manager-header-title">Installed Plugins</span>
         <div className="plugin-manager-actions">
-          <button className="btn btn-sm btn-ghost" onClick={loadPlugins} title="Refresh" aria-label="Refresh plugin list">
+          <button className="btn btn-sm" onClick={loadPlugins} title="Refresh" aria-label="Refresh plugin list">
             <RefreshCw size={14} className={loading ? "spin" : ""} />
             Refresh
           </button>
