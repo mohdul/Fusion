@@ -65,9 +65,9 @@ describe("mobile-nav-bar.css", () => {
 
   it("executor status bar has bottom offset above nav bar on mobile", () => {
     // ExecutorStatusBar mobile override positions it above the mobile nav bar
-    // Uses --mobile-nav-height variable for consistent nav-height contract
+    // and includes safe-area + standalone token spacing in scoped rule.
     expect(mobileMediaBlock).toMatch(
-      /\.executor-status-bar\s*\{[^}]*bottom:\s*calc\(var\(--mobile-nav-height\)/,
+      /\.executor-status-bar\s*\{[^}]*bottom:\s*calc\(var\(--mobile-nav-height\)\s*\+\s*env\(safe-area-inset-bottom,\s*0px\)\s*\+\s*var\(--standalone-bottom-gap\)\)/,
     );
   });
 
@@ -93,6 +93,8 @@ describe("mobile-nav-bar.css", () => {
     expect(mobileMediaBlock).toContain(".project-content--with-mobile-nav");
     expect(cssContent).toContain(".project-content--with-footer.project-content--with-mobile-nav");
     expect(cssContent).toContain("var(--executor-footer-height)");
+    expect(cssContent).toContain("env(safe-area-inset-bottom, 0px)");
+    expect(cssContent).toContain("var(--standalone-bottom-gap)");
     expect(cssContent).not.toContain("calc(32px + var(--mobile-nav-height)");
   });
 

@@ -62,6 +62,12 @@ pnpm mobile:android
 
 The dashboard includes a PWA manifest (`packages/dashboard/app/public/manifest.json`) and service worker (`packages/dashboard/app/public/sw.js`).
 
+### Standalone iOS home-indicator spacing
+
+- Installed standalone mode sets `--standalone-bottom-gap` via `@media (display-mode: standalone) { :root { ... } }`.
+- Bottom spacing must stay scoped to layout/component rules (for example mobile content padding and footer/nav offsets), not global `#root` padding.
+- Keep standalone spacing additive with existing safe-area handling (`env(safe-area-inset-bottom, 0px)`).
+
 Install from browser:
 
 - **Chrome**: three-dot menu → **Install app**

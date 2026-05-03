@@ -59,15 +59,16 @@ describe("PWA configuration", () => {
     const standaloneBlock = getStandaloneDisplayModeBlock(cssContent);
 
     expect(standaloneBlock).toContain("@media (display-mode: standalone)");
-    expect(standaloneBlock).toMatch(/:root\s*\{[\s\S]*?--standalone-bottom-gap:\s*0px/);
+    expect(standaloneBlock).toMatch(/:root\s*\{[\s\S]*?--standalone-bottom-gap:\s*var\(--space-sm\)/);
     expect(standaloneBlock).not.toContain("#root {");
   });
 
   it("CSS defines --standalone-bottom-gap token in :root", () => {
     const cssContent = loadAllAppCss();
 
-    // Token defined in :root; standalone mode currently overrides to 0 (no extra gap beyond safe-area).
+    // Base token defaults to 0px and standalone mode overrides it via :root inside display-mode media query.
     expect(cssContent).toContain("--standalone-bottom-gap: 0px");
+    expect(cssContent).toContain("--standalone-bottom-gap: var(--space-sm)");
   });
 
   it("CSS applies standalone bottom gap via scoped mobile layout rules, not global #root padding", () => {
