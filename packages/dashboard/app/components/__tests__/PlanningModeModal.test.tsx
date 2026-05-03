@@ -36,6 +36,7 @@ const mockRequestSpecRevision = vi.fn();
 const mockApprovePlan = vi.fn();
 const mockRejectPlan = vi.fn();
 const mockRefineTask = vi.fn();
+const mockFetchAiSessions = vi.fn();
 
 vi.mock("../../api", () => ({
   startPlanning: (...args: any[]) => mockStartPlanning(...args),
@@ -72,6 +73,7 @@ vi.mock("../../api", () => ({
   getRefineErrorMessage: vi.fn((err: any) => err?.message || "Failed to refine"),
   updateGlobalSettings: vi.fn().mockResolvedValue({}),
   duplicateTask: vi.fn().mockResolvedValue({}),
+  fetchAiSessions: (...args: any[]) => mockFetchAiSessions(...args),
 }));
 
 const mockConfirm = vi.fn();
@@ -213,6 +215,22 @@ function getMediaBlocks(css: string, mediaQuery: string): string[] {
   return blocks;
 }
 
+function mockViewport(mode: "mobile" | "desktop" | "tablet") {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => {
+      const isMobileQuery = query === "(max-width: 768px)";
+      const isTabletQuery = query === "(min-width: 769px) and (max-width: 1024px)";
+      return {
+        matches: mode === "mobile" ? isMobileQuery : mode === "tablet" ? isTabletQuery : false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+    }),
+  });
+}
+
 describe("PlanningModeModal", () => {
   const mockOnClose = vi.fn();
   const mockOnTaskCreated = vi.fn();
@@ -224,6 +242,8 @@ describe("PlanningModeModal", () => {
     MockEventSource.reset();
     vi.stubGlobal("EventSource", MockEventSource as any);
     window.sessionStorage.clear();
+    // Default to desktop viewport; mobile-specific tests override per-test.
+    mockViewport("desktop");
     
     // Default mock for streaming
     mockStartPlanningStreaming.mockResolvedValue({ sessionId: "session-123" });
@@ -236,6 +256,7 @@ describe("PlanningModeModal", () => {
     mockRetryPlanningSession.mockResolvedValue({ success: true, sessionId: "session-123" });
     mockStartPlanningBreakdown.mockResolvedValue({ sessionId: "session-123", subtasks: [] });
     mockFetchAiSession.mockResolvedValue(null);
+    mockFetchAiSessions.mockResolvedValue([]);
     mockParseConversationHistory.mockImplementation((raw: string) => {
       if (!raw) return [];
       try {
@@ -2584,6 +2605,113 @@ describe("PlanningModeModal", () => {
       // for later resume from the sidebar list.
       expect(mockCancelPlanning).not.toHaveBeenCalled();
       expect(mockOnClose).toHaveBeenCalled();
+    });
+  });
+
+  describe("Mobile empty-session routing (FN-3269)", () => {
+    it("shows detail pane on mobile when session list is empty", async () => {
+      mockViewport("mobile");
+      mockFetchAiSessions.mockResolvedValue([]);
+
+      const { container } = render(
+        <PlanningModeModal
+          isOpen={true}
+          onClose={mockOnClose}
+          onTaskCreated={mockOnTaskCreated}
+          onTasksCreated={vi.fn()}
+          tasks={mockTasks}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(mockFetchAiSessions).toHaveBeenCalled();
+      });
+
+      // Wait for the session list to load and the routing effect to fire
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      // The modal body should show detail pane (composer), not list pane
+      const body = container.querySelector(".planning-modal-body");
+      expect(body?.classList.contains("planning-modal-body--show-detail")).toBe(true);
+      expect(body?.classList.contains("planning-modal-body--show-list")).toBe(false);
+
+      // The composer textarea should be visible
+      expect(screen.getByPlaceholderText(/e.g., Build a user authentication/)).toBeDefined();
+    });
+
+    it("stays on list pane on mobile when sessions exist", async () => {
+      mockViewport("mobile");
+      mockFetchAiSessions.mockResolvedValue([
+        {
+          id: "session-existing",
+          type: "planning",
+          status: "complete",
+          title: "Existing session",
+          preview: "An existing planning session",
+          projectId: null,
+          lockedByTab: null,
+          updatedAt: new Date().toISOString(),
+          archived: false,
+        },
+      ]);
+
+      const { container } = render(
+        <PlanningModeModal
+          isOpen={true}
+          onClose={mockOnClose}
+          onTaskCreated={mockOnTaskCreated}
+          onTasksCreated={vi.fn()}
+          tasks={mockTasks}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(mockFetchAiSessions).toHaveBeenCalled();
+      });
+
+      // Wait one more tick to let state updates settle
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      // The modal body should show list pane (sidebar), not detail pane
+      const body = container.querySelector(".planning-modal-body");
+      expect(body?.classList.contains("planning-modal-body--show-list")).toBe(true);
+      expect(body?.classList.contains("planning-modal-body--show-detail")).toBe(false);
+    });
+
+    it("does not auto-show detail pane on desktop with empty sessions", async () => {
+      mockViewport("desktop");
+      mockFetchAiSessions.mockResolvedValue([]);
+
+      const { container } = render(
+        <PlanningModeModal
+          isOpen={true}
+          onClose={mockOnClose}
+          onTaskCreated={mockOnTaskCreated}
+          onTasksCreated={vi.fn()}
+          tasks={mockTasks}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(mockFetchAiSessions).toHaveBeenCalled();
+      });
+
+      // Wait one more tick to let state updates settle
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      // Desktop shows both panes in split view regardless of mobileShowDetail.
+      // Both sidebar and detail pane should be present in the DOM.
+      expect(container.querySelector(".planning-sidebar")).not.toBeNull();
+      expect(container.querySelector(".planning-detail")).not.toBeNull();
+      // The mobile-only back button should NOT be visible (it's gated on mobileShowDetail,
+      // which stays false on desktop since the routing effect skips non-mobile viewports).
+      expect(container.querySelector(".planning-mobile-back")).toBeNull();
     });
   });
 

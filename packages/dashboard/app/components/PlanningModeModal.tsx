@@ -42,6 +42,7 @@ import { ConversationHistory } from "./ConversationHistory";
 import { OnboardingDisclosure } from "./OnboardingDisclosure";
 import { useSessionLock } from "../hooks/useSessionLock";
 import { useAiSessionSync } from "../hooks/useAiSessionSync";
+import { useViewportMode } from "../hooks/useViewportMode";
 import { getSessionTabId } from "../utils/getSessionTabId";
 
 interface PlanningModeModalProps {
@@ -180,6 +181,7 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
   } | null>(null);
 
   useModalResizePersist(modalRef, isOpen, "fusion:planning-modal-size");
+  const viewportMode = useViewportMode();
 
   // Keep the streaming AI thinking pane pinned to the bottom as new tokens
   // arrive. If the user has scrolled up to read earlier output, we leave the
@@ -740,6 +742,29 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
     if (!isOpen) return;
     void refreshSessionsList();
   }, [isOpen, refreshSessionsList]);
+
+  // Mobile empty-session routing: when the session list finishes loading and
+  // is empty, and there is no resumeSessionId or selected session, auto-
+  // switch to the detail pane so mobile users land on the composer instead
+  // of an empty sidebar. Desktop/tablet split-view is unaffected because
+  // both panes are visible simultaneously.
+  //
+  // We gate on sessionsLoading to avoid firing on the initial render (where
+  // planningSessions is empty but hasn't been fetched yet). When the sessions
+  // list finishes loading, planningSessions reflects the server response and
+  // we can make an informed routing decision.
+  const prevSessionsLoadingRef = useRef(false);
+  useEffect(() => {
+    const justFinishedLoading = prevSessionsLoadingRef.current && !sessionsLoading;
+    prevSessionsLoadingRef.current = sessionsLoading;
+    if (!justFinishedLoading) return;
+    if (viewportMode !== "mobile") return;
+    if (mobileShowDetail) return;
+    if (resumeSessionId) return;
+    if (selectedSessionId) return;
+    if (planningSessions.length > 0) return;
+    setMobileShowDetail(true);
+  }, [viewportMode, mobileShowDetail, resumeSessionId, selectedSessionId, sessionsLoading, planningSessions.length]);
 
   // SSE subscription keeps the list live (mirrors useBackgroundSessions, but
   // unfiltered by status so completed/errored sessions stay visible).

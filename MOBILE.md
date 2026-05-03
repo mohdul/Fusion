@@ -75,6 +75,12 @@ Install from browser:
 
 > Service workers require **HTTPS** (or `localhost`). PWA install/offline behavior will not work on plain HTTP origins.
 
+## Mobile UX Behavior
+
+### Planning Mode
+
+Planning Mode opens directly into the composer pane on mobile when no planning sessions exist, avoiding an empty-sidebar dead end. On desktop/tablet the split view is unaffected. Once sessions are saved, mobile shows the session list as usual and the user can navigate between list and detail panes.
+
 ## CI/CD Pipeline
 
 Mobile CI is defined in `.github/workflows/mobile.yml`.
