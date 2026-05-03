@@ -339,6 +339,12 @@
   min-width: 0;
   min-height: 0;
   border-left: 1px solid var(--border);
+  overflow: hidden;
+  background: var(--card);
+}
+
+.list-split-detail-empty {
+  height: 100%;
   padding: var(--space-xl);
   color: var(--text-muted);
   display: flex;
@@ -347,9 +353,14 @@
   text-align: center;
 }
 
-.list-split-detail p {
+.list-split-detail-empty p {
   margin-block: 0;
   margin-inline: 0;
+}
+
+.list-split-detail-content {
+  height: 100%;
+  min-height: 0;
 }
 
 .list-table {

@@ -53,7 +53,12 @@ const createMockTask = (overrides: Partial<Task> = {}): Task => ({
 const renderListView = (props: Partial<React.ComponentProps<typeof ListView>> = {}) => {
   const defaultProps = {
     tasks: [],
-    onMoveTask: vi.fn(),
+    onMoveTask: vi.fn(async () => createMockTask()),
+    onRetryTask: vi.fn(async () => createMockTask()),
+    onDeleteTask: vi.fn(async () => createMockTask()),
+    onMergeTask: vi.fn(async () => ({ merged: false })),
+    onResetTask: vi.fn(async () => createMockTask()),
+    onDuplicateTask: vi.fn(async () => createMockTask()),
     onOpenDetail: vi.fn(),
     addToast: mockAddToast,
     globalPaused: false,
@@ -117,6 +122,10 @@ function mockDesktopViewport() {
 describe("ListView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(fetchTaskDetail).mockResolvedValue({
+      ...createMockTask(),
+      prompt: "# Detail",
+    } as TaskDetail);
     mockConfirm.mockReset();
     localStorage.clear();
     ensureMatchMedia();
@@ -240,7 +249,7 @@ describe("ListView", () => {
     expect(screen.getByText("FN-002")).toBeDefined();
   });
 
-  it("updates selectedTaskId on desktop row click without opening detail", () => {
+  it("updates selectedTaskId on desktop row click and mounts embedded detail", async () => {
     const viewportSpy = mockDesktopViewport();
     const tasks = [createMockTask({ id: "FN-001", title: "Test Task" })];
     const mockOnOpenDetail = vi.fn();
@@ -252,9 +261,11 @@ describe("ListView", () => {
 
     expect(mockOnOpenDetail).not.toHaveBeenCalled();
     expect(localStorage.getItem(scopedStorageKey("kb-dashboard-list-selected-task"))).toBe("FN-001");
-    expect(fetchTaskDetail).not.toHaveBeenCalled();
     expect(row?.className).toContain("list-row--selected");
-    expect(screen.getByText("Task selected. Detail view coming soon.")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(fetchTaskDetail).toHaveBeenCalledWith("FN-001", TEST_PROJECT_ID);
+      expect(screen.getByTestId("list-split-detail-content")).toBeInTheDocument();
+    });
     viewportSpy.mockRestore();
   });
 
@@ -271,6 +282,76 @@ describe("ListView", () => {
     expect(mockOnOpenDetail).toHaveBeenCalledWith(tasks[0]);
     expect(mockOnOpenDetail).toHaveBeenCalledTimes(1);
     expect(fetchTaskDetail).not.toHaveBeenCalled();
+    viewportSpy.mockRestore();
+  });
+
+  it("keeps embedded selection visible when filters hide the selected row", async () => {
+    const viewportSpy = mockDesktopViewport();
+    const tasks = [
+      createMockTask({ id: "FN-001", title: "Alpha Task" }),
+      createMockTask({ id: "FN-002", title: "Beta Task" }),
+    ];
+
+    const { rerender } = renderListView({ tasks, searchQuery: "Alpha" });
+
+    fireEvent.click(screen.getByText("FN-001").closest("tr")!);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("list-split-detail-content")).toBeInTheDocument();
+    });
+
+    rerender(
+      <ListView
+        tasks={tasks}
+        onMoveTask={vi.fn(async () => createMockTask())}
+        onRetryTask={vi.fn(async () => createMockTask())}
+        onDeleteTask={vi.fn(async () => createMockTask())}
+        onMergeTask={vi.fn(async () => ({ merged: false }))}
+        onResetTask={vi.fn(async () => createMockTask())}
+        onDuplicateTask={vi.fn(async () => createMockTask())}
+        onOpenDetail={vi.fn()}
+        addToast={mockAddToast}
+        projectId={TEST_PROJECT_ID}
+        searchQuery="Beta"
+      />,
+    );
+
+    expect(document.querySelector('tr[data-id="FN-001"]')).toBeNull();
+    expect(screen.getByTestId("list-split-detail-content")).toBeInTheDocument();
+    viewportSpy.mockRestore();
+  });
+
+  it("keeps dependency navigation inline in embedded detail on desktop", async () => {
+    const viewportSpy = mockDesktopViewport();
+    const tasks = [createMockTask({ id: "FN-001", title: "Parent Task", dependencies: ["FN-002"] })];
+    const mockOnOpenDetail = vi.fn();
+
+    vi.mocked(fetchTaskDetail)
+      .mockResolvedValueOnce({
+        ...tasks[0],
+        prompt: "# Parent detail",
+      } as TaskDetail)
+      .mockResolvedValueOnce({
+        ...createMockTask({ id: "FN-002", title: "Child Task" }),
+        prompt: "# Child detail",
+      } as TaskDetail);
+
+    renderListView({ tasks, onOpenDetail: mockOnOpenDetail });
+
+    fireEvent.click(screen.getByText("FN-001").closest("tr")!);
+
+    await waitFor(() => {
+      expect(screen.getByRole("link", { name: /FN-002/ })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("link", { name: /FN-002/ }));
+
+    await waitFor(() => {
+      expect(localStorage.getItem(scopedStorageKey("kb-dashboard-list-selected-task"))).toBe("FN-002");
+      expect(fetchTaskDetail).toHaveBeenNthCalledWith(2, "FN-002", TEST_PROJECT_ID);
+    });
+
+    expect(mockOnOpenDetail).not.toHaveBeenCalled();
     viewportSpy.mockRestore();
   });
 

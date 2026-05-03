@@ -150,7 +150,7 @@ function formatBytes(bytes: number): string {
 
 type TabId = "definition" | "logs" | "changes" | "comments" | "model" | "workflow" | "documents" | "stats" | "routing" | `plugin-${string}`;
 
-interface TaskDetailModalProps {
+export interface TaskDetailModalProps {
   task: Task | TaskDetail;
   projectId?: string;
   tasks?: Task[];
@@ -168,6 +168,11 @@ interface TaskDetailModalProps {
   /** Open the modal with this tab active instead of "definition" */
   initialTab?: TabId;
 }
+
+export type TaskDetailContentProps = Omit<TaskDetailModalProps, "onClose"> & {
+  embedded?: boolean;
+  onRequestClose?: () => void;
+};
 
 function extractDependencyDeleteConflict(err: unknown): { dependentIds: string[] } | null {
   if (!(err instanceof Error)) {
@@ -312,11 +317,10 @@ const DESCRIPTION_TRUNCATE_LENGTH = 200;
 
 const EDITABLE_COLUMNS: Set<Column> = new Set(["triage", "todo"]);
 
-export function TaskDetailModal({
+export function TaskDetailContent({
   task,
   projectId,
   tasks = [],
-  onClose,
   onOpenDetail,
   onMoveTask,
   onDeleteTask,
@@ -328,7 +332,9 @@ export function TaskDetailModal({
   addToast,
   prAuthAvailable,
   initialTab = "definition",
-}: TaskDetailModalProps) {
+  embedded = false,
+  onRequestClose,
+}: TaskDetailContentProps) {
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
 
   // ── Async detail loading ──────────────────────────────────────────────────
@@ -457,8 +463,6 @@ export function TaskDetailModal({
   const moveMenuRef = useRef<HTMLDivElement>(null);
   const moveButtonRef = useRef<HTMLButtonElement>(null);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
-  const modalRef = useRef<HTMLDivElement>(null);
-  useModalResizePersist(modalRef, true, "fusion:task-detail-modal-size");
 
   // Plugin UI slots for task-detail-tab
   const { getSlotsForId: getPluginSlots } = usePluginUiSlots(projectId);
@@ -946,15 +950,18 @@ export function TaskDetailModal({
     activeTab === "logs" && logSubview === "agent-log",
     projectId,
   );
+  const requestClose = useCallback(() => {
+    onRequestClose?.();
+  }, [onRequestClose]);
+
   useEffect(() => {
+    if (embedded) return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isEditing) onClose();
+      if (e.key === "Escape" && !isEditing) requestClose();
     };
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose, isEditing]);
-
-  const overlayDismissProps = useOverlayDismiss(onClose);
+  }, [embedded, requestClose, isEditing]);
 
   const handleMove = useCallback(
     async (column: Column) => {
@@ -988,13 +995,13 @@ export function TaskDetailModal({
         }
 
         await onMoveTask(task.id, column, moveOptions);
-        onClose();
+        requestClose();
         addToast(`Moved to ${COLUMN_LABELS[column]}`, "success");
       } catch (err) {
         addToast(getErrorMessage(err), "error");
       }
     },
-    [task.id, task.steps, onMoveTask, onClose, addToast, confirm],
+    [task.id, task.steps, onMoveTask, requestClose, addToast, confirm],
   );
 
   const handleDelete = useCallback(async () => {
@@ -1006,7 +1013,7 @@ export function TaskDetailModal({
     if (!shouldDelete) return;
     try {
       await onDeleteTask(task.id);
-      onClose();
+      requestClose();
       addToast(`Deleted ${task.id}`, "info");
     } catch (err) {
       const conflict = extractDependencyDeleteConflict(err);
@@ -1029,13 +1036,13 @@ export function TaskDetailModal({
 
       try {
         await onDeleteTask(task.id, { removeDependencyReferences: true });
-        onClose();
+        requestClose();
         addToast(`Deleted ${task.id} after removing dependency references`, "info");
       } catch (retryErr) {
         addToast(getErrorMessage(retryErr), "error");
       }
     }
-  }, [task.id, onDeleteTask, onClose, addToast, confirm]);
+  }, [task.id, onDeleteTask, requestClose, addToast, confirm]);
 
   const handleMerge = useCallback(async () => {
     const shouldMerge = await confirm({
@@ -1043,7 +1050,7 @@ export function TaskDetailModal({
       message: `Merge ${task.id} into the current branch?`,
     });
     if (!shouldMerge) return;
-    onClose();
+    requestClose();
     addToast(`Merging ${task.id}...`, "info");
     onMergeTask(task.id)
       .then((result) => {
@@ -1055,11 +1062,11 @@ export function TaskDetailModal({
       .catch((err) => {
         addToast(getErrorMessage(err), "error");
       });
-  }, [task.id, onMergeTask, onClose, addToast, confirm]);
+  }, [task.id, onMergeTask, requestClose, addToast, confirm]);
 
   const handleRetry = useCallback(() => {
     if (!onRetryTask) return;
-    onClose();
+    requestClose();
     onRetryTask(task.id)
       .then(() => {
         addToast(`Retried ${task.id}`, "success");
@@ -1067,12 +1074,12 @@ export function TaskDetailModal({
       .catch((err) => {
         addToast(getErrorMessage(err), "error");
       });
-  }, [task.id, onRetryTask, onClose, addToast]);
+  }, [task.id, onRetryTask, requestClose, addToast]);
 
   const handleReset = useCallback(() => {
     if (!onResetTask) return;
     if (!window.confirm(`This will erase all progress for ${task.id} and start the task from scratch. Continue?`)) return;
-    onClose();
+    requestClose();
     onResetTask(task.id)
       .then(() => {
         addToast(`Reset ${task.id} — fresh run will be allocated`, "success");
@@ -1080,7 +1087,7 @@ export function TaskDetailModal({
       .catch((err) => {
         addToast(getErrorMessage(err), "error");
       });
-  }, [task.id, onResetTask, onClose, addToast]);
+  }, [task.id, onResetTask, requestClose, addToast]);
 
   const handleDuplicate = useCallback(async () => {
     if (!onDuplicateTask) return;
@@ -1091,12 +1098,12 @@ export function TaskDetailModal({
     if (!shouldDuplicate) return;
     try {
       const newTask = await onDuplicateTask(task.id);
-      onClose();
+      requestClose();
       addToast(`Duplicated ${task.id} → ${newTask.id}`, "success");
     } catch (err) {
       addToast(getErrorMessage(err), "error");
     }
-  }, [task.id, onDuplicateTask, onClose, addToast, confirm]);
+  }, [task.id, onDuplicateTask, requestClose, addToast, confirm]);
 
   const handleTogglePause = useCallback(async () => {
     try {
@@ -1107,21 +1114,21 @@ export function TaskDetailModal({
         await pauseTask(task.id, projectId);
         addToast(`Paused ${task.id}`, "success");
       }
-      onClose();
+      requestClose();
     } catch (err) {
       addToast(getErrorMessage(err), "error");
     }
-  }, [task.id, task.paused, onClose, addToast]);
+  }, [task.id, task.paused, requestClose, addToast]);
 
   const handleApprovePlan = useCallback(async () => {
     try {
       await approvePlan(task.id, projectId);
       addToast(`Plan approved — ${task.id} moved to Todo`, "success");
-      onClose();
+      requestClose();
     } catch (err) {
       addToast(getErrorMessage(err), "error");
     }
-  }, [task.id, onClose, addToast]);
+  }, [task.id, requestClose, addToast]);
 
   const handleRejectPlan = useCallback(async () => {
     const shouldReject = await confirm({
@@ -1133,11 +1140,11 @@ export function TaskDetailModal({
     try {
       await rejectPlan(task.id, projectId);
       addToast(`Plan rejected — ${task.id} returned to Planning for replanning`, "info");
-      onClose();
+      requestClose();
     } catch (err) {
       addToast(getErrorMessage(err), "error");
     }
-  }, [task.id, onClose, addToast, confirm]);
+  }, [task.id, requestClose, addToast, confirm]);
 
   const handleRespecify = useCallback(async () => {
     const shouldRebuild = await confirm({
@@ -1147,12 +1154,12 @@ export function TaskDetailModal({
     if (!shouldRebuild) return;
     try {
       await rebuildTaskSpec(task.id, projectId);
-      onClose();
+      requestClose();
       addToast(`Replanning ${task.id}...`, "info");
     } catch (err) {
       addToast(getErrorMessage(err), "error");
     }
-  }, [task.id, projectId, onClose, addToast, confirm]);
+  }, [task.id, projectId, requestClose, addToast, confirm]);
 
   const handleOpenRefineModal = useCallback(() => {
     setShowRefineModal(true);
@@ -1200,13 +1207,13 @@ export function TaskDetailModal({
     try {
       const newTask = await refineTask(task.id, refineFeedback.trim(), projectId);
       addToast(`Refinement task created: ${newTask.id}`, "success");
-      onClose();
+      requestClose();
     } catch (err) {
       addToast(getErrorMessage(err), "error");
     } finally {
       setIsRefining(false);
     }
-  }, [task.id, refineFeedback, addToast, onClose]);
+  }, [task.id, refineFeedback, addToast, requestClose]);
 
   const uploadFile = useCallback(async (file: File) => {
     setUploading(true);
@@ -1387,7 +1394,7 @@ export function TaskDetailModal({
       await requestSpecRevision(task.id, feedback, projectId);
       addToast("AI revision requested. Task moved to planning.", "success");
       // Task has been moved to planning, close modal
-      onClose();
+      requestClose();
     } catch (err) {
       const msg = getErrorMessage(err);
       if (msg.includes("done") || msg.includes("archived")) {
@@ -1398,7 +1405,7 @@ export function TaskDetailModal({
     } finally {
       setIsRequestingRevision(false);
     }
-  }, [task.id, addToast, onClose]);
+  }, [task.id, addToast, requestClose]);
 
   // Spec editing handlers (depend on handleSaveSpec and handleRequestSpecRevision)
   const enterSpecEditMode = useCallback(() => {
@@ -1548,9 +1555,12 @@ export function TaskDetailModal({
   const prAutomationLabel = task.status ? prAutomationStatusLabels[task.status] : undefined;
 
   return (
-    <div className="modal-overlay open" {...overlayDismissProps} role="dialog" aria-modal="true">
-      <div className="modal modal-lg task-detail-modal" ref={modalRef} onDragOver={handleDragOver} onDrop={handleDrop}>
-        <div className="modal-header">
+    <div
+      className={embedded ? "task-detail-content task-detail-content--embedded" : "task-detail-content"}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      <div className="modal-header">
           <div className="detail-title-row">
             <span className="detail-id">{task.id}</span>
             <span className={`detail-column-badge badge-${task.column}`}>
@@ -1568,9 +1578,11 @@ export function TaskDetailModal({
                 <Pencil size={14} />
               </button>
             )}
-            <button className="modal-close" onClick={onClose} aria-label="Close">
-              &times;
-            </button>
+            {!embedded && (
+              <button className="modal-close" onClick={requestClose} aria-label="Close">
+                &times;
+              </button>
+            )}
           </div>
         </div>
         <div className={`detail-body${activeTab === "logs" && logSubview === "agent-log" && !isEditing ? " detail-body--agent-log" : ""}`}>
@@ -2663,6 +2675,27 @@ export function TaskDetailModal({
             />
           </Suspense>
         )}
+    </div>
+  );
+}
+
+export function TaskDetailModal({ onClose, ...props }: TaskDetailModalProps) {
+  const modalRef = useRef<HTMLDivElement>(null);
+  useModalResizePersist(modalRef, true, "task-detail-modal-size");
+  const overlayDismissProps = useOverlayDismiss(onClose);
+
+  return (
+    <div
+      className="modal-overlay open"
+      {...overlayDismissProps}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="modal modal-lg task-detail-modal" ref={modalRef}>
+        <TaskDetailContent
+          {...props}
+          onRequestClose={onClose}
+        />
       </div>
     </div>
   );

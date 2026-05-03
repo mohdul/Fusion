@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { TaskDetailModal } from "../TaskDetailModal";
+import { TaskDetailModal, TaskDetailContent } from "../TaskDetailModal";
 import type { TaskDetail, Column, MergeResult, Task } from "@fusion/core";
 import { clearAuthToken } from "../../auth";
 
@@ -259,6 +259,42 @@ describe("TaskDetailModal", () => {
 
       expect(screen.queryByText(/Created via/)).not.toBeInTheDocument();
     });
+  });
+
+  it("renders modal wrapper structure and close control", () => {
+    const { container } = render(
+      <TaskDetailModal
+        task={makeTask()}
+        onClose={noop}
+        onMoveTask={noopMove}
+        onDeleteTask={noopDelete}
+        onMergeTask={noopMerge}
+        onOpenDetail={noopOpenDetail}
+        addToast={noop}
+      />,
+    );
+
+    expect(container.querySelector(".modal-overlay.open")).toBeTruthy();
+    expect(container.querySelector(".modal.modal-lg.task-detail-modal")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
+  });
+
+  it("omits close control in embedded mode while rendering shared content", () => {
+    const { container } = render(
+      <TaskDetailContent
+        task={makeTask()}
+        onMoveTask={noopMove}
+        onDeleteTask={noopDelete}
+        onMergeTask={noopMerge}
+        onOpenDetail={noopOpenDetail}
+        addToast={noop}
+        embedded
+      />,
+    );
+
+    expect(container.querySelector(".task-detail-content--embedded")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Definition" })).toBeInTheDocument();
   });
 
   it("styles detail-body scrollbar rules", () => {
@@ -1261,7 +1297,7 @@ describe("TaskDetailModal", () => {
         />,
       );
 
-      const modal = container.querySelector(".modal.modal-lg")!;
+      const modal = container.querySelector(".task-detail-content")!;
       const imageFile = new File(["fake-image"], "dropped.png", { type: "image/png" });
 
       await act(async () => {

@@ -1,4 +1,11 @@
 /* === Detail Modal === */
+.task-detail-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
 .modal.task-detail-modal {
   width: min(95vw, 800px);
   max-width: 95vw;
@@ -600,7 +607,7 @@
 }
 
 .detail-refine-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
   display: flex;
   align-items: center;
@@ -610,9 +617,19 @@
 }
 
 .detail-refine-modal {
-  max-width: 500px;
+  max-width: min(90vw, calc(var(--space-2xl) * 16));
   width: 90%;
   margin: 0;
+}
+
+.task-detail-content--embedded {
+  height: 100%;
+}
+
+.task-detail-content--embedded .detail-actions-menu,
+.task-detail-content--embedded .detail-move-menu {
+  top: calc(100% + var(--space-xs));
+  bottom: auto;
 }
 
 .detail-refine-title {

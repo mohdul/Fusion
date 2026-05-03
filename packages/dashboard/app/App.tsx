@@ -880,6 +880,10 @@ function AppInner() {
           projectId={currentProject?.id}
           onMoveTask={moveTask}
           onRetryTask={retryTask}
+          onDeleteTask={deleteTask}
+          onMergeTask={mergeTask}
+          onResetTask={resetTask}
+          onDuplicateTask={duplicateTask}
           onOpenDetail={modalManager.openDetailTask}
           addToast={addToast}
           globalPaused={globalPaused}
@@ -895,6 +899,7 @@ function AppInner() {
           taskStuckTimeoutMs={taskStuckTimeoutMs}
           searchQuery={searchQuery}
           lastFetchTimeMs={lastFetchTimeMs}
+          prAuthAvailable={prAuthAvailable}
         />
       </PageErrorBoundary>
     );

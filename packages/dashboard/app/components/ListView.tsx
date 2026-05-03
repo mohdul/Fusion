@@ -1,9 +1,10 @@
 import "./ListView.css";
 import { useState, useCallback, useMemo, Fragment, useEffect, useRef } from "react";
 import { ArrowUpDown, ArrowUp, ArrowDown, Link, Columns3, EyeOff, Eye, ChevronRight, Zap } from "lucide-react";
-import type { Task, TaskDetail, Column, TaskCreateInput } from "@fusion/core";
+import type { Task, TaskDetail, Column, TaskCreateInput, MergeResult } from "@fusion/core";
 import { COLUMN_LABELS, COLUMNS, getErrorMessage } from "@fusion/core";
-import { batchUpdateTaskModels, fetchNodes } from "../api";
+import { batchUpdateTaskModels, fetchNodes, fetchTaskDetail } from "../api";
+import { TaskDetailContent } from "./TaskDetailModal";
 import type { ModelInfo, NodeInfo } from "../api";
 import { QuickEntryBox } from "./QuickEntryBox";
 import { CustomModelDropdown } from "./CustomModelDropdown";
@@ -157,8 +158,12 @@ function clampSidebarWidth(width: number, containerWidth: number): number {
 
 interface ListViewProps {
   tasks: Task[];
-  onMoveTask: (id: string, column: Column, options?: { preserveProgress?: boolean }) => Promise<Task>;
+  onMoveTask: (id: string, column: Column, optionsOrPosition?: { preserveProgress?: boolean } | number) => Promise<Task>;
   onRetryTask?: (id: string) => Promise<Task>;
+  onDeleteTask: (id: string, options?: { removeDependencyReferences?: boolean }) => Promise<Task>;
+  onMergeTask: (id: string) => Promise<MergeResult>;
+  onResetTask?: (id: string) => Promise<Task>;
+  onDuplicateTask?: (id: string) => Promise<Task>;
   onOpenDetail: (task: Task | TaskDetail) => void;
   addToast: (message: string, type?: ToastType) => void;
   globalPaused?: boolean;
@@ -192,6 +197,7 @@ interface ListViewProps {
   searchQuery?: string;
   /** Timestamp (ms) when task data was last confirmed fresh from the server. Used for freshness-aware stuck detection. */
   lastFetchTimeMs?: number;
+  prAuthAvailable?: boolean;
 }
 
 function shouldShowTaskProgress(task: Task): boolean {
@@ -214,6 +220,11 @@ function getTaskProgress(task: Task): { label: string; percent: number; hasProgr
 export function ListView({
   tasks,
   onMoveTask,
+  onRetryTask,
+  onDeleteTask,
+  onMergeTask,
+  onResetTask,
+  onDuplicateTask,
   onOpenDetail,
   addToast,
   globalPaused,
@@ -232,6 +243,7 @@ export function ListView({
   taskStuckTimeoutMs,
   searchQuery = "",
   lastFetchTimeMs,
+  prAuthAvailable,
 }: ListViewProps) {
   const [sortField, setSortField] = useState<SortField>("id");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
@@ -282,6 +294,7 @@ export function ListView({
   const [bulkEditEnabled, setBulkEditEnabled] = useState(false);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => readSelectedTaskIds(projectId));
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => readSelectedTaskId(projectId));
+  const [selectedTaskSnapshot, setSelectedTaskSnapshot] = useState<Task | TaskDetail | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => readSidebarWidth(projectId));
   const splitLayoutRef = useRef<HTMLDivElement>(null);
   const splitSidebarRef = useRef<HTMLDivElement>(null);
@@ -291,9 +304,13 @@ export function ListView({
     setHideDoneTasks(readHideDoneTasks(projectId));
     setCollapsedSections(readCollapsedSections(projectId));
     setSelectedTaskIds(readSelectedTaskIds(projectId));
-    setSelectedTaskId(readSelectedTaskId(projectId));
+    const persistedSelection = readSelectedTaskId(projectId);
+    setSelectedTaskId(persistedSelection);
+    setSelectedTaskSnapshot(
+      persistedSelection ? tasks.find((task) => task.id === persistedSelection) ?? null : null,
+    );
     setSidebarWidth(readSidebarWidth(projectId));
-  }, [projectId]);
+  }, [projectId, tasks]);
 
   // Persist selection to localStorage
   useEffect(() => {
@@ -313,10 +330,20 @@ export function ListView({
   }, [projectId, selectedTaskId]);
 
   useEffect(() => {
-    if (!selectedTaskId) return;
-    if (!tasks.some((task) => task.id === selectedTaskId)) {
-      setSelectedTaskId(null);
+    if (!selectedTaskId) {
+      setSelectedTaskSnapshot(null);
+      return;
     }
+
+    const liveTask = tasks.find((task) => task.id === selectedTaskId);
+    if (!liveTask) return;
+
+    setSelectedTaskSnapshot((previous) => {
+      if (!previous || previous.id !== selectedTaskId) {
+        return liveTask;
+      }
+      return { ...previous, ...liveTask };
+    });
   }, [selectedTaskId, tasks]);
 
   useEffect(() => {
@@ -733,9 +760,32 @@ export function ListView({
       }
 
       setSelectedTaskId(task.id);
+      setSelectedTaskSnapshot(task);
     },
     [isMobile, onOpenDetail]
   );
+
+  const handleEmbeddedOpenDetail = useCallback((nextTask: Task | TaskDetail) => {
+    setSelectedTaskId(nextTask.id);
+    setSelectedTaskSnapshot(nextTask);
+
+    if ("prompt" in nextTask) {
+      return;
+    }
+
+    fetchTaskDetail(nextTask.id, projectId)
+      .then((detail) => {
+        setSelectedTaskSnapshot((previous) => {
+          if (!previous || previous.id !== detail.id) {
+            return previous;
+          }
+          return { ...previous, ...detail };
+        });
+      })
+      .catch(() => {
+        // Keep optimistic inline selection when detail fetch fails.
+      });
+  }, [projectId]);
 
   const handleDragStart = useCallback(
     (e: React.DragEvent, task: Task) => {
@@ -1456,10 +1506,34 @@ export function ListView({
                 aria-valuenow={Math.round(sidebarWidth)}
               />
               <div className="list-split-detail" data-testid="list-split-detail">
-                {!selectedTaskId ? (
-                  <p>Select a task to view details</p>
+                {!selectedTaskSnapshot ? (
+                  <div className="list-split-detail-empty">
+                    <p>Select a task to view details</p>
+                  </div>
                 ) : (
-                  <p>Task selected. Detail view coming soon.</p>
+                  <div className="list-split-detail-content" data-testid="list-split-detail-content">
+                    <TaskDetailContent
+                      task={selectedTaskSnapshot}
+                      projectId={projectId}
+                      tasks={tasks}
+                      embedded
+                      onOpenDetail={handleEmbeddedOpenDetail}
+                      onMoveTask={onMoveTask}
+                      onDeleteTask={onDeleteTask}
+                      onMergeTask={onMergeTask}
+                      onRetryTask={onRetryTask}
+                      onResetTask={onResetTask}
+                      onDuplicateTask={onDuplicateTask}
+                      onTaskUpdated={(updatedTask) => {
+                        setSelectedTaskSnapshot((previous) => {
+                          if (!previous || previous.id !== updatedTask.id) return previous;
+                          return { ...previous, ...updatedTask };
+                        });
+                      }}
+                      addToast={addToast}
+                      prAuthAvailable={prAuthAvailable}
+                    />
+                  </div>
                 )}
               </div>
             </>
