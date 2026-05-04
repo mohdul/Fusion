@@ -8251,16 +8251,57 @@ export function getResearchRun(id: string, projectId?: string): Promise<Research
   return api<ResearchRunResponse>(withProjectId(`/research/runs/${encodeURIComponent(id)}`, projectId));
 }
 
-export function cancelResearchRun(id: string, projectId?: string): Promise<{ run: ResearchRunDetail }> {
-  return api<{ run: ResearchRunDetail }>(withProjectId(`/research/runs/${encodeURIComponent(id)}/cancel`, projectId), {
-    method: "POST",
-  });
+export type ResearchActionErrorCode =
+  | "FEATURE_DISABLED"
+  | "MISSING_CREDENTIALS"
+  | "PROVIDER_UNAVAILABLE"
+  | "RATE_LIMITED"
+  | "PROVIDER_TIMEOUT"
+  | "RUN_CANCELLED"
+  | "RETRY_EXHAUSTED"
+  | "INVALID_TRANSITION"
+  | "NON_RETRYABLE_PROVIDER_ERROR"
+  | "INTERNAL_ERROR";
+
+export interface ResearchActionError extends ApiRequestError {
+  researchCode: ResearchActionErrorCode;
+  setupHint?: string;
+  retryable?: boolean;
 }
 
-export function retryResearchRun(id: string, projectId?: string): Promise<{ run: ResearchRunDetail }> {
-  return api<{ run: ResearchRunDetail }>(withProjectId(`/research/runs/${encodeURIComponent(id)}/retry`, projectId), {
-    method: "POST",
-  });
+function asResearchActionError(error: unknown): never {
+  if (error instanceof ApiRequestError) {
+    const codeCandidate = error.details?.code;
+    const code = typeof codeCandidate === "string" ? codeCandidate : "INTERNAL_ERROR";
+    const setupHint = typeof error.details?.setupHint === "string" ? error.details.setupHint : undefined;
+    const retryable = typeof error.details?.retryable === "boolean" ? error.details.retryable : undefined;
+    const enriched = error as ResearchActionError;
+    enriched.researchCode = code as ResearchActionErrorCode;
+    enriched.setupHint = setupHint;
+    enriched.retryable = retryable;
+    throw enriched;
+  }
+  throw error;
+}
+
+export async function cancelResearchRun(id: string, projectId?: string): Promise<{ run: ResearchRunDetail }> {
+  try {
+    return await api<{ run: ResearchRunDetail }>(withProjectId(`/research/runs/${encodeURIComponent(id)}/cancel`, projectId), {
+      method: "POST",
+    });
+  } catch (error) {
+    asResearchActionError(error);
+  }
+}
+
+export async function retryResearchRun(id: string, projectId?: string): Promise<{ run: ResearchRunDetail }> {
+  try {
+    return await api<{ run: ResearchRunDetail }>(withProjectId(`/research/runs/${encodeURIComponent(id)}/retry`, projectId), {
+      method: "POST",
+    });
+  } catch (error) {
+    asResearchActionError(error);
+  }
 }
 
 export function exportResearchRun(

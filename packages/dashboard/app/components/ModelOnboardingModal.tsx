@@ -2051,6 +2051,9 @@ export function ModelOnboardingModal({
               <p className="onboarding-helper-text model-onboarding-primary-helper">
                 You only need one provider to get started.
               </p>
+              <p className="onboarding-helper-text">
+                Research runs require provider credentials and an enabled Research View. After onboarding, verify these in Settings → Authentication and Settings → Experimental Features.
+              </p>
 
               {/* Provider connection status summary */}
               {!authLoading && authProviders.length > 0 && (

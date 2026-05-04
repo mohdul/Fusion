@@ -3883,6 +3883,7 @@ export function SettingsModal({
       case "research-global": {
         const providerStatuses = authProviders.filter((provider) => provider.id === "brave" || provider.id === "tavily");
         const hasMissingResearchCredential = providerStatuses.some((provider) => !provider.authenticated);
+        const hasSearchProvider = Boolean(form.researchGlobalDefaults?.searchProvider?.trim());
 
         return (
           <>
@@ -3925,6 +3926,11 @@ export function SettingsModal({
                 }
               />
             </div>
+            {!hasSearchProvider && (
+              <div className="settings-empty-state" role="alert">
+                Research defaults are incomplete: choose a default search provider before running research.
+              </div>
+            )}
             {hasMissingResearchCredential && (
               <div className="settings-empty-state" role="alert">
                 Missing credentials for one or more research providers.
