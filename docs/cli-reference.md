@@ -601,7 +601,7 @@ fn agent import ./package/ --skip-existing
 
 ## `fn message`
 
-Inter-agent/user message mailbox.
+User mailbox operations for sending and managing direct messages with agents.
 
 ```bash
 fn message inbox
@@ -610,6 +610,36 @@ fn message send AGENT-001 "Please prioritize FN-222"
 fn message read MSG-123
 fn message delete MSG-123
 ```
+
+| Subcommand | Description |
+|---|---|
+| `fn message inbox` | List your inbox messages (newest first, up to 20). |
+| `fn message outbox` | List messages you sent (newest first, up to 20). |
+| `fn message send <agent-id> <content>` | Send a user→agent message and print the created message ID. |
+| `fn message read <id>` | Show one full message by ID and auto-mark it as read if unread. |
+| `fn message delete <id>` | Permanently delete one message by ID. |
+
+### Mailbox behavior
+
+- `inbox` header shows unread totals as `Inbox (<count> unread)`.
+- Unread inbox rows are prefixed with `●`; read rows have no dot.
+- Inbox sender labels use `Agent <id>` for agent senders and raw user IDs for user senders.
+- Outbox recipient labels use `Agent <id>` for agent recipients.
+- Inbox/outbox previews are truncated to 80 characters with a trailing ellipsis (`…`).
+- `send` success output includes `✓ Message sent: <message-id>` plus the destination agent.
+- `read` prints full metadata (`Message`, `Type`, `From`, `To`, `Time`) and the complete message body.
+- `read` exits with code `1` when the message ID is not found.
+- `delete` removes the message immediately and prints `✓ Message <id> deleted`.
+
+### Options
+
+| Option | Description |
+|---|---|
+| `--project <name>` | Route mailbox operations to a specific registered project (resolved via project context). Supported by all `fn message` subcommands. |
+
+### Related command
+
+`fn agent mailbox <agent-id>` is separate from `fn message`: it inspects an **agent-owned mailbox** (agent inbox view), while `fn message ...` manages the **CLI user mailbox**.
 
 ---
 
@@ -701,6 +731,7 @@ Subcommands: `search`, `install`.
 
 | Option | Used by |
 |---|---|
+| `--project`, `-P` | Most project-scoped commands (for example: `fn task ...`, `fn message ...`, `fn agent mailbox`, `fn settings`, `fn research`, `fn mission`, `fn node`, `fn plugin`, `fn skills`) |
 | `--port`, `-p` | `fn dashboard`, `fn serve`, `fn daemon` |
 | `--host` | `fn serve`, `fn daemon` |
 | `--interactive` | `fn dashboard`, `fn serve`, `fn daemon`, `fn desktop`, `fn task import`, `fn project add` |
