@@ -37,6 +37,8 @@ In **Todos** view, each todo item includes a planning action:
 
 This action starts a planning session; it does **not** immediately create a task.
 
+For full Todo View behavior (enablement, list/item actions, API routes, and storage), see [Todo View](./todo-view.md).
+
 ### 4) Subtask Breakdown Dialog
 
 Use the 🌳 button:

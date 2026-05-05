@@ -116,6 +116,18 @@ Documents view supports toggling between raw text and formatted markdown when vi
 
 The toggle button is accessible with `aria-pressed` for screen readers. Toggle state is scoped per-document, so switching between documents resets the view to raw mode.
 
+## Todo View
+
+Todo View is an experimental dashboard surface for managing per-project todo lists and turning items into planning or task workflows.
+
+> Available when `experimentalFeatures.todoView` is enabled.
+
+Navigation:
+- Desktop: **Header → More views → Todos**
+- Mobile: **More** sheet → **Todos**
+
+For full behavior, API contracts, and storage details, use the canonical [Todo View guide](./todo-view.md).
+
 ## Research View
 
 Research view is a standalone dashboard surface for creating and managing research runs.

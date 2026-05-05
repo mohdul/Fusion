@@ -834,7 +834,7 @@ Common built-in dashboard flags include:
 - `skillsView`
 - `nodesView`
 - `devServerView`
-- `todoView`
+- `todoView` (enables dashboard Todo View; see [Todo View](./todo-view.md))
 - `researchView`
 - `remoteAccess`
 - `agentOnboarding` (gates the planning-style New Agent onboarding flow in Agents view)
