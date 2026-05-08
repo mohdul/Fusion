@@ -1767,7 +1767,7 @@ describe("agent onboarding API wrappers", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("starts onboarding streaming session with context payload", async () => {
+  it("starts onboarding streaming session with create context payload", async () => {
     globalThis.fetch = vi.fn().mockReturnValue(mockFetchResponse(true, { sessionId: "onb-1" }, 201));
 
     const result = await startAgentOnboardingStreaming(
@@ -1775,6 +1775,7 @@ describe("agent onboarding API wrappers", () => {
       {
         existingAgents: [{ id: "agent-1", name: "Reviewer", role: "reviewer" }],
         templates: [{ id: "preset-1", label: "Reviewer preset" }],
+        mode: "create",
       },
       "proj-123",
       { planningModelProvider: "openai", planningModelId: "gpt-4o" },
@@ -1789,11 +1790,65 @@ describe("agent onboarding API wrappers", () => {
         context: {
           existingAgents: [{ id: "agent-1", name: "Reviewer", role: "reviewer" }],
           templates: [{ id: "preset-1", label: "Reviewer preset" }],
+          mode: "create",
         },
+        mode: "create",
         planningModelProvider: "openai",
         planningModelId: "gpt-4o",
       }),
     });
+  });
+
+  it("starts onboarding streaming session with edit context payload", async () => {
+    globalThis.fetch = vi.fn().mockReturnValue(mockFetchResponse(true, { sessionId: "onb-edit" }, 201));
+
+    const result = await startAgentOnboardingStreaming(
+      "Tighten this agent's review quality",
+      {
+        existingAgents: [{ id: "agent-1", name: "Reviewer", role: "reviewer" }],
+        templates: [{ id: "preset-1", label: "Reviewer preset" }],
+        mode: "edit",
+        existingAgentConfig: {
+          name: "Reviewer",
+          role: "reviewer",
+          instructionsText: "Current instructions",
+          runtimeHint: "openclaw",
+          heartbeatIntervalMs: 30000,
+        },
+      },
+      "proj-123",
+    );
+
+    expect(result.sessionId).toBe("onb-edit");
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/agents/onboarding/start-streaming?projectId=proj-123",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          intent: "Tighten this agent's review quality",
+          context: {
+            existingAgents: [{ id: "agent-1", name: "Reviewer", role: "reviewer" }],
+            templates: [{ id: "preset-1", label: "Reviewer preset" }],
+            mode: "edit",
+            existingAgentConfig: {
+              name: "Reviewer",
+              role: "reviewer",
+              instructionsText: "Current instructions",
+              runtimeHint: "openclaw",
+              heartbeatIntervalMs: 30000,
+            },
+          },
+          mode: "edit",
+          existingAgentConfig: {
+            name: "Reviewer",
+            role: "reviewer",
+            instructionsText: "Current instructions",
+            runtimeHint: "openclaw",
+            heartbeatIntervalMs: 30000,
+          },
+        }),
+      }),
+    );
   });
 
   it("posts onboarding response/retry/stop/cancel endpoints", async () => {

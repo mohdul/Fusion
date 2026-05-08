@@ -30,6 +30,33 @@ vi.mock("../../api", async (importOriginal) => {
   });
 });
 
+vi.mock("../ExperimentalAgentOnboardingModal", () => ({
+  ExperimentalAgentOnboardingModal: ({ isOpen, onClose, onUseDraft }: { isOpen: boolean; onClose: () => void; onUseDraft: (draft: any) => void }) => {
+    if (!isOpen) return null;
+    return (
+      <div role="dialog" aria-label="AI Interview">
+        <p>Draft ready for review</p>
+        <button type="button" onClick={onClose}>Cancel</button>
+        <button
+          type="button"
+          onClick={() =>
+            onUseDraft({
+              name: "Interview Draft Agent",
+              role: "reviewer",
+              title: "Drafted Title",
+              instructionsText: "Drafted instructions",
+              thinkingLevel: "low",
+              maxTurns: 10,
+            })
+          }
+        >
+          Apply draft to agent form
+        </button>
+      </div>
+    );
+  },
+}));
+
 vi.mock("../AgentDetailView", () => ({
   AgentDetailView: ({ agentId, inline, onClose, showInlineBackButton, initialTab, initialRunId, preferActiveRun, onMutationSuccess }: { agentId: string; inline?: boolean; onClose?: () => void; showInlineBackButton?: boolean; initialTab?: string; initialRunId?: string | null; preferActiveRun?: boolean; onMutationSuccess?: (context: { agentId: string; deleted?: boolean }) => void | Promise<void> }) => (
     <div data-testid="agent-detail-view" data-inline={inline ? "true" : "false"} data-initial-tab={initialTab ?? "dashboard"} data-initial-run-id={initialRunId ?? ""} data-prefer-active-run={preferActiveRun ? "true" : "false"}>
@@ -1631,6 +1658,41 @@ describe("AgentsView", () => {
         expect(screen.getByRole("dialog", { name: "Create new agent" })).toBeTruthy();
         expect(screen.getByRole("button", { name: "AI Interview" })).toBeTruthy();
       });
+    });
+
+    it("launches interview from AgentsView and only applies draft after review confirmation", async () => {
+      render(<AgentsView addToast={mockAddToast} agentOnboardingEnabled={true} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("New Agent")).toBeTruthy();
+      });
+
+      fireEvent.click(screen.getByText("New Agent"));
+      fireEvent.click(screen.getByRole("button", { name: "AI Interview" }));
+
+      const interviewDialog = await screen.findByRole("dialog", { name: "AI Interview" });
+      expect(screen.getByText("Draft ready for review")).toBeTruthy();
+      expect(mockCreateAgent).not.toHaveBeenCalled();
+
+      fireEvent.click(within(interviewDialog).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog", { name: "AI Interview" })).toBeNull();
+      });
+      expect(mockCreateAgent).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole("button", { name: "AI Interview" }));
+      await screen.findByRole("dialog", { name: "AI Interview" });
+      fireEvent.click(screen.getByRole("button", { name: "Apply draft to agent form" }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Back" })).toBeTruthy();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      fireEvent.click(screen.getByRole("tab", { name: "Custom agent" }));
+      const nameInput = screen.getByLabelText(/Name/) as HTMLInputElement;
+      expect(nameInput.value).toBe("Interview Draft Agent");
+      expect(mockCreateAgent).not.toHaveBeenCalled();
     });
 
     it("does not allow proceeding with empty name", async () => {

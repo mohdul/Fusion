@@ -1884,6 +1884,22 @@ describe("AgentDetailView", () => {
         expect((screen.getByLabelText("Role") as HTMLSelectElement).value).toBe("reviewer");
       });
       expect(mockUpdateAgent).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole("button", { name: "Save Settings" }));
+      await waitFor(() => {
+        expect(mockUpdateAgent).toHaveBeenCalledWith(
+          "agent-001",
+          expect.objectContaining({
+            name: "Interviewed Agent",
+            role: "reviewer",
+            title: "Draft Title",
+            reportsTo: "agent-002",
+            runtimeConfig: expect.objectContaining({ model: "openai/gpt-4o" }),
+            metadata: { skills: ["skill-1"] },
+          }),
+          undefined,
+        );
+      });
     });
 
     it("shows settings delete control for idle and paused agents", async () => {

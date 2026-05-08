@@ -48,6 +48,7 @@ const mockStartAgentOnboardingStreaming = vi.mocked(apiModule.startAgentOnboardi
 describe("ExperimentalAgentOnboardingModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    streamHandlers = undefined;
   });
 
   it("renders draft review and only applies after explicit confirmation", async () => {
@@ -163,6 +164,35 @@ describe("ExperimentalAgentOnboardingModal", () => {
     await waitFor(() => {
       streamHandlers?.onError?.("Service unavailable");
       expect(screen.getByText("Service unavailable")).toBeTruthy();
+    });
+  });
+
+  it("does not apply draft when cancelled from question step", async () => {
+    const onClose = vi.fn();
+    const onUseDraft = vi.fn();
+
+    render(
+      <ExperimentalAgentOnboardingModal
+        isOpen={true}
+        onClose={onClose}
+        onUseDraft={onUseDraft}
+        existingAgents={[]}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("What should this new agent own?"), { target: { value: "Review docs" } });
+    fireEvent.click(screen.getByText("Start onboarding"));
+
+    await screen.findByText("What should this agent primarily help with?");
+    expect(screen.queryByText("Draft ready for review")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Apply draft to agent form" })).toBeNull();
+
+    fireEvent.click(screen.getByText("Cancel"));
+
+    await waitFor(() => {
+      expect(mockCancel).toHaveBeenCalledWith("onb-1", undefined);
+      expect(onClose).toHaveBeenCalled();
+      expect(onUseDraft).not.toHaveBeenCalled();
     });
   });
 

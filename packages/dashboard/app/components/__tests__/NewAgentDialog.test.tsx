@@ -40,9 +40,17 @@ vi.mock("../ExperimentalAgentOnboardingModal", () => ({
             name: "Interview Draft",
             role: "reviewer",
             title: "Interview Title",
+            icon: "🤖",
+            reportsTo: "agent-manager-1",
             instructionsText: "Interview instructions",
+            soul: "Interview soul",
+            memory: "Interview memory",
+            skills: ["skill-1"],
+            heartbeatProcedurePath: ".fusion/agents/interview/HEARTBEAT.md",
+            runtimeHint: "openclaw",
             thinkingLevel: "low",
             maxTurns: 12,
+            heartbeatIntervalMs: 45000,
           })}
         >
           Apply Interview Draft
@@ -305,15 +313,24 @@ describe("NewAgentDialog", () => {
 
       await waitFor(() => {
         expect(onPrefillDraft).toHaveBeenCalledWith(expect.objectContaining({ name: "Interview Draft" }));
-        expect(screen.getByRole("button", { name: "Model" })).toBeInTheDocument();
+        expect(screen.getByLabelText("Runtime")).toBeInTheDocument();
       });
 
       expect(mockCreateAgent).not.toHaveBeenCalled();
+      expect(screen.getByLabelText("Runtime")).toBeInTheDocument();
+      expect((screen.getByLabelText("Runtime") as HTMLSelectElement).value).toBe("openclaw");
 
       await user.click(screen.getByRole("button", { name: "Back" }));
       expect((getStepZeroField(/Name/) as HTMLInputElement).value).toBe("Interview Draft");
+      expect((getStepZeroField(/Title/) as HTMLInputElement).value).toBe("Interview Title");
+      expect((getStepZeroField(/Icon/) as HTMLInputElement).value).toBe("🤖");
+      expect((getStepZeroField(/Reports To/) as HTMLSelectElement).value).toBe("agent-manager-1");
+      expect((getStepZeroField(/Soul/) as HTMLTextAreaElement).value).toBe("Interview soul");
+      expect((getStepZeroField(/Agent Memory/) as HTMLTextAreaElement).value).toBe("Interview memory");
+      expect((getStepZeroField(/Heartbeat Procedure Path/) as HTMLInputElement).value).toBe(".fusion/agents/interview/HEARTBEAT.md");
 
       await user.click(screen.getByRole("button", { name: "Next" }));
+      expect((screen.getByTestId("skill-multiselect-value")).textContent).toContain("skill-1");
       await user.click(screen.getByRole("button", { name: "Next" }));
       expect(mockCreateAgent).not.toHaveBeenCalled();
       await user.click(screen.getByRole("button", { name: "Create" }));
@@ -321,6 +338,17 @@ describe("NewAgentDialog", () => {
       await waitFor(() => {
         expect(mockCreateAgent).toHaveBeenCalledOnce();
       });
+      expect(mockCreateAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Interview Draft",
+          role: "reviewer",
+          reportsTo: "agent-manager-1",
+          heartbeatProcedurePath: ".fusion/agents/interview/HEARTBEAT.md",
+          runtimeConfig: expect.objectContaining({ runtimeHint: "openclaw", thinkingLevel: "low", maxTurns: 12 }),
+          metadata: { skills: ["skill-1"] },
+        }),
+        undefined,
+      );
     });
 
     it("closing interview leaves current form state unchanged and does not create agent", async () => {
