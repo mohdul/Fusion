@@ -320,7 +320,7 @@ describe("Roadmap API wrappers", () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe("RM-001");
-    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/roadmaps");
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/plugins/roadmap-planner/roadmaps");
     expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("projectId=proj_abc");
   });
 
@@ -342,7 +342,7 @@ describe("Roadmap API wrappers", () => {
     const result = await createRoadmap({ title: "Q2 Roadmap", description: "Q2 product roadmap" }, "proj_abc");
 
     expect(result.id).toBe("RM-001");
-    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/roadmaps");
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/plugins/roadmap-planner/roadmaps");
     expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("projectId=proj_abc");
     expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].method).toBe("POST");
     const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
@@ -369,7 +369,7 @@ describe("Roadmap API wrappers", () => {
     expect(result.id).toBe("RM-001");
     expect(result.milestones).toHaveLength(1);
     expect(result.milestones[0].features).toHaveLength(1);
-    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/roadmaps/RM-001");
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/plugins/roadmap-planner/roadmaps/RM-001");
   });
 
   it("updateRoadmap sends PATCH with updates", async () => {
@@ -392,7 +392,7 @@ describe("Roadmap API wrappers", () => {
     const result = await updateRoadmap("RM-001", { title: "Updated Roadmap" });
 
     expect(result.title).toBe("Updated Roadmap");
-    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/roadmaps/RM-001");
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/plugins/roadmap-planner/roadmaps/RM-001");
     expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].method).toBe("PATCH");
   });
 
@@ -414,7 +414,7 @@ describe("Roadmap API wrappers", () => {
     const result = await deleteRoadmap("RM-001");
 
     expect(result).toBeUndefined();
-    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/roadmaps/RM-001");
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/plugins/roadmap-planner/roadmaps/RM-001");
     expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].method).toBe("DELETE");
   });
 
@@ -446,7 +446,7 @@ describe("Roadmap API wrappers", () => {
 
     expect(result.id).toBe("RMS-001");
     expect(result.roadmapId).toBe("RM-001");
-    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/roadmaps/RM-001/milestones");
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/plugins/roadmap-planner/roadmaps/RM-001/milestones");
     expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].method).toBe("POST");
   });
 
@@ -477,7 +477,7 @@ describe("Roadmap API wrappers", () => {
     const result = await updateRoadmapMilestone("RMS-001", { title: "Updated Milestone" });
 
     expect(result.title).toBe("Updated Milestone");
-    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/roadmaps/milestones/RMS-001");
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/plugins/roadmap-planner/roadmaps/milestones/RMS-001");
     expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].method).toBe("PATCH");
   });
 
@@ -499,7 +499,7 @@ describe("Roadmap API wrappers", () => {
     const result = await deleteRoadmapMilestone("RMS-001");
 
     expect(result).toBeUndefined();
-    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/roadmaps/milestones/RMS-001");
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/plugins/roadmap-planner/roadmaps/milestones/RMS-001");
     expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].method).toBe("DELETE");
   });
 
@@ -531,7 +531,7 @@ describe("Roadmap API wrappers", () => {
 
     expect(result.id).toBe("RF-001");
     expect(result.milestoneId).toBe("RMS-001");
-    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/roadmaps/milestones/RMS-001/features");
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/plugins/roadmap-planner/roadmaps/milestones/RMS-001/features");
     expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].method).toBe("POST");
   });
 
@@ -562,7 +562,7 @@ describe("Roadmap API wrappers", () => {
     const result = await updateRoadmapFeature("RF-001", { title: "Updated Feature" });
 
     expect(result.title).toBe("Updated Feature");
-    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/roadmaps/features/RF-001");
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/plugins/roadmap-planner/roadmaps/features/RF-001");
     expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].method).toBe("PATCH");
   });
 
@@ -584,7 +584,7 @@ describe("Roadmap API wrappers", () => {
     const result = await deleteRoadmapFeature("RF-001");
 
     expect(result).toBeUndefined();
-    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/roadmaps/features/RF-001");
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/plugins/roadmap-planner/roadmaps/features/RF-001");
     expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].method).toBe("DELETE");
   });
 
@@ -626,7 +626,7 @@ describe("Roadmap API wrappers", () => {
 
     expect(result).toHaveLength(2);
     expect(result[0].id).toBe("RF-001");
-    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/roadmaps/milestones/RMS-001/features");
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/api/plugins/roadmap-planner/roadmaps/milestones/RMS-001/features");
   });
 });
 
@@ -955,7 +955,7 @@ describe("Settings API wrappers", () => {
 
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
       const [url, options] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(url).toBe("/api/roadmaps/RM-001/milestones/reorder");
+      expect(url).toBe("/api/plugins/roadmap-planner/roadmaps/RM-001/milestones/reorder");
       expect(options.method).toBe("POST");
       expect(JSON.parse(options.body as string)).toEqual({
         orderedMilestoneIds: ["RMS-002", "RMS-001", "RMS-003"],
@@ -978,7 +978,7 @@ describe("Settings API wrappers", () => {
       await reorderRoadmapMilestones("RM-001", ["RMS-001", "RMS-002"], "proj_abc");
 
       const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(url).toBe("/api/roadmaps/RM-001/milestones/reorder?projectId=proj_abc");
+      expect(url).toBe("/api/plugins/roadmap-planner/roadmaps/RM-001/milestones/reorder?projectId=proj_abc");
     });
 
     it("reorderRoadmapFeatures sends POST with orderedFeatureIds", async () => {
@@ -998,7 +998,7 @@ describe("Settings API wrappers", () => {
 
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
       const [url, options] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(url).toBe("/api/roadmaps/milestones/RMS-001/features/reorder");
+      expect(url).toBe("/api/plugins/roadmap-planner/roadmaps/milestones/RMS-001/features/reorder");
       expect(options.method).toBe("POST");
       expect(JSON.parse(options.body as string)).toEqual({
         orderedFeatureIds: ["RF-002", "RF-001"],
@@ -1022,7 +1022,7 @@ describe("Settings API wrappers", () => {
 
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
       const [url, options] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(url).toBe("/api/roadmaps/features/RF-001/move");
+      expect(url).toBe("/api/plugins/roadmap-planner/roadmaps/features/RF-001/move");
       expect(options.method).toBe("POST");
       expect(JSON.parse(options.body as string)).toEqual({
         targetMilestoneId: "RMS-002",
@@ -1046,7 +1046,7 @@ describe("Settings API wrappers", () => {
       await moveRoadmapFeature("RF-001", "RMS-002", 0, "proj_xyz");
 
       const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(url).toBe("/api/roadmaps/features/RF-001/move?projectId=proj_xyz");
+      expect(url).toBe("/api/plugins/roadmap-planner/roadmaps/features/RF-001/move?projectId=proj_xyz");
     });
 
     it("generateFeatureSuggestions sends POST with milestone ID", async () => {
@@ -1069,7 +1069,7 @@ describe("Settings API wrappers", () => {
       expect(result.suggestions).toHaveLength(2);
       expect(result.suggestions[0].title).toBe("Feature 1");
       const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(url).toContain("/api/roadmaps/milestones/RMS-001/suggestions/features");
+      expect(url).toContain("/api/plugins/roadmap-planner/roadmaps/milestones/RMS-001/suggestions/features");
     });
 
     it("generateFeatureSuggestions includes input parameters in body", async () => {
@@ -1113,7 +1113,7 @@ describe("Settings API wrappers", () => {
       await generateFeatureSuggestions("RMS-001", undefined, "proj_abc");
 
       const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(url).toContain("/api/roadmaps/milestones/RMS-001/suggestions/features");
+      expect(url).toContain("/api/plugins/roadmap-planner/roadmaps/milestones/RMS-001/suggestions/features");
       expect(url).toContain("projectId=proj_abc");
     });
   });
@@ -1144,7 +1144,7 @@ describe("Settings API wrappers", () => {
       expect(result.roadmap.id).toBe("RM-001");
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
       const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(url).toContain("/api/roadmaps/RM-001/export");
+      expect(url).toContain("/api/plugins/roadmap-planner/roadmaps/RM-001/export");
     });
 
     it("exportRoadmap includes projectId when provided", async () => {
@@ -1166,7 +1166,7 @@ describe("Settings API wrappers", () => {
       await exportRoadmap("RM-001", "proj_abc");
 
       const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(url).toContain("/api/roadmaps/RM-001/export");
+      expect(url).toContain("/api/plugins/roadmap-planner/roadmaps/RM-001/export");
       expect(url).toContain("projectId=proj_abc");
     });
 
@@ -1195,7 +1195,7 @@ describe("Settings API wrappers", () => {
       expect(result.sourceRoadmapId).toBe("RM-001");
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
       const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(url).toContain("/api/roadmaps/RM-001/handoff/mission");
+      expect(url).toContain("/api/plugins/roadmap-planner/roadmaps/RM-001/handoff/mission");
     });
 
     it("getRoadmapFeatureHandoff sends GET to feature handoff endpoint", async () => {
@@ -1230,7 +1230,7 @@ describe("Settings API wrappers", () => {
       expect(result.source.featureId).toBe("RF-001");
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
       const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(url).toContain("/api/roadmaps/RM-001/milestones/RMS-001/features/RF-001/handoff/task");
+      expect(url).toContain("/api/plugins/roadmap-planner/roadmaps/RM-001/milestones/RMS-001/features/RF-001/handoff/task");
     });
 
     it("getRoadmapFeatureHandoff includes projectId when provided", async () => {
@@ -1255,7 +1255,7 @@ describe("Settings API wrappers", () => {
       await getRoadmapFeatureHandoff("RM-001", "RMS-001", "RF-001", "proj_xyz");
 
       const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(url).toContain("/api/roadmaps/RM-001/milestones/RMS-001/features/RF-001/handoff/task");
+      expect(url).toContain("/api/plugins/roadmap-planner/roadmaps/RM-001/milestones/RMS-001/features/RF-001/handoff/task");
       expect(url).toContain("projectId=proj_xyz");
     });
   });

@@ -393,11 +393,13 @@ Key roadmap invariants:
 - repair/normalization uses deterministic tie-breakers: `orderIndex ASC`, `createdAt ASC`, `id ASC`
 - cross-milestone feature moves must renumber both the source and destination milestone deterministically
 
-**Roadmap REST API endpoints (`/api/roadmaps`):**
+**Roadmap frontend API contract (plugin namespace):**
+- Canonical frontend namespace: `/api/plugins/roadmap-planner/roadmaps`
 - Roadmaps: `GET /`, `POST /`, `GET /:roadmapId`, `PATCH /:roadmapId`, `DELETE /:roadmapId`
 - Milestones: `GET /:roadmapId/milestones`, `POST /:roadmapId/milestones`, `PATCH /milestones/:milestoneId`, `DELETE /milestones/:milestoneId`, `POST /:roadmapId/milestones/reorder`
 - Features: `GET /milestones/:milestoneId/features`, `POST /milestones/:milestoneId/features`, `PATCH /features/:featureId`, `DELETE /features/:featureId`, `POST /milestones/:milestoneId/features/reorder`, `POST /features/:featureId/move`
 - Export/Handoff: `GET /:roadmapId/export`, `GET /:roadmapId/handoff`, `GET /:roadmapId/handoff/mission`, `GET /:roadmapId/milestones/:milestoneId/features/:featureId/handoff/task`
+- Note: the integrated dashboard server may still mount legacy `/api/roadmaps` routes for compatibility, but frontend callers should use the plugin namespace.
 
 **Database schema:**
 - `roadmaps` — roadmap metadata (id, title, description, timestamps)

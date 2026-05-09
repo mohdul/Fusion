@@ -7309,12 +7309,12 @@ export async function previewEnrichedDescription(
 
 /** Fetch all roadmaps */
 export function fetchRoadmaps(projectId?: string): Promise<Roadmap[]> {
-  return api<Roadmap[]>(withProjectId("/roadmaps", projectId));
+  return api<Roadmap[]>(withProjectId("/plugins/roadmap-planner/roadmaps", projectId));
 }
 
 /** Create a new roadmap */
 export function createRoadmap(input: RoadmapCreateInput, projectId?: string): Promise<Roadmap> {
-  return api<Roadmap>(withProjectId("/roadmaps", projectId), {
+  return api<Roadmap>(withProjectId("/plugins/roadmap-planner/roadmaps", projectId), {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -7322,12 +7322,12 @@ export function createRoadmap(input: RoadmapCreateInput, projectId?: string): Pr
 
 /** Fetch a single roadmap with full hierarchy (milestones and features) */
 export function fetchRoadmap(roadmapId: string, projectId?: string): Promise<RoadmapWithHierarchy> {
-  return api<RoadmapWithHierarchy>(withProjectId(`/roadmaps/${encodeURIComponent(roadmapId)}`, projectId));
+  return api<RoadmapWithHierarchy>(withProjectId(`/plugins/roadmap-planner/roadmaps/${encodeURIComponent(roadmapId)}`, projectId));
 }
 
 /** Update roadmap metadata */
 export function updateRoadmap(roadmapId: string, updates: RoadmapUpdateInput, projectId?: string): Promise<Roadmap> {
-  return api<Roadmap>(withProjectId(`/roadmaps/${encodeURIComponent(roadmapId)}`, projectId), {
+  return api<Roadmap>(withProjectId(`/plugins/roadmap-planner/roadmaps/${encodeURIComponent(roadmapId)}`, projectId), {
     method: "PATCH",
     body: JSON.stringify(updates),
   });
@@ -7335,19 +7335,19 @@ export function updateRoadmap(roadmapId: string, updates: RoadmapUpdateInput, pr
 
 /** Delete a roadmap */
 export function deleteRoadmap(roadmapId: string, projectId?: string): Promise<void> {
-  return api<void>(withProjectId(`/roadmaps/${encodeURIComponent(roadmapId)}`, projectId), {
+  return api<void>(withProjectId(`/plugins/roadmap-planner/roadmaps/${encodeURIComponent(roadmapId)}`, projectId), {
     method: "DELETE",
   });
 }
 
 /** Fetch milestones for a roadmap */
 export function fetchRoadmapMilestones(roadmapId: string, projectId?: string): Promise<RoadmapMilestone[]> {
-  return api<RoadmapMilestone[]>(withProjectId(`/roadmaps/${encodeURIComponent(roadmapId)}/milestones`, projectId));
+  return api<RoadmapMilestone[]>(withProjectId(`/plugins/roadmap-planner/roadmaps/${encodeURIComponent(roadmapId)}/milestones`, projectId));
 }
 
 /** Create a milestone in a roadmap */
 export function createRoadmapMilestone(roadmapId: string, input: RoadmapMilestoneCreateInput, projectId?: string): Promise<RoadmapMilestone> {
-  return api<RoadmapMilestone>(withProjectId(`/roadmaps/${encodeURIComponent(roadmapId)}/milestones`, projectId), {
+  return api<RoadmapMilestone>(withProjectId(`/plugins/roadmap-planner/roadmaps/${encodeURIComponent(roadmapId)}/milestones`, projectId), {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -7355,7 +7355,7 @@ export function createRoadmapMilestone(roadmapId: string, input: RoadmapMileston
 
 /** Update milestone metadata */
 export function updateRoadmapMilestone(milestoneId: string, updates: RoadmapMilestoneUpdateInput, projectId?: string): Promise<RoadmapMilestone> {
-  return api<RoadmapMilestone>(withProjectId(`/roadmaps/milestones/${encodeURIComponent(milestoneId)}`, projectId), {
+  return api<RoadmapMilestone>(withProjectId(`/plugins/roadmap-planner/roadmaps/milestones/${encodeURIComponent(milestoneId)}`, projectId), {
     method: "PATCH",
     body: JSON.stringify(updates),
   });
@@ -7363,19 +7363,19 @@ export function updateRoadmapMilestone(milestoneId: string, updates: RoadmapMile
 
 /** Delete a milestone */
 export function deleteRoadmapMilestone(milestoneId: string, projectId?: string): Promise<void> {
-  return api<void>(withProjectId(`/roadmaps/milestones/${encodeURIComponent(milestoneId)}`, projectId), {
+  return api<void>(withProjectId(`/plugins/roadmap-planner/roadmaps/milestones/${encodeURIComponent(milestoneId)}`, projectId), {
     method: "DELETE",
   });
 }
 
 /** Fetch features for a milestone */
 export function fetchRoadmapFeatures(milestoneId: string, projectId?: string): Promise<RoadmapFeature[]> {
-  return api<RoadmapFeature[]>(withProjectId(`/roadmaps/milestones/${encodeURIComponent(milestoneId)}/features`, projectId));
+  return api<RoadmapFeature[]>(withProjectId(`/plugins/roadmap-planner/roadmaps/milestones/${encodeURIComponent(milestoneId)}/features`, projectId));
 }
 
 /** Create a feature in a milestone */
 export function createRoadmapFeature(milestoneId: string, input: RoadmapFeatureCreateInput, projectId?: string): Promise<RoadmapFeature> {
-  return api<RoadmapFeature>(withProjectId(`/roadmaps/milestones/${encodeURIComponent(milestoneId)}/features`, projectId), {
+  return api<RoadmapFeature>(withProjectId(`/plugins/roadmap-planner/roadmaps/milestones/${encodeURIComponent(milestoneId)}/features`, projectId), {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -7383,7 +7383,7 @@ export function createRoadmapFeature(milestoneId: string, input: RoadmapFeatureC
 
 /** Update feature metadata */
 export function updateRoadmapFeature(featureId: string, updates: RoadmapFeatureUpdateInput, projectId?: string): Promise<RoadmapFeature> {
-  return api<RoadmapFeature>(withProjectId(`/roadmaps/features/${encodeURIComponent(featureId)}`, projectId), {
+  return api<RoadmapFeature>(withProjectId(`/plugins/roadmap-planner/roadmaps/features/${encodeURIComponent(featureId)}`, projectId), {
     method: "PATCH",
     body: JSON.stringify(updates),
   });
@@ -7391,14 +7391,14 @@ export function updateRoadmapFeature(featureId: string, updates: RoadmapFeatureU
 
 /** Delete a feature */
 export function deleteRoadmapFeature(featureId: string, projectId?: string): Promise<void> {
-  return api<void>(withProjectId(`/roadmaps/features/${encodeURIComponent(featureId)}`, projectId), {
+  return api<void>(withProjectId(`/plugins/roadmap-planner/roadmaps/features/${encodeURIComponent(featureId)}`, projectId), {
     method: "DELETE",
   });
 }
 
 /** Reorder milestones within a roadmap */
 export function reorderRoadmapMilestones(roadmapId: string, orderedMilestoneIds: string[], projectId?: string): Promise<void> {
-  return api<void>(withProjectId(`/roadmaps/${encodeURIComponent(roadmapId)}/milestones/reorder`, projectId), {
+  return api<void>(withProjectId(`/plugins/roadmap-planner/roadmaps/${encodeURIComponent(roadmapId)}/milestones/reorder`, projectId), {
     method: "POST",
     body: JSON.stringify({ orderedMilestoneIds }),
   });
@@ -7406,7 +7406,7 @@ export function reorderRoadmapMilestones(roadmapId: string, orderedMilestoneIds:
 
 /** Reorder features within a milestone */
 export function reorderRoadmapFeatures(milestoneId: string, orderedFeatureIds: string[], projectId?: string): Promise<void> {
-  return api<void>(withProjectId(`/roadmaps/milestones/${encodeURIComponent(milestoneId)}/features/reorder`, projectId), {
+  return api<void>(withProjectId(`/plugins/roadmap-planner/roadmaps/milestones/${encodeURIComponent(milestoneId)}/features/reorder`, projectId), {
     method: "POST",
     body: JSON.stringify({ orderedFeatureIds }),
   });
@@ -7419,7 +7419,7 @@ export function moveRoadmapFeature(
   targetIndex: number,
   projectId?: string
 ): Promise<void> {
-  return api<void>(withProjectId(`/roadmaps/features/${encodeURIComponent(featureId)}/move`, projectId), {
+  return api<void>(withProjectId(`/plugins/roadmap-planner/roadmaps/features/${encodeURIComponent(featureId)}/move`, projectId), {
     method: "POST",
     body: JSON.stringify({ targetMilestoneId, targetIndex }),
   });
@@ -7427,12 +7427,12 @@ export function moveRoadmapFeature(
 
 /** Export a roadmap as a flat bundle for persistence/import/export */
 export function exportRoadmap(roadmapId: string, projectId?: string): Promise<RoadmapExportBundle> {
-  return api<RoadmapExportBundle>(withProjectId(`/roadmaps/${encodeURIComponent(roadmapId)}/export`, projectId));
+  return api<RoadmapExportBundle>(withProjectId(`/plugins/roadmap-planner/roadmaps/${encodeURIComponent(roadmapId)}/export`, projectId));
 }
 
 /** Get mission planning handoff payload for a roadmap */
 export function getRoadmapMissionHandoff(roadmapId: string, projectId?: string): Promise<RoadmapMissionPlanningHandoff> {
-  return api<RoadmapMissionPlanningHandoff>(withProjectId(`/roadmaps/${encodeURIComponent(roadmapId)}/handoff/mission`, projectId));
+  return api<RoadmapMissionPlanningHandoff>(withProjectId(`/plugins/roadmap-planner/roadmaps/${encodeURIComponent(roadmapId)}/handoff/mission`, projectId));
 }
 
 /** Get task planning handoff payload for a single roadmap feature */
@@ -7444,7 +7444,7 @@ export function getRoadmapFeatureHandoff(
 ): Promise<RoadmapFeatureTaskPlanningHandoff> {
   return api<RoadmapFeatureTaskPlanningHandoff>(
     withProjectId(
-      `/roadmaps/${encodeURIComponent(roadmapId)}/milestones/${encodeURIComponent(milestoneId)}/features/${encodeURIComponent(featureId)}/handoff/task`,
+      `/plugins/roadmap-planner/roadmaps/${encodeURIComponent(roadmapId)}/milestones/${encodeURIComponent(milestoneId)}/features/${encodeURIComponent(featureId)}/handoff/task`,
       projectId
     )
   );
@@ -7458,7 +7458,7 @@ export interface RoadmapHandoffResponse {
 
 /** Get both mission and feature handoff payloads for a roadmap */
 export function fetchRoadmapHandoff(roadmapId: string, projectId?: string): Promise<RoadmapHandoffResponse> {
-  return api<RoadmapHandoffResponse>(withProjectId(`/roadmaps/${encodeURIComponent(roadmapId)}/handoff`, projectId));
+  return api<RoadmapHandoffResponse>(withProjectId(`/plugins/roadmap-planner/roadmaps/${encodeURIComponent(roadmapId)}/handoff`, projectId));
 }
 
 /** Response from milestone suggestion generation */
@@ -7477,7 +7477,7 @@ export function generateMilestoneSuggestions(
   projectId?: string
 ): Promise<MilestoneSuggestionsResponse> {
   return api<MilestoneSuggestionsResponse>(
-    withProjectId(`/roadmaps/${encodeURIComponent(roadmapId)}/suggestions/milestones`, projectId),
+    withProjectId(`/plugins/roadmap-planner/roadmaps/${encodeURIComponent(roadmapId)}/suggestions/milestones`, projectId),
     {
       method: "POST",
       body: JSON.stringify({
@@ -7511,7 +7511,7 @@ export function generateFeatureSuggestions(
   projectId?: string
 ): Promise<FeatureSuggestionsResponse> {
   return api<FeatureSuggestionsResponse>(
-    withProjectId(`/roadmaps/milestones/${encodeURIComponent(milestoneId)}/suggestions/features`, projectId),
+    withProjectId(`/plugins/roadmap-planner/roadmaps/milestones/${encodeURIComponent(milestoneId)}/suggestions/features`, projectId),
     {
       method: "POST",
       body: JSON.stringify({
