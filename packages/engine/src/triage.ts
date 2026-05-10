@@ -1047,6 +1047,22 @@ export class TriageProcessor {
           pluginRunner: this.options.pluginRunner,
         });
 
+        // Resolve planning model using executor-style precedence:
+        // 1. Assigned durable agent runtime model pair when complete
+        // 2. Task planning override pair
+        // 3. Planning/project/global fallbacks
+        const planningModel = resolvePlanningSessionModel(
+          task.planningModelProvider,
+          task.planningModelId,
+          settings,
+          assignedAgent?.runtimeConfig,
+        );
+
+        const planningSessionModelOptions = {
+          defaultProvider: planningModel.provider,
+          defaultModelId: planningModel.modelId,
+        };
+
         let { session } = await createResolvedAgentSession({
           sessionPurpose: "triage",
           runtimeHint: triageRuntimeHint,
@@ -1060,22 +1076,7 @@ export class TriageProcessor {
           onThinking: agentLogger.onThinking,
           onToolStart: agentLogger.onToolStart,
           onToolEnd: agentLogger.onToolEnd,
-          // Resolve planning model using executor-style precedence:
-          // 1. Assigned durable agent runtime model pair when complete
-          // 2. Task planning override pair
-          // 3. Planning/project/global fallbacks
-          ...(() => {
-            const planningModel = resolvePlanningSessionModel(
-              task.planningModelProvider,
-              task.planningModelId,
-              settings,
-              assignedAgent?.runtimeConfig,
-            );
-            return {
-              defaultProvider: planningModel.provider,
-              defaultModelId: planningModel.modelId,
-            };
-          })(),
+          ...planningSessionModelOptions,
           fallbackProvider: settings.planningFallbackProvider && settings.planningFallbackModelId
             ? settings.planningFallbackProvider
             : settings.fallbackProvider,

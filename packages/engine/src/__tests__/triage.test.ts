@@ -2486,13 +2486,17 @@ describe("taskCreate tool model inheritance", () => {
 
       await processor.specifyTask(task);
 
-      // Per-task override should take precedence over settings
+      // Per-task override should take precedence over settings and use session defaults keys
       expect(mockCreateFnAgent).toHaveBeenCalledWith(
         expect.objectContaining({
           defaultProvider: "google",
           defaultModelId: "gemini-2.5-pro",
         }),
       );
+      const triageSessionCall = mockCreateFnAgent.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+      expect(triageSessionCall).toBeDefined();
+      expect(triageSessionCall).not.toHaveProperty("provider");
+      expect(triageSessionCall).not.toHaveProperty("modelId");
     });
 
     it("falls back to settings planningProvider/planningModelId when task has no override", async () => {
