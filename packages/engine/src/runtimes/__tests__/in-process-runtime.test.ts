@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import childProcess from "node:child_process";
 import type { Task, TaskStore, CentralCore, AgentStore, Agent } from "@fusion/core";
 import { InProcessRuntime } from "../in-process-runtime.js";
 import type { ProjectRuntimeConfig } from "../../project-runtime.js";
@@ -20,6 +21,10 @@ const {
   mockTaskStoreGetTask,
   mockMessageStoreSetHook,
   mockSchedulerConfigurePrMonitoring,
+  mockIsGitRepository,
+  mockReapOrphanWorktrees,
+  mockScanIdleWorktrees,
+  mockGetRegisteredWorktreePaths,
 } = vi.hoisted(() => ({
   mockSelfHealingStart: vi.fn(),
   mockSelfHealingStop: vi.fn(),
@@ -32,6 +37,10 @@ const {
   mockTaskStoreGetTask: vi.fn().mockResolvedValue(null),
   mockMessageStoreSetHook: vi.fn(),
   mockSchedulerConfigurePrMonitoring: vi.fn(),
+  mockIsGitRepository: vi.fn().mockResolvedValue(true),
+  mockReapOrphanWorktrees: vi.fn().mockResolvedValue(0),
+  mockScanIdleWorktrees: vi.fn().mockResolvedValue([]),
+  mockGetRegisteredWorktreePaths: vi.fn().mockResolvedValue(new Set<string>()),
 }));
 
 // Mock the TaskStore class
@@ -105,7 +114,7 @@ vi.mock("@fusion/core", async () => {
 vi.mock("../../worktree-pool.js", async () => {
   const actual = await vi.importActual<typeof import("../../worktree-pool.js")>("../../worktree-pool.js");
 
-  // The runtime calls these on startup. They normally shell out to `git`,
+  // FN-3890: The runtime calls these on startup. They normally shell out to `git`,
   // which (a) does real I/O against a non-git temp dir and (b) interacts
   // badly with `vi.useFakeTimers()` in this suite — the test-harness
   // subprocess guard arms a 30s kill timer that can fire under fake-timer
@@ -113,10 +122,10 @@ vi.mock("../../worktree-pool.js", async () => {
   // Stub them out so runtime.start() never spawns git.
   return {
     ...actual,
-    isGitRepository: vi.fn().mockResolvedValue(true),
-    reapOrphanWorktrees: vi.fn().mockResolvedValue(0),
-    scanIdleWorktrees: vi.fn().mockResolvedValue([]),
-    getRegisteredWorktreePaths: vi.fn().mockResolvedValue(new Set<string>()),
+    isGitRepository: mockIsGitRepository,
+    reapOrphanWorktrees: mockReapOrphanWorktrees,
+    scanIdleWorktrees: mockScanIdleWorktrees,
+    getRegisteredWorktreePaths: mockGetRegisteredWorktreePaths,
   };
 });
 
@@ -217,6 +226,14 @@ describe("InProcessRuntime", () => {
     }
     mockTaskStoreGetTask.mockReset();
     mockTaskStoreGetTask.mockResolvedValue(null);
+    mockIsGitRepository.mockReset();
+    mockIsGitRepository.mockResolvedValue(true);
+    mockReapOrphanWorktrees.mockReset();
+    mockReapOrphanWorktrees.mockResolvedValue(0);
+    mockScanIdleWorktrees.mockReset();
+    mockScanIdleWorktrees.mockResolvedValue([]);
+    mockGetRegisteredWorktreePaths.mockReset();
+    mockGetRegisteredWorktreePaths.mockResolvedValue(new Set<string>());
     // Create a unique temp directory for this test run
     testDir = mkdtempSync(join(tmpdir(), `fn-test-${randomUUID().slice(0, 8)}-`));
 
@@ -257,6 +274,37 @@ describe("InProcessRuntime", () => {
     it("should transition to 'active' after start", async () => {
       await runtime.start();
       expect(runtime.getStatus()).toBe("active");
+    }, 30000);
+
+    it("does not spawn real git subprocesses during start()", async () => {
+      const execSpy = vi.spyOn(childProcess, "exec");
+      const execFileSpy = vi.spyOn(childProcess, "execFile");
+      const spawnSpy = vi.spyOn(childProcess, "spawn");
+
+      try {
+        await runtime.start();
+
+        const gitExecCalls = execSpy.mock.calls.filter(([command]) => command.includes("git "));
+        const gitExecFileCalls = execFileSpy.mock.calls.filter(([file, args]) => {
+          if (file.includes("git")) return true;
+          return Array.isArray(args) && args.some((arg) => String(arg).includes("git"));
+        });
+        const gitSpawnCalls = spawnSpy.mock.calls.filter(([command, args]) => {
+          if (String(command).includes("git")) return true;
+          return Array.isArray(args) && args.some((arg) => String(arg).includes("git"));
+        });
+
+        expect(gitExecCalls).toHaveLength(0);
+        expect(gitExecFileCalls).toHaveLength(0);
+        expect(gitSpawnCalls).toHaveLength(0);
+        expect(mockReapOrphanWorktrees).toHaveBeenCalledWith(testDir);
+        expect(mockIsGitRepository).toHaveBeenCalledWith(testDir);
+        expect(mockScanIdleWorktrees).toHaveBeenCalled();
+      } finally {
+        execSpy.mockRestore();
+        execFileSpy.mockRestore();
+        spawnSpy.mockRestore();
+      }
     }, 30000);
 
     it("passes executor recovery callbacks into SelfHealingManager", async () => {
