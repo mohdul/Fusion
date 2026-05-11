@@ -990,7 +990,7 @@
 }
 
 .task-changes-tab .task-changes-stats {
-  margin-left: calc(16px + var(--space-sm)); /* align with text after icon + gap */
+  margin-left: calc(var(--space-lg) + var(--space-sm)); /* align with text after icon + gap */
 }
 
 /* Truncate parent dirs from the LEFT so the filename stays visible. JSX
@@ -1571,8 +1571,8 @@
   /* Mobile dropdown menus — position above action bar, constrained to viewport */
   .detail-actions-menu,
   .detail-move-menu {
-    bottom: calc(100% + 4px);
-    max-width: calc(100vw - 28px);
+    bottom: calc(100% + var(--space-xs));
+    max-width: calc(100vw - calc(var(--space-lg) + var(--space-md)));
     max-height: calc(100dvh - 120px);
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
