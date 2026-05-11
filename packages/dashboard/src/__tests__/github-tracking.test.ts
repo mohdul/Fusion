@@ -94,6 +94,22 @@ describe("maybeCreateTrackingIssue", () => {
     expect(result).toEqual({ created: false, reason: "tracking_disabled" });
   });
 
+  it("returns issue_already_linked and does not create again", async () => {
+    const result = await maybeCreateTrackingIssue(buildTask({
+      githubTracking: {
+        enabled: true,
+        issue: { owner: "task", repo: "repo", number: 99, url: "https://github.com/task/repo/issues/99" },
+      },
+    }), {
+      taskStore: {} as any,
+      projectSettings: { githubTrackingDefaultRepo: "task/repo", githubAuthMode: "token", githubAuthToken: "tok" } as any,
+      globalSettings: {},
+    });
+
+    expect(result).toEqual({ created: false, reason: "issue_already_linked" });
+    expect(createIssueMock).not.toHaveBeenCalled();
+  });
+
   it("returns no_repo_configured and records activity", async () => {
     const recordActivity = vi.fn();
     const result = await maybeCreateTrackingIssue(buildTask({ githubTracking: { enabled: true } }), {

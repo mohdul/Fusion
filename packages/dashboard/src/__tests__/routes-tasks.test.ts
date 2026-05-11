@@ -1946,6 +1946,129 @@ describe("POST /subtasks/*", () => {
     expect(store.updateTask).toHaveBeenCalledWith("FN-102", { dependencies: ["FN-101"] });
   });
 
+  it("subtask batch creation attempts tracking issue creation and links metadata", async () => {
+    const createIssueSpy = vi.spyOn(GitHubClient.prototype, "createIssue").mockResolvedValue({
+      owner: "task",
+      repo: "repo",
+      number: 55,
+      htmlUrl: "https://github.com/task/repo/issues/55",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      githubTrackingDefaultRepo: "task/repo",
+      githubAuthMode: "token",
+      githubAuthToken: "tok",
+    });
+    (store.createTask as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ...FAKE_TASK_DETAIL, id: "FN-103", title: "First", column: "triage", githubTracking: { enabled: true } });
+
+    const start = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/subtasks/start-streaming",
+      JSON.stringify({ description: "Break this feature into subtasks" }),
+      { "Content-Type": "application/json" },
+    );
+
+    const createRes = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/subtasks/create-tasks",
+      JSON.stringify({
+        sessionId: start.body.sessionId,
+        subtasks: [{ tempId: "subtask-1", title: "First", description: "Do first" }],
+      }),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(createRes.status).toBe(201);
+    expect(createIssueSpy).toHaveBeenCalledWith(expect.objectContaining({ owner: "task", repo: "repo" }));
+    expect(store.linkGithubIssue).toHaveBeenCalledWith("FN-103", expect.objectContaining({ owner: "task", repo: "repo", number: 55 }));
+    expect(store.recordActivity).toHaveBeenCalledWith(expect.objectContaining({ metadata: expect.objectContaining({ type: "github-issue-created" }) }));
+    createIssueSpy.mockRestore();
+  });
+
+  it("subtask batch creation remains successful when tracking issue creation fails", async () => {
+    const createIssueSpy = vi.spyOn(GitHubClient.prototype, "createIssue").mockRejectedValue(new Error("boom"));
+
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      githubTrackingDefaultRepo: "task/repo",
+      githubAuthMode: "token",
+      githubAuthToken: "tok",
+    });
+    (store.createTask as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ...FAKE_TASK_DETAIL, id: "FN-104", title: "First", column: "triage", githubTracking: { enabled: true } });
+
+    const start = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/subtasks/start-streaming",
+      JSON.stringify({ description: "Break this feature into subtasks" }),
+      { "Content-Type": "application/json" },
+    );
+
+    const createRes = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/subtasks/create-tasks",
+      JSON.stringify({
+        sessionId: start.body.sessionId,
+        subtasks: [{ tempId: "subtask-1", title: "First", description: "Do first" }],
+      }),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(createRes.status).toBe(201);
+    expect(createRes.body.tasks).toHaveLength(1);
+    expect(createIssueSpy).toHaveBeenCalledTimes(1);
+    createIssueSpy.mockRestore();
+  });
+
+  it("subtask batch creation does not recreate tracking issue when task is already linked", async () => {
+    const createIssueSpy = vi.spyOn(GitHubClient.prototype, "createIssue");
+
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      githubTrackingDefaultRepo: "task/repo",
+      githubAuthMode: "token",
+      githubAuthToken: "tok",
+    });
+    (store.createTask as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        ...FAKE_TASK_DETAIL,
+        id: "FN-105",
+        title: "First",
+        column: "triage",
+        githubTracking: {
+          enabled: true,
+          issue: { owner: "task", repo: "repo", number: 9, url: "https://github.com/task/repo/issues/9" },
+        },
+      });
+
+    const start = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/subtasks/start-streaming",
+      JSON.stringify({ description: "Break this feature into subtasks" }),
+      { "Content-Type": "application/json" },
+    );
+
+    const createRes = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/subtasks/create-tasks",
+      JSON.stringify({
+        sessionId: start.body.sessionId,
+        subtasks: [{ tempId: "subtask-1", title: "First", description: "Do first" }],
+      }),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(createRes.status).toBe(201);
+    expect(createIssueSpy).not.toHaveBeenCalled();
+    createIssueSpy.mockRestore();
+  });
+
   it("applies explicit branch selection to created subtasks", async () => {
     (store.createTask as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce({ ...FAKE_TASK_DETAIL, id: "FN-201", title: "First", column: "triage" });

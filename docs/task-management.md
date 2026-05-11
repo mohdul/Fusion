@@ -383,7 +383,7 @@ Manual/non-auto-merge behavior:
 
 GitHub tracking issues are optional issues Fusion can create from Fusion tasks. They are **not** the same as imported source issues (`issueInfo` / `sourceIssue`): imported issues represent an existing GitHub issue that created the task, while tracking issues are new GitHub issues opened to track a Fusion task.
 
-When task creation runs with tracking enabled, Fusion attempts issue creation during task creation flows (including quick create, planning output, and subtask creation paths that create tasks). Fusion also attempts issue creation on existing-task edits that update `githubTracking` (for example enabling tracking or setting a resolvable repo override) when the resulting task is enabled and unlinked. Creation is best-effort and non-blocking: task updates and task creation still succeed even if repo resolution fails or GitHub calls fail.
+When task creation runs with tracking enabled, Fusion attempts issue creation during task creation flows (including quick create, planning output, automation `create-task` workflow steps, and subtask creation paths that create tasks). Fusion also attempts issue creation on existing-task edits that update `githubTracking` (for example enabling tracking or setting a resolvable repo override) when the resulting task is enabled and unlinked. Creation is best-effort and non-blocking: task updates and task creation still succeed even if repo resolution fails or GitHub calls fail.
 
 Tracking behavior is controlled per task:
 
