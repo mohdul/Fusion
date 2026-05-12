@@ -2286,7 +2286,7 @@ export function ChatView({ projectId, addToast, experimentalFeatures }: ChatView
                 <div className="chat-mobile-session-menu" ref={mobileSessionMenuRef}>
                   <button
                     type="button"
-                    className="btn-icon chat-mobile-session-trigger"
+                    className="btn chat-mobile-session-trigger"
                     data-testid="chat-mobile-session-trigger"
                     aria-haspopup="menu"
                     aria-expanded={mobileSessionMenuOpen}
@@ -2295,7 +2295,7 @@ export function ChatView({ projectId, addToast, experimentalFeatures }: ChatView
                     {activeModelProvider ? <ProviderIcon provider={activeModelProvider} size="md" /> : <Bot size={16} />}
                     <span className="chat-thread-header-title">{threadHeaderTitle}</span>
                     {showThreadHeaderModelTag && <span className="chat-model-tag">{activeModelTag}</span>}
-                    <ChevronDown aria-hidden="true" />
+                    <ChevronDown size={16} aria-hidden="true" />
                   </button>
                   {mobileSessionMenuOpen && (
                     <div className="chat-mobile-session-dropdown" role="menu" data-testid="chat-mobile-session-dropdown">

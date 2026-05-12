@@ -396,8 +396,10 @@
   background: transparent;
   color: var(--text);
   padding: var(--space-xs) var(--space-sm);
-  min-height: calc(var(--space-lg) * 2);
+  min-height: calc(var(--space-lg) * 2 + var(--space-xs));
+  font: inherit;
   line-height: normal;
+  text-align: left;
 }
 
 .chat-mobile-session-trigger .chat-thread-header-title {
@@ -419,6 +421,11 @@
 .chat-mobile-session-trigger .provider-icon,
 .chat-mobile-session-trigger > svg:first-child {
   flex-shrink: 0;
+}
+
+.chat-mobile-session-trigger > svg {
+  width: var(--icon-size-md);
+  height: var(--icon-size-md);
 }
 
 .chat-mobile-session-trigger svg:last-child {

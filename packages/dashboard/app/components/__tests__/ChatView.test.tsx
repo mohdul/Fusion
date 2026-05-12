@@ -2489,16 +2489,23 @@ describe("ChatView CSS — mobile thread switcher", () => {
 
   it("includes mobile session switcher trigger and dropdown tokenized contracts", () => {
     const triggerMatch = css.match(/\.chat-mobile-session-trigger\s*\{([^}]*)\}/);
+    const triggerIconMatch = css.match(/\.chat-mobile-session-trigger\s*>\s*svg\s*\{([^}]*)\}/);
     const dropdownMatch = css.match(/\.chat-mobile-session-dropdown\s*\{([^}]*)\}/);
     const optionMatch = css.match(/\.chat-mobile-session-option\s*\{([^}]*)\}/);
     const optionTitleMatch = css.match(/\.chat-mobile-session-option-title\s*\{([^}]*)\}/);
     expect(triggerMatch).toBeTruthy();
+    expect(triggerIconMatch).toBeTruthy();
     expect(dropdownMatch).toBeTruthy();
     expect(optionMatch).toBeTruthy();
     expect(optionTitleMatch).toBeTruthy();
-    expect(triggerMatch?.[1]).toContain("min-height: calc(var(--space-lg) * 2)");
+    expect(triggerMatch?.[1]).toContain("min-height: calc(var(--space-lg) * 2 + var(--space-xs))");
     expect(triggerMatch?.[1]).toContain("min-width: 0");
+    expect(triggerMatch?.[1]).toContain("padding: var(--space-xs) var(--space-sm)");
+    expect(triggerMatch?.[1]).toContain("font: inherit");
     expect(triggerMatch?.[1]).toContain("line-height: normal");
+    expect(triggerMatch?.[1]).toContain("text-align: left");
+    expect(triggerIconMatch?.[1]).toContain("width: var(--icon-size-md)");
+    expect(triggerIconMatch?.[1]).toContain("height: var(--icon-size-md)");
     expect(dropdownMatch?.[1]).toContain("background: var(--surface)");
     expect(dropdownMatch?.[1]).toContain("border: 1px solid var(--border)");
     expect(optionMatch?.[1]).toContain("min-height: calc(var(--space-lg) * 2.25)");
@@ -3102,7 +3109,12 @@ describe("ChatView mobile behavior", () => {
 
       render(<ChatView projectId="proj-123" addToast={vi.fn()} />);
 
-      await userEvent.click(screen.getByTestId("chat-mobile-session-trigger"));
+      const trigger = screen.getByTestId("chat-mobile-session-trigger");
+      expect(trigger).toHaveClass("btn", "chat-mobile-session-trigger");
+      expect(trigger).not.toHaveClass("btn-icon");
+      expect(trigger).toHaveTextContent("Test Chat");
+
+      await userEvent.click(trigger);
       expect(screen.getByTestId("chat-mobile-session-dropdown")).toBeInTheDocument();
 
       await userEvent.click(screen.getByTestId("chat-mobile-session-option-session-002"));
