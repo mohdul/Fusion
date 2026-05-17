@@ -126,7 +126,7 @@ pnpm --filter @fusion/core exec vitest run src/__tests__/central-db.test.ts --si
 
 ### Engine test helper convention
 
-`packages/engine/src/__tests__/executor-test-helpers.ts` defaults `isUsableTaskWorktree` to `true` via a helper-level `worktree-pool` mock. To test failure paths, override with `vi.spyOn(worktreePool, "isUsableTaskWorktree").mockResolvedValueOnce(false)`. Production liveness assertions in `executor.ts` are unchanged.
+`packages/engine/src/__tests__/executor-test-helpers.ts` defaults both `isUsableTaskWorktree` to `true` and `classifyTaskWorktree` to `{ ok: true }` via a helper-level `worktree-pool` mock. To test failure paths, override with `vi.spyOn(worktreePool, "classifyTaskWorktree").mockResolvedValueOnce({ ok: false, classification: "unregistered", reason: "..." })` (or `isUsableTaskWorktree` for legacy call sites). Production liveness assertions in `executor.ts` are unchanged.
 
 ### Before Reporting Done
 
@@ -173,6 +173,7 @@ Detailed mechanism logs live in `docs/architecture.md` and `docs/design/`. The c
 - **Completion fan-out is synchronous**: `SelfHealingManager.reconcileCompletedTask()` runs on `in-review → done`. Downstream stale `blockedBy` links and residual `fusion/<task-id>` branch/worktree artifacts are reconciled immediately, not on a periodic sweep.
 - **In-review stall deadlock**: identical stalls (same code + reason) repeated past `inReviewStallDeadlockThreshold` (default 3) auto-pause with `pausedReason: "in-review-stall-deadlock"` and `status: "failed"`.
 - **Restart recovery**: `RestartRecoveryCoordinator` classifies interrupted `in-progress` runs. Unusable-worktree session-start failures (`missing`, `incomplete`, `unregistered git worktree`) are recoverable; retries are capped at `MAX_WORKTREE_SESSION_RETRIES=3` before escalating.
+- **Executor pre-session liveness gate (FN-4935)**: the gate now skips for fresh acquisitions (`acquisition.source === "fresh"`), emits structured `not_usable_task_worktree:<classification>` diagnostics (including canonicalized registered-path snapshots) and a `worktree:incomplete-detected` audit event with `source: "executor-liveness-gate"`, while preserving the existing `taskDoneRetryCount` / `MAX_TASK_DONE_REQUEUE_RETRIES` requeue contract. FN-4651 `worktreeSessionRetryCount` remains scoped to the in-review/session-start recovery path.
 - **Task title/ID drift (FN-4898)**: active and archived title writes normalize foreign embedded `FN-NNN` tokens via `packages/core/src/task-title-id-drift.ts`. Lineage is preserved in `sourceParentTaskId` / description markers, not title embeds.
 - **PR-conflict reclaim wiring (FN-4763)**: GitHub PR refresh now persists normalized `prInfo.mergeable` conflict state and, when conflicting, funnels tasks into self-healing’s existing reclaim machinery (`reclaimPrConflictForTask` / `reclaim-pr-conflicts` stage) so branch-conflict handling stays centralized with existing `inspectBranchConflict` outcomes and unrecoverable pause semantics.
 - **Worktrunk-managed lifecycles**: when `worktrunk.enabled`, self-healing defers prune/idle/worktree-cap sweeps to the worktrunk backend; branch-level reclaim and orphan rescue stay native.
@@ -465,5 +466,7 @@ Reuse `packages/dashboard/app/utils/filePathLinkify.tsx` and `FileBrowserContext
 ## Reliability Mechanism Coverage
 
 Reliability-layer changes are in scope. Interaction regression backstops live in `packages/engine/src/__tests__/reliability-interactions/` — any task that adds or changes a reliability layer must add/update interaction tests there covering each plausible pair with existing layers (merge path, workflow/pre-merge, self-healing, scheduler/watchdog/restart recovery, governance gates).
+
+- FN-4935 backstop: `packages/engine/src/__tests__/reliability-interactions/executor-liveness-gate.test.ts` guards fresh-acquisition skip behavior, structured liveness classifications, and executor-gate audit/requeue outcomes.
 
 The auto-recovery dispatcher at `packages/engine/src/auto-recovery.ts` (FN-4533) composes on top of existing layers (FN-4500 fast-path, FN-4508 deterministic branch-conflict, FN-4499 bootstrap-misbinding, FN-4428 contamination, `mergeAuditAutoRecovery` Stages 1–5, self-healing) to handle six residual classes: file-scope violation at squash, branch misbinding / ghost worktree, verification-fix scope leak, contamination, `branch-conflict-unrecoverable` residuals, and room-post/message-send failures. Invocation is additive — no existing layer's behavior changes.

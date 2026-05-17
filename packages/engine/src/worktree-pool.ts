@@ -109,7 +109,9 @@ export async function describeRegisteredWorktrees(rootDir: string): Promise<{ ra
     }
 
     return { rawOutput: stdout, canonicalized };
-  } catch {
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    worktreePoolLog.warn(`[worktree-pool] Failed to list registered worktrees: ${errorMessage}`);
     return { rawOutput: "", canonicalized: [] };
   }
 }

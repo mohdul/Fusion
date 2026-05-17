@@ -7608,7 +7608,10 @@ Backward compat fallback: if JSON is unavailable, you may still begin output wit
     }
 
     const worktreePath = task.worktree;
-    if (!worktreePath || !await isUsableTaskWorktree(this.rootDir, worktreePath)) {
+    const worktreeClassification = worktreePath
+      ? await classifyTaskWorktree(this.rootDir, worktreePath)
+      : { ok: false as const };
+    if (!worktreePath || !worktreeClassification.ok) {
       await this.store.logEntry(task.id, `[recovery] bootstrap misbinding detected but worktree unavailable for re-anchor: ${worktreePath ?? "none"}`, undefined, this.currentRunContext);
       return false;
     }

@@ -56,7 +56,7 @@ async function setup(overrides: Record<string, unknown> = {}) {
 describe("FN-4115 wrong-checkout completion rejection", () => {
   beforeEach(() => {
     resetExecutorMocks();
-    vi.spyOn(worktreePool, "isUsableTaskWorktree").mockResolvedValue(true);
+    vi.spyOn(worktreePool, "classifyTaskWorktree").mockResolvedValue({ ok: true });
     mockedExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("rev-parse --show-toplevel")) return Buffer.from("/repo/.worktrees/swift-falcon\n");
       if (cmd.includes("rev-parse --abbrev-ref HEAD")) return Buffer.from("fusion/fn-4115\n");
@@ -118,7 +118,13 @@ describe("FN-4115 wrong-checkout completion rejection", () => {
   });
 
   it("FN-4115: pre-session liveness rejects missing worktree before createFnAgent", async () => {
-    vi.spyOn(worktreePool, "isUsableTaskWorktree").mockResolvedValue(false);
+    vi.spyOn(worktreePool, "classifyTaskWorktree")
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({
+        ok: false,
+        classification: "missing",
+        reason: "worktree directory does not exist",
+      });
     const store = createMockStore();
     store.getTask.mockResolvedValue(makeTask());
     const executor = new TaskExecutor(store as any, "/repo");
@@ -128,7 +134,7 @@ describe("FN-4115 wrong-checkout completion rejection", () => {
   });
 
   it("FN-4115: pre-session liveness rejects paths outside repo .worktrees directory", async () => {
-    vi.spyOn(worktreePool, "isUsableTaskWorktree").mockResolvedValue(true);
+    vi.spyOn(worktreePool, "classifyTaskWorktree").mockResolvedValue({ ok: true });
     const store = createMockStore();
     const escaped = makeTask({ worktree: "/repo/not-a-worktree" });
     store.getTask.mockResolvedValue(escaped);
