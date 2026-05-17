@@ -4149,3 +4149,128 @@ describe("TriageProcessor delegation tools", () => {
     expect((processor as any).options.agentStore).toBe(mockAgentStore);
   });
 });
+
+// ── FN-4774 Regression: Duplicate detection over done/archived tasks (recovered under FN-4827; supersedes FN-4815) ───
+
+describe("FN-4774 regression: triage duplicate detection over done/archived tasks", () => {
+  function createMockStore() {
+    return {
+      listTasks: vi.fn().mockResolvedValue([]),
+      searchTasks: vi.fn().mockResolvedValue([]),
+      getTask: vi.fn().mockResolvedValue({
+        id: "FN-TRIAGE",
+        title: "Test",
+        description: "Test task",
+        column: "triage",
+        dependencies: [],
+        steps: [],
+        currentStep: 0,
+        log: [],
+        status: "planning",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }),
+      getSettings: vi.fn().mockResolvedValue({
+        maxConcurrent: 2,
+        maxWorktrees: 4,
+        pollIntervalMs: 10000,
+        defaultProvider: "openai",
+        defaultModelId: "gpt-4o",
+      }),
+      logEntry: vi.fn().mockResolvedValue(undefined),
+      appendAgentLog: vi.fn().mockResolvedValue(undefined),
+      updateTask: vi.fn().mockResolvedValue({}),
+      on: vi.fn(),
+      emit: vi.fn(),
+    };
+  }
+
+  // Regression: FN-4774 (FN-4827 recovery; supersedes FN-4815) — see docs/triage-duplicate-detection-postmortem.md
+  it("fn_task_search tool is registered with includeDone and includeArchived parameters", () => {
+    const store = createMockStore();
+    const processor = new TriageProcessor(store as any, "/tmp/root");
+
+    const tools = (processor as any).createTriageTools({
+      parentTaskId: "FN-TRIAGE",
+      allowTaskCreate: true,
+      createdSubtasksRef: { current: [] },
+    });
+
+    const taskSearchTool = tools.find((t: any) => t.name === "fn_task_search");
+    expect(taskSearchTool).toBeDefined();
+    expect(taskSearchTool.name).toBe("fn_task_search");
+
+    // Verify includeDone and includeArchived are present in the parameter schema
+    const props = taskSearchTool.parameters.properties;
+    expect(props).toHaveProperty("includeDone");
+    expect(props).toHaveProperty("includeArchived");
+  });
+
+  // Regression: FN-4774 (FN-4827 recovery; supersedes FN-4815) — see docs/triage-duplicate-detection-postmortem.md
+  it("TRIAGE_SYSTEM_PROMPT guides agents to search done/archived before creating", () => {
+    // Standard prompt mentions fn_task_search in duplicate-check guidance
+    expect(TRIAGE_SYSTEM_PROMPT).toContain("fn_task_search");
+    // The tool bullet list explicitly states it covers done and archived
+    expect(TRIAGE_SYSTEM_PROMPT).toContain("including done and archived tasks");
+    // Duplicate-check section co-locates fn_task_search with done/archived references
+    expect(TRIAGE_SYSTEM_PROMPT).toContain("done");
+    expect(TRIAGE_SYSTEM_PROMPT).toContain("archived");
+    // Defensive regex: duplicate-check guidance must cross-reference fn_task_search with done/archived
+    expect(
+      /Duplicate check[\s\S]{0,600}fn_task_search[\s\S]{0,400}(done|archived)/i.test(
+        TRIAGE_SYSTEM_PROMPT,
+      ),
+    ).toBe(true);
+  });
+
+  // Regression: FN-4774 (FN-4827 recovery; supersedes FN-4815) — see docs/triage-duplicate-detection-postmortem.md
+  it("FAST_TRIAGE_SYSTEM_PROMPT guides agents to search done/archived before creating", () => {
+    // Fast prompt mentions fn_task_search
+    expect(FAST_TRIAGE_SYSTEM_PROMPT).toContain("fn_task_search");
+    // Duplicate-check section references done and archived
+    expect(FAST_TRIAGE_SYSTEM_PROMPT).toContain("done");
+    expect(FAST_TRIAGE_SYSTEM_PROMPT).toContain("archived");
+    // Defensive regex: duplicate-check guidance must cross-reference fn_task_search with done/archived
+    expect(
+      /Duplicate check[\s\S]{0,600}fn_task_search[\s\S]{0,400}(done|archived)/i.test(
+        FAST_TRIAGE_SYSTEM_PROMPT,
+      ),
+    ).toBe(true);
+  });
+
+  // Regression: FN-4774 (FN-4827 recovery; supersedes FN-4815) — see docs/triage-duplicate-detection-postmortem.md
+  it("fn_task_search returns done-column results by default", async () => {
+    const store = createMockStore();
+    (store.searchTasks as any).mockResolvedValue([
+      {
+        id: "FN-DONE",
+        title: "Fix rebase truncation bug",
+        description: "desc",
+        column: "done",
+        dependencies: [],
+      },
+    ]);
+    const processor = new TriageProcessor(store as any, "/tmp/root");
+    const tools = (processor as any).createTriageTools({
+      parentTaskId: "FN-TRIAGE",
+      allowTaskCreate: true,
+      createdSubtasksRef: { current: [] },
+    });
+
+    const taskSearchTool = tools.find((t: any) => t.name === "fn_task_search");
+    const result = await taskSearchTool.execute("call-1", {
+      query: "rebase truncation",
+    });
+    const text = result.content[0].text;
+
+    // searchTasks is called with includeArchived: true (includeDone is a post-filter, not passed to searchTasks)
+    expect(store.searchTasks).toHaveBeenCalledWith("rebase truncation", {
+      slim: true,
+      includeArchived: true,
+      limit: 20,
+    });
+    // Done results surface in output with the (done): column label
+    expect(text).toContain("FN-DONE");
+    expect(text).toContain("(done):");
+  });
+});
