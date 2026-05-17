@@ -7,7 +7,9 @@ import type {
   Settings,
 } from "@fusion/core";
 import {
+  DUPLICATE_OF_METADATA_KEY,
   buildTriageMemoryInstructions,
+  getTaskDuplicateLineage,
   resolveAgentPrompt,
   resolvePersistAgentThinkingLog,
   compareTaskPriority,
@@ -2185,6 +2187,32 @@ export class TriageProcessor {
     const parsedSteps = await this.store.parseStepsFromPrompt(task.id);
     if (parsedSteps.length > 0) {
       taskUpdates.steps = parsedSteps;
+    }
+
+    const duplicateLineage = getTaskDuplicateLineage({
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      sourceType: task.sourceType,
+      sourceParentTaskId: task.sourceParentTaskId,
+      sourceMetadata: task.sourceMetadata,
+      promptText: written,
+    }).filter((candidateId) => {
+      return !(task.sourceType === "task_duplicate" && task.sourceParentTaskId?.toUpperCase() === candidateId);
+    });
+
+    if (duplicateLineage.length > 0) {
+      const existingMetadataIds = Array.isArray(task.sourceMetadata?.[DUPLICATE_OF_METADATA_KEY])
+        ? task.sourceMetadata[DUPLICATE_OF_METADATA_KEY].filter((value): value is string => typeof value === "string")
+        : [];
+      const existingNormalized = existingMetadataIds.map((value) => value.toUpperCase());
+      const matchesExisting =
+        existingNormalized.length === duplicateLineage.length
+        && existingNormalized.every((value, index) => value === duplicateLineage[index]);
+      if (!matchesExisting) {
+        taskUpdates.sourceMetadataPatch = { [DUPLICATE_OF_METADATA_KEY]: duplicateLineage };
+      }
+      planLog.log(`${task.id} duplicate-of lineage: ${duplicateLineage.join(", ")}`);
     }
 
     const sizeMatch = written.match(/^\*\*Size:\*\*\s+(S|M|L)\b/m);
