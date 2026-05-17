@@ -432,6 +432,29 @@ export interface ClassifyForeignCommitsResult {
   unique: BranchCrossContaminationCommit[];
 }
 
+export type ForeignOnlyContaminationKind =
+  | "foreign-only-no-own-work"
+  | "foreign-only-already-upstream"
+  | "ambiguous"
+  | "clean";
+
+export interface ClassifyForeignOnlyContaminationInput {
+  repoDir: string;
+  branchName: string;
+  baseSha: string;
+  taskId: string;
+  mainRef?: string;
+}
+
+export interface ClassifyForeignOnlyContaminationResult {
+  kind: ForeignOnlyContaminationKind;
+  ownCommitCount: number;
+  foreignCommitCount: number;
+  nonAttributedCount: number;
+  alreadyUpstreamShas: string[];
+  uniqueShas: string[];
+}
+
 async function classifyForeignCommitsViaPatchId(
   repoDir: string,
   mainRef: string,
@@ -520,6 +543,77 @@ export async function classifyForeignCommits(
   } catch {
     return classifyForeignCommitsViaPatchId(repoDir, mainRef, foreignCommits);
   }
+}
+
+export async function classifyForeignOnlyContamination(
+  input: ClassifyForeignOnlyContaminationInput,
+): Promise<ClassifyForeignOnlyContaminationResult> {
+  const { repoDir, branchName, baseSha, taskId, mainRef = "main" } = input;
+  const output = await runGit(repoDir, `git log --format=%H%x1f%s%x1f%b ${quoteShellArg(`${baseSha}..${branchName}`)}`)
+    .catch(() => "");
+  const subjectPattern = /^(feat|fix|test|chore|docs|refactor|perf|build)\((FN-\d+)\):/i;
+  const trailerPattern = /(?:^|\n)Fusion-Task-Id:\s*(FN-\d+)\s*(?:\n|$)/i;
+  const foreignCommits: BranchCrossContaminationCommit[] = [];
+  for (const line of output.split("\n").map((entry) => entry.trim()).filter(Boolean)) {
+    const [sha, subject, body] = line.split("\u001f");
+    const subjectMatch = (subject ?? "").match(subjectPattern);
+    const trailerMatch = (body ?? "").match(trailerPattern);
+    const attributedTaskId = (trailerMatch?.[1] ?? subjectMatch?.[2] ?? "").toUpperCase();
+    if (attributedTaskId && attributedTaskId !== taskId.toUpperCase()) {
+      foreignCommits.push({ sha, subject: subject ?? "", foreignTaskId: attributedTaskId });
+    }
+  }
+
+  const bootstrap = await classifyBootstrapMisbinding({
+    repoDir,
+    branchName,
+    baseSha,
+    taskId,
+    foreignCommits,
+  });
+
+  if (foreignCommits.length === 0) {
+    return {
+      kind: "clean",
+      ownCommitCount: bootstrap.ownCommitCount,
+      foreignCommitCount: 0,
+      nonAttributedCount: bootstrap.nonAttributedCount,
+      alreadyUpstreamShas: [],
+      uniqueShas: [],
+    };
+  }
+
+  const foreignClassification = await classifyForeignCommits({
+    repoDir,
+    branchName,
+    baseSha,
+    foreignCommits,
+    mainRef,
+  });
+
+  const result: ClassifyForeignOnlyContaminationResult = {
+    kind: "ambiguous",
+    ownCommitCount: bootstrap.ownCommitCount,
+    foreignCommitCount: foreignCommits.length,
+    nonAttributedCount: bootstrap.nonAttributedCount,
+    alreadyUpstreamShas: foreignClassification.alreadyUpstream.map((entry) => entry.sha),
+    uniqueShas: foreignClassification.unique.map((entry) => entry.sha),
+  };
+
+  if (result.ownCommitCount === 0 && result.nonAttributedCount === 0 && result.foreignCommitCount > 0) {
+    result.kind = result.uniqueShas.length === 0
+      ? "foreign-only-already-upstream"
+      : "foreign-only-no-own-work";
+    return result;
+  }
+
+  if (result.ownCommitCount > 0 || result.nonAttributedCount > 0) {
+    result.kind = "ambiguous";
+    return result;
+  }
+
+  result.kind = "clean";
+  return result;
 }
 
 export interface ReanchorBranchToBaseInput {
