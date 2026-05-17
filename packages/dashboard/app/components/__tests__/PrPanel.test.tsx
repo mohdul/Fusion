@@ -1,0 +1,154 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { PrPanel } from "../PrPanel";
+
+vi.mock("../../api", () => ({
+  refreshPrStatus: vi.fn(),
+}));
+
+import { refreshPrStatus } from "../../api";
+
+const mockAddToast = vi.fn();
+const mockOnPrUpdated = vi.fn();
+const mockOnRequestCreatePr = vi.fn();
+
+const mockPrInfo = {
+  url: "https://github.com/owner/repo/pull/42",
+  number: 42,
+  status: "open" as const,
+  title: "Fix the bug",
+  headBranch: "fusion/fn-001",
+  baseBranch: "main",
+  commentCount: 3,
+  lastCommentAt: "2026-01-01T00:00:00.000Z",
+};
+
+describe("PrPanel", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("renders create button and calls onRequestCreatePr", () => {
+    render(
+      <PrPanel
+        taskId="FN-001"
+        prAuthAvailable={true}
+        onRequestCreatePr={mockOnRequestCreatePr}
+        onPrUpdated={mockOnPrUpdated}
+        addToast={mockAddToast}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Create PR/i }));
+    expect(mockOnRequestCreatePr).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not render input or textarea in no-PR state", () => {
+    render(<PrPanel taskId="FN-001" prAuthAvailable={true} onRequestCreatePr={mockOnRequestCreatePr} onPrUpdated={mockOnPrUpdated} addToast={mockAddToast} />);
+    expect(document.querySelector("input")).toBeNull();
+    expect(document.querySelector("textarea")).toBeNull();
+  });
+
+  it("disables create button and shows auth hint when pr auth unavailable", () => {
+    render(<PrPanel taskId="FN-001" prAuthAvailable={false} onRequestCreatePr={mockOnRequestCreatePr} onPrUpdated={mockOnPrUpdated} addToast={mockAddToast} />);
+    const button = screen.getByRole("button", { name: /Create PR/i }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(screen.getByText(/gh auth login/i)).toBeInTheDocument();
+  });
+
+  it("shows creating-pr automation hint", () => {
+    render(<PrPanel taskId="FN-001" automationStatus="creating-pr" prAuthAvailable={true} onPrUpdated={mockOnPrUpdated} addToast={mockAddToast} />);
+    expect(screen.getByText(/creating a pull request automatically/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Create PR/i })).toBeNull();
+  });
+
+  it("shows autoMerge hint in no-PR state", () => {
+    render(<PrPanel taskId="FN-001" autoMerge={true} prAuthAvailable={true} onPrUpdated={mockOnPrUpdated} addToast={mockAddToast} />);
+    expect(screen.getByText(/Auto-merge will handle this task automatically./i)).toBeInTheDocument();
+  });
+
+  it("renders PR details when prInfo exists", () => {
+    render(<PrPanel taskId="FN-001" prInfo={mockPrInfo} prAuthAvailable={true} onPrUpdated={mockOnPrUpdated} addToast={mockAddToast} />);
+    expect(screen.getByText("#42")).toBeInTheDocument();
+    expect(screen.getByText("open")).toBeInTheDocument();
+    expect(screen.getByText("fusion/fn-001")).toBeInTheDocument();
+    expect(screen.getByText("main")).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /View on GitHub/i })).toBeInTheDocument();
+  });
+
+  it("refreshes PR status and updates toast/callback", async () => {
+    (refreshPrStatus as ReturnType<typeof vi.fn>).mockResolvedValue({
+      prInfo: { ...mockPrInfo, status: "merged" },
+      checks: [],
+      reviewDecision: null,
+      blockingReasons: [],
+    });
+
+    render(<PrPanel taskId="FN-001" projectId="project-1" prInfo={mockPrInfo} prAuthAvailable={true} onPrUpdated={mockOnPrUpdated} addToast={mockAddToast} />);
+
+    fireEvent.click(screen.getByTitle("Refresh PR status"));
+
+    await waitFor(() => {
+      expect(refreshPrStatus).toHaveBeenCalledWith("FN-001", "project-1");
+    });
+    expect(mockOnPrUpdated).toHaveBeenCalledWith(expect.objectContaining({ status: "merged" }));
+    expect(mockAddToast).toHaveBeenCalledWith("PR status refreshed", "success");
+  });
+
+  it("renders checks rollup and details after refresh", async () => {
+    (refreshPrStatus as ReturnType<typeof vi.fn>).mockResolvedValue({
+      prInfo: mockPrInfo,
+      checks: [
+        { name: "build", required: true, state: "success" },
+        { name: "lint", required: false, state: "failure" },
+        { name: "e2e", required: true, state: "pending" },
+      ],
+      reviewDecision: null,
+      blockingReasons: [],
+    });
+
+    render(<PrPanel taskId="FN-001" prInfo={mockPrInfo} prAuthAvailable={true} onPrUpdated={mockOnPrUpdated} addToast={mockAddToast} />);
+    fireEvent.click(screen.getByTitle("Refresh PR status"));
+
+    await screen.findByText("1 passing");
+    expect(screen.getByText("1 failing")).toBeInTheDocument();
+    expect(screen.getByText("1 pending")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/Recent checks/i));
+    expect(screen.getByText("build")).toBeInTheDocument();
+    expect(screen.getByText("lint")).toBeInTheDocument();
+    expect(screen.getByText("e2e")).toBeInTheDocument();
+    expect(screen.getAllByText("Required").length).toBe(2);
+  });
+
+  it("renders review decision states", async () => {
+    (refreshPrStatus as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ prInfo: mockPrInfo, checks: [], reviewDecision: "CHANGES_REQUESTED", blockingReasons: [] })
+      .mockResolvedValueOnce({ prInfo: mockPrInfo, checks: [], reviewDecision: "APPROVED", blockingReasons: [] })
+      .mockResolvedValueOnce({ prInfo: mockPrInfo, checks: [], reviewDecision: null, blockingReasons: [] });
+
+    render(<PrPanel taskId="FN-001" prInfo={mockPrInfo} prAuthAvailable={true} onPrUpdated={mockOnPrUpdated} addToast={mockAddToast} />);
+
+    fireEvent.click(screen.getByTitle("Refresh PR status"));
+    expect(await screen.findByText("CHANGES_REQUESTED")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle("Refresh PR status"));
+    expect(await screen.findByText("APPROVED")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle("Refresh PR status"));
+    expect(await screen.findByText("No reviews yet")).toBeInTheDocument();
+  });
+
+  it("shows error toast when refresh fails", async () => {
+    (refreshPrStatus as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("refresh failed"));
+
+    render(<PrPanel taskId="FN-001" prInfo={mockPrInfo} prAuthAvailable={true} onPrUpdated={mockOnPrUpdated} addToast={mockAddToast} />);
+    fireEvent.click(screen.getByTitle("Refresh PR status"));
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith("refresh failed", "error");
+    });
+    expect(mockOnPrUpdated).not.toHaveBeenCalled();
+  });
+});
