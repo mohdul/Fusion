@@ -103,13 +103,29 @@ The schema already carries env-materialization metadata (`env_exportable`, `env_
 
 ## Cross-node Sync
 
-⚠️ Secrets sync endpoints are not yet present in this branch:
+Fusion now exposes four secrets sync endpoints:
 
-- `POST /api/nodes/:id/secrets/push`
-- `POST /api/nodes/:id/secrets/pull`
-- `POST /api/secrets/sync-receive`
+- `POST /api/nodes/:id/secrets/push` — wraps local secrets into a passphrase-protected envelope and sends it to a remote node.
+- `POST /api/nodes/:id/secrets/pull` — fetches a remote envelope from `GET /api/secrets/sync-export` and applies it locally.
+- `POST /api/secrets/sync-receive` — inbound apply endpoint (Bearer `apiKey` required).
+- `GET /api/secrets/sync-export` — inbound export endpoint (Bearer `apiKey` required).
 
-Passphrase-based sync wrapping/KDF behavior is also pending; see follow-up **FN-4867**.
+Envelope format is `WrappedSecretsBundle` from `packages/core/src/secrets-sync.ts`: `{ version, ciphertext, salt, nonce, kdf, kdfParams }` plus transport metadata (`sourceNodeId`, `exportedAt`). Wrapping uses scrypt (`N=32768, r=8, p=1, keyLen=32`) and AES-256-GCM with fresh 12-byte nonce + 16-byte salt per export. `TODO(FN-4867)` remains for planned Argon2id migration.
+
+Sync passphrase storage is local-only: reserved key `__sync_passphrase__` in `secrets_global` with `access_policy="deny"` and `env_exportable=false`, encrypted under the local master key. The passphrase is never transmitted and never returned by HTTP endpoints.
+
+Error mapping:
+
+- `SecretsSyncError` codes (`wrong-passphrase`, `version-mismatch`, `malformed`) return HTTP `400` with `{ "error": <code> }`.
+- Missing passphrase returns HTTP `400` with `{ "error": "passphrase-not-configured" }`.
+- Bearer auth failures return HTTP `401`.
+
+Audit events emitted on apply/send paths:
+
+- `secret:sync-push`
+- `secret:sync-pull`
+
+Audit payloads exclude plaintext values, passphrases, and envelope crypto material (`ciphertext`, `salt`, `nonce`).
 
 ## Audit Events
 
