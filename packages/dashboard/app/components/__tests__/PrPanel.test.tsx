@@ -4,9 +4,10 @@ import { PrPanel } from "../PrPanel";
 
 vi.mock("../../api", () => ({
   refreshPrStatus: vi.fn(),
+  fetchPrChecks: vi.fn(),
 }));
 
-import { refreshPrStatus } from "../../api";
+import { refreshPrStatus, fetchPrChecks } from "../../api";
 
 const mockAddToast = vi.fn();
 const mockOnPrUpdated = vi.fn();
@@ -26,6 +27,11 @@ const mockPrInfo = {
 describe("PrPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (fetchPrChecks as ReturnType<typeof vi.fn>).mockResolvedValue({
+      checks: [],
+      rollup: "unknown",
+      lastCheckedAt: new Date().toISOString(),
+    });
   });
 
   it("renders create button and calls onRequestCreatePr", () => {
@@ -96,7 +102,7 @@ describe("PrPanel", () => {
     expect(mockAddToast).toHaveBeenCalledWith("PR status refreshed", "success");
   });
 
-  it("renders checks rollup and details after refresh", async () => {
+  it("renders checks rollup after refresh", async () => {
     (refreshPrStatus as ReturnType<typeof vi.fn>).mockResolvedValue({
       prInfo: mockPrInfo,
       checks: [
@@ -111,11 +117,7 @@ describe("PrPanel", () => {
     render(<PrPanel taskId="FN-001" prInfo={mockPrInfo} prAuthAvailable={true} onPrUpdated={mockOnPrUpdated} addToast={mockAddToast} />);
     fireEvent.click(screen.getByTitle("Refresh PR status"));
 
-    await screen.findByText("1 passing");
-    expect(screen.getByText("1 failing")).toBeInTheDocument();
-    expect(screen.getByText("1 pending")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText(/Recent checks/i));
+    expect(await screen.findByText("1 passing, 1 failing, 1 pending")).toBeInTheDocument();
     expect(screen.getByText("build")).toBeInTheDocument();
     expect(screen.getByText("lint")).toBeInTheDocument();
     expect(screen.getByText("e2e")).toBeInTheDocument();
@@ -133,8 +135,7 @@ describe("PrPanel", () => {
     render(<PrPanel taskId="FN-001" prInfo={mockPrInfo} prAuthAvailable={true} onPrUpdated={mockOnPrUpdated} addToast={mockAddToast} />);
     fireEvent.click(screen.getByTitle("Refresh PR status"));
 
-    expect(await screen.findByText(/Checks not yet loaded/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Recent checks/i)).toBeNull();
+    expect(await screen.findByText(/No checks reported yet/i)).toBeInTheDocument();
   });
 
   it("renders review decision states", async () => {

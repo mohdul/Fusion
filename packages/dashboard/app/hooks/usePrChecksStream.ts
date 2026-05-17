@@ -136,6 +136,16 @@ export function usePrChecksStream({
   }, [doFetch]);
 
   useEffect(() => {
+    const signature = computeSignature(initialChecks);
+    if (signature && signature !== previousSignatureRef.current) {
+      previousSignatureRef.current = signature;
+      setChecks(initialChecks);
+      setRollup(initialRollup);
+      setLastCheckedAt(initialLastCheckedAt);
+    }
+  }, [computeSignature, initialChecks, initialLastCheckedAt, initialRollup]);
+
+  useEffect(() => {
     if (!shouldPoll) {
       clearTimer();
       abortRef.current?.abort();
