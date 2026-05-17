@@ -473,6 +473,7 @@ export class SelfHealingManager {
       { name: "recover-drifted-agent-task-links", fn: () => this.recoverDriftedAgentTaskLinks().then(() => undefined) },
       { name: "clear-stale-blocked-by", fn: () => this.clearStaleBlockedBy().then(() => undefined) },
       { name: "reconcile-self-defeating-deps", fn: () => this.reconcileSelfDefeatingDependencies().then(() => undefined) },
+      { name: "reclaim-pr-conflicts", fn: () => this.reclaimPrConflicts().then(() => undefined) },
       { name: "reclaim-self-owned-branch-conflicts", fn: () => this.reclaimSelfOwnedBranchConflicts().then(() => undefined) },
       { name: "reclaim-stale-active-branches", fn: () => this.reclaimStaleActiveBranches().then(() => undefined) },
       { name: "surface-in-review-stalls", fn: () => this.surfaceInReviewStalls().then(() => undefined) },
@@ -1047,6 +1048,7 @@ export class SelfHealingManager {
           { name: "recover-drifted-agent-task-links", fn: () => this.recoverDriftedAgentTaskLinks() },
           { name: "clear-stale-blocked-by", fn: () => this.clearStaleBlockedBy() },
           { name: "reconcile-self-defeating-deps", fn: () => this.reconcileSelfDefeatingDependencies() },
+          { name: "reclaim-pr-conflicts", fn: () => this.reclaimPrConflicts() },
           { name: "reclaim-self-owned-branch-conflicts", fn: () => this.reclaimSelfOwnedBranchConflicts() },
           { name: "reclaim-stale-active-branches", fn: () => this.reclaimStaleActiveBranches() },
           { name: "surface-in-review-stalls", fn: () => this.surfaceInReviewStalls() },
@@ -1337,6 +1339,148 @@ export class SelfHealingManager {
       const errorMessage = err instanceof Error ? err.message : String(err);
       log.error(`Stale merging status recovery failed: ${errorMessage}`);
       return 0;
+    }
+  }
+
+  async reclaimPrConflicts(): Promise<number> {
+    const tasks = await this.store.listTasks({ slim: true });
+    const candidates = tasks.filter((task) => task.prInfo?.mergeable === "conflicting");
+    let reclaimed = 0;
+    for (const task of candidates) {
+      const result = await this.reclaimPrConflictForTask(task.id);
+      if (result.outcome !== "skipped") {
+        reclaimed++;
+      }
+    }
+    return reclaimed;
+  }
+
+  async reclaimPrConflictForTask(taskId: string): Promise<{ outcome: "reclaimed" | "stale-resolved" | "tip-already-merged" | "paused-unrecoverable" | "skipped"; reason?: string }> {
+    const task = this.store.getTask(taskId);
+    if (!task) return { outcome: "skipped", reason: "task-not-found" };
+
+    const settings = await this.store.getSettings();
+    if (settings.globalPause || settings.enginePaused) return { outcome: "skipped", reason: "engine-paused" };
+    if (!task.branch || !task.worktree) return { outcome: "skipped", reason: "missing-branch-or-worktree" };
+    if (task.userPaused) return { outcome: "skipped", reason: "user-paused" };
+    if (task.checkedOutBy) return { outcome: "skipped", reason: "checked-out" };
+    if (task.pausedReason === "worktrunk_operation_failed") return { outcome: "skipped", reason: "worktrunk-paused" };
+    if (activeSessionRegistry.isPathActive(task.worktree)) return { outcome: "skipped", reason: "active-session" };
+    if (!await isUsableTaskWorktree(this.options.rootDir, task.worktree)) return { outcome: "skipped", reason: "unusable-worktree" };
+
+    try {
+      const inspection = await inspectBranchConflict({
+        repoDir: this.options.rootDir,
+        branchName: task.branch,
+        conflictingWorktreePath: task.worktree,
+        requestingTaskId: task.id,
+        ownerTaskId: task.id,
+        startPoint: task.baseCommitSha ?? task.mergeDetails?.mergeTargetBranch ?? "main",
+      });
+
+      const auditor = createRunAuditor(this.store, {
+        runId: generateSyntheticRunId("self-heal-pr-conflict", task.id),
+        agentId: "self-healing",
+        taskId: task.id,
+        taskLineageId: task.lineageId,
+        phase: "reclaim-pr-conflicts",
+      });
+
+      if (inspection.kind === "stale") {
+        await auditor.database({ type: "task:pr-conflict-reclaim", target: task.id, metadata: { outcome: "skipped", reason: "stale" } });
+        return { outcome: "skipped", reason: "stale" };
+      }
+      if (inspection.kind === "stale-resolved") {
+        await this.store.updateTask(task.id, { worktree: null, branch: null, baseCommitSha: null });
+        await auditor.database({ type: "task:pr-conflict-reclaim", target: task.id, metadata: { outcome: "stale-resolved" } });
+        return { outcome: "stale-resolved" };
+      }
+      if (inspection.kind === "tip-already-merged") {
+        await this.reclaimSelfOwnedBranchConflicts();
+        await auditor.database({ type: "task:pr-conflict-reclaim", target: task.id, metadata: { outcome: "tip-already-merged" } });
+        return { outcome: "tip-already-merged" };
+      }
+      if (inspection.kind === "live-foreign") {
+        throw inspection.error;
+      }
+
+      const inProgressCandidates = await this.store.listTasks({ column: "in-progress", slim: true });
+      const inProgressByWorktree = new Map<string, string>();
+      for (const inProgressTask of inProgressCandidates) {
+        if (inProgressTask.worktree) inProgressByWorktree.set(inProgressTask.worktree, inProgressTask.id);
+      }
+      const wasPausedBranchConflict = task.paused === true && task.pausedReason === "branch-conflict-unrecoverable";
+      if (inspection.kind === "fully-subsumed") {
+        const taskIdUpper = task.id.toUpperCase();
+        const branchOwnerTaskId = deriveTaskIdFromFusionBranch(task.branch);
+        const activeOwner = inProgressByWorktree.get(inspection.livePath);
+        const ownedByOtherInProgressTask = Boolean(activeOwner && activeOwner !== task.id);
+        const canAutoReclaimLiveZero = branchOwnerTaskId !== null && branchOwnerTaskId === taskIdUpper && !ownedByOtherInProgressTask;
+        if (canAutoReclaimLiveZero) {
+          await removeWorktree({ rootDir: this.options.rootDir, worktreePath: inspection.livePath, settings, taskId: task.id, reason: RemovalReason.SelfHealingBranchConflict });
+          await execAsync("git worktree prune", { cwd: this.options.rootDir, timeout: 120_000, maxBuffer: 10 * 1024 * 1024 });
+          await execAsync(`git branch -D ${JSON.stringify(task.branch)}`, { cwd: this.options.rootDir, timeout: 120_000, maxBuffer: 10 * 1024 * 1024 });
+          await this.store.updateTask(task.id, { worktree: null, branch: null, paused: false, pausedReason: undefined, status: null, error: null });
+          await auditor.database({ type: "task:pr-conflict-reclaim", target: task.id, metadata: { outcome: "reclaimed", mode: "fully-subsumed", recoveredFromPaused: wasPausedBranchConflict } });
+          return { outcome: "reclaimed" };
+        }
+      }
+
+      await this.store.updateTask(task.id, {
+        worktree: inspection.livePath,
+        branch: task.branch,
+        paused: false,
+        pausedReason: undefined,
+        status: null,
+        error: null,
+      });
+      if (task.column === "in-review") {
+        await this.store.moveTask(task.id, "todo", {
+          moveSource: "engine",
+          preserveWorktree: true,
+          preserveProgress: true,
+          preserveResumeState: true,
+        });
+      }
+      await auditor.database({ type: "task:pr-conflict-reclaim", target: task.id, metadata: { outcome: "reclaimed", mode: inspection.kind } });
+      return { outcome: "reclaimed" };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      const patchPath = await preserveWorktreeChanges(this.options.rootDir, task.worktree, task.id);
+      if (patchPath) {
+        await this.store.logEntry(task.id, `Preserved uncommitted worktree changes before pause: ${patchPath}`);
+      }
+      const dispatcher = this.options.autoRecoveryDispatcher ?? new AutoRecoveryDispatcher({
+        taskStore: this.store,
+        auditEmitter: createRunAuditor(this.store, {
+          runId: generateSyntheticRunId("self-heal", task.id),
+          agentId: "self-healing",
+          taskId: task.id,
+          taskLineageId: task.lineageId,
+          phase: "reclaim-pr-conflicts",
+        }),
+      });
+      const decision = await dispatcher.dispatch({
+        class: "branch-conflict-unrecoverable",
+        taskId: task.id,
+        pausedReason: "branch-conflict-unrecoverable",
+        evidence: { branchName: task.branch, worktreePath: task.worktree },
+      }, {
+        task,
+        retryCount: task.recoveryRetryCount ?? 0,
+        settings: (await this.store.getSettings()).autoRecovery ?? { mode: "deterministic-only", maxRetries: 3 },
+      });
+      if (decision.action === "pause") {
+        await this.store.updateTask(task.id, {
+          status: "failed",
+          error: `Task branch conflict: ${task.branch} is not safely reclaimable (${message})`,
+          paused: true,
+          pausedReason: "branch-conflict-unrecoverable",
+        });
+        await this.store.moveTask(task.id, "in-review");
+        await this.store.logEntry(task.id, `Auto-recovery failed: branch conflict unrecoverable — ${message}`);
+      }
+      return { outcome: "paused-unrecoverable", reason: message };
     }
   }
 
