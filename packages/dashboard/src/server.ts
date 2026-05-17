@@ -72,6 +72,7 @@ import {
   tasksBouncedToInProgressPerDay,
   tasksEnteredInReviewPerDay,
 } from "./reliability-metrics.js";
+import { loadViewChunkManifest } from "./view-chunk-manifest.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -656,6 +657,52 @@ export function createServer(store: TaskStore, options?: ServerOptions): ReturnT
         ? join(__dirname, "..", "dist", "client")
         : join(__dirname, "..", "client");
 
+  let cachedIndexClientDir: string | null = null;
+  let cachedIndexHtml: string | null = null;
+  let cachedTemplatedIndexHtml: string | null = null;
+
+  const buildViewPreloadInjection = (chunkMap: Record<string, string>): string => {
+    const serializedChunkMap = JSON.stringify(chunkMap).replace(/<\//g, "<\\/");
+    return `<script>window.__FUSION_VIEW_CHUNKS__=${serializedChunkMap};(()=>{try{const chunkMap=window.__FUSION_VIEW_CHUNKS__||{};const projectId=localStorage.getItem("kb-dashboard-current-project");const scopedKey=projectId?"kb:"+projectId+":kb-dashboard-task-view":null;let taskView=(scopedKey&&localStorage.getItem(scopedKey))||localStorage.getItem("kb-dashboard-task-view");if(taskView==="devserver")taskView="dev-server";if(taskView==="roadmaps")taskView="board";if(typeof taskView!=="string"||taskView.startsWith("plugin:"))return;const chunkPath=chunkMap[taskView];if(!chunkPath)return;const link=document.createElement("link");link.rel="modulepreload";link.href=chunkPath;link.crossOrigin="";document.head.appendChild(link);}catch{}})();</script>`;
+  };
+
+  const renderIndexHtml = (): string => {
+    const resolvedClientDir = process.env.FUSION_CLIENT_DIR
+      ? process.env.FUSION_CLIENT_DIR
+      : clientDir;
+
+    if (cachedTemplatedIndexHtml && cachedIndexClientDir === resolvedClientDir) {
+      return cachedTemplatedIndexHtml;
+    }
+
+    const indexPath = join(resolvedClientDir, "index.html");
+    if (!cachedIndexHtml || cachedIndexClientDir !== resolvedClientDir) {
+      cachedIndexHtml = readFileSync(indexPath, "utf8");
+      cachedIndexClientDir = resolvedClientDir;
+    }
+
+    const chunkMap = loadViewChunkManifest(resolvedClientDir);
+    const injection = buildViewPreloadInjection(chunkMap);
+    const marker = "<!-- fusion:view-preload -->";
+    const withInjectedHead = cachedIndexHtml.includes(marker)
+      ? cachedIndexHtml.replace(marker, `${marker}\n${injection}`)
+      : cachedIndexHtml.replace("</head>", `${injection}</head>`);
+
+    cachedTemplatedIndexHtml = withInjectedHead;
+    return withInjectedHead;
+  };
+
+  const serveIndexHtml = (_req: express.Request, res: express.Response): void => {
+    try {
+      const html = renderIndexHtml();
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store, max-age=0");
+      res.status(200).send(html);
+    } catch {
+      res.status(404).end();
+    }
+  };
+
   if (!isHeadless) {
     app.get("/version.json", (_req, res) => {
       res.setHeader("Cache-Control", "no-store, max-age=0");
@@ -665,7 +712,10 @@ export function createServer(store: TaskStore, options?: ServerOptions): ReturnT
         }
       });
     });
-    app.use(express.static(clientDir));
+    if (existsSync(join(clientDir, "index.html"))) {
+      app.get(["/", "/index.html"], serveIndexHtml);
+      app.use(express.static(clientDir, { index: false }));
+    }
   }
 
   // Create ChatStore for chat session management (available for SSE event forwarding)
@@ -1400,7 +1450,7 @@ export function createServer(store: TaskStore, options?: ServerOptions): ReturnT
         res.status(404).end();
         return;
       }
-      res.sendFile(join(clientDir, "index.html"));
+      serveIndexHtml(req, res);
     });
   }
 
