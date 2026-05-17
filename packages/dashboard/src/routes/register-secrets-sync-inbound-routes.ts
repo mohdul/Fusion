@@ -93,104 +93,75 @@ export const registerSecretsSyncInboundRoutes: ApiRouteRegistrar = (ctx) => {
       const { CentralCore } = await import("@fusion/core");
       const central = new CentralCore(store.getFusionDir());
       await central.init();
-
-      // Validate auth
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        await central.close();
-        throw new ApiError(401, "Missing or invalid Authorization header");
-      }
-
-      const token = authHeader.slice(7);
-      const nodes = await central.listNodes();
-      const localNode = nodes.find((n: import("@fusion/core").NodeConfig) => n.type === "local");
-      if (!localNode) {
-        await central.close();
-        throw new ApiError(401, "Local node not configured");
-      }
-      if (token.length === 0) {
-        await central.close();
-        throw new ApiError(401, "Missing or invalid Authorization header");
-      }
-      if (!localNode.apiKey) {
-        await central.close();
-        throw new ApiError(401, "Invalid apiKey");
-      }
-      if (localNode.apiKey !== token) {
-        await central.close();
-        throw new ApiError(401, "Invalid apiKey");
-      }
-
-      const body = req.body;
-      if (!body?.sourceNodeId) {
-        await central.close();
-        throw badRequest("Missing required field: sourceNodeId");
-      }
-      if (!body?.exportedAt) {
-        await central.close();
-        throw badRequest("Missing required field: exportedAt");
-      }
-      if (body?.version === undefined) {
-        await central.close();
-        throw badRequest("Missing required field: version");
-      }
-      if (!body?.ciphertext) {
-        await central.close();
-        throw badRequest("Missing required field: ciphertext");
-      }
-      if (!body?.salt) {
-        await central.close();
-        throw badRequest("Missing required field: salt");
-      }
-      if (!body?.nonce) {
-        await central.close();
-        throw badRequest("Missing required field: nonce");
-      }
-      if (!body?.kdf) {
-        await central.close();
-        throw badRequest("Missing required field: kdf");
-      }
-      if (!body?.kdfParams) {
-        await central.close();
-        throw badRequest("Missing required field: kdfParams");
-      }
-      if (body.version !== 1) {
-        await central.close();
-        res.status(400).json({ error: "version-mismatch" });
-        return;
-      }
-
-      const secretsStore = await store.getSecretsStore();
-      const passphrase = await getSyncPassphrase(secretsStore);
-      if (passphrase === null) {
-        await central.close();
-        res.status(400).json({ error: "passphrase-not-configured" });
-        return;
-      }
-
-      let records: SecretsSyncRecord[];
       try {
-        records = await unwrapSecretsBundle(body, passphrase);
-      } catch (error) {
-        await central.close();
-        if (error instanceof SecretsSyncError) {
-          res.status(400).json({ error: error.code });
+        // Validate auth
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+          throw new ApiError(401, "Missing or invalid Authorization header");
+        }
+
+        const token = authHeader.slice(7);
+        const nodes = await central.listNodes();
+        const localNode = nodes.find((n: import("@fusion/core").NodeConfig) => n.type === "local");
+        if (!localNode) {
+          throw new ApiError(401, "Local node not configured");
+        }
+        if (token.length === 0) {
+          throw new ApiError(401, "Missing or invalid Authorization header");
+        }
+        if (!localNode.apiKey) {
+          throw new ApiError(401, "Invalid apiKey");
+        }
+        if (localNode.apiKey !== token) {
+          throw new ApiError(401, "Invalid apiKey");
+        }
+
+        const body = req.body;
+        if (!body?.sourceNodeId) throw badRequest("Missing required field: sourceNodeId");
+        if (!body?.exportedAt) throw badRequest("Missing required field: exportedAt");
+        if (body?.version === undefined) throw badRequest("Missing required field: version");
+        if (!body?.ciphertext) throw badRequest("Missing required field: ciphertext");
+        if (!body?.salt) throw badRequest("Missing required field: salt");
+        if (!body?.nonce) throw badRequest("Missing required field: nonce");
+        if (!body?.kdf) throw badRequest("Missing required field: kdf");
+        if (!body?.kdfParams) throw badRequest("Missing required field: kdfParams");
+
+        if (body.version !== 1) {
+          res.status(400).json({ error: "version-mismatch" });
           return;
         }
-        throw error;
-      }
 
-      const { appliedCount, skippedCount, appliedKeys } = await upsertRecords(store, records);
-      for (const keyInfo of appliedKeys) {
-        emitSecretsAudit(req, ctx, "secret:sync-pull", body.sourceNodeId, {
-          nodeId: body.sourceNodeId,
-          key: keyInfo.key,
-          scope: keyInfo.scope,
-        });
-      }
+        const secretsStore = await store.getSecretsStore();
+        const passphrase = await getSyncPassphrase(secretsStore);
+        if (passphrase === null) {
+          res.status(400).json({ error: "passphrase-not-configured" });
+          return;
+        }
 
-      await central.close();
-      res.json({ success: true, appliedCount, skippedCount });
+        let records: SecretsSyncRecord[];
+        try {
+          records = await unwrapSecretsBundle(body, passphrase);
+        } catch (error) {
+          if (error instanceof SecretsSyncError) {
+            res.status(400).json({ error: error.code });
+            return;
+          }
+          throw error;
+        }
+
+        const { appliedCount, skippedCount, appliedKeys } = await upsertRecords(store, records);
+        for (const keyInfo of appliedKeys) {
+          emitSecretsAudit(req, ctx, "secret:sync-pull", body.sourceNodeId, {
+            nodeId: body.sourceNodeId,
+            key: keyInfo.key,
+            scope: keyInfo.scope,
+          });
+        }
+
+        res.json({ success: true, appliedCount, skippedCount });
+      } finally {
+        await central.close();
+      }
     } catch (err: unknown) {
       if (err instanceof ApiError) {
         throw err;
@@ -204,47 +175,43 @@ export const registerSecretsSyncInboundRoutes: ApiRouteRegistrar = (ctx) => {
       const { CentralCore } = await import("@fusion/core");
       const central = new CentralCore(store.getFusionDir());
       await central.init();
+      try {
+        // Validate auth
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+          throw new ApiError(401, "Missing or invalid Authorization header");
+        }
 
-      // Validate auth
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        await central.close();
-        throw new ApiError(401, "Missing or invalid Authorization header");
-      }
+        const token = authHeader.slice(7);
+        const nodes = await central.listNodes();
+        const localNode = nodes.find((n: import("@fusion/core").NodeConfig) => n.type === "local");
+        if (!localNode) {
+          throw new ApiError(401, "Local node not configured");
+        }
+        if (token.length === 0) {
+          throw new ApiError(401, "Missing or invalid Authorization header");
+        }
+        if (!localNode.apiKey) {
+          throw new ApiError(401, "Invalid apiKey");
+        }
+        if (localNode.apiKey !== token) {
+          throw new ApiError(401, "Invalid apiKey");
+        }
 
-      const token = authHeader.slice(7);
-      const nodes = await central.listNodes();
-      const localNode = nodes.find((n: import("@fusion/core").NodeConfig) => n.type === "local");
-      if (!localNode) {
-        await central.close();
-        throw new ApiError(401, "Local node not configured");
-      }
-      if (token.length === 0) {
-        await central.close();
-        throw new ApiError(401, "Missing or invalid Authorization header");
-      }
-      if (!localNode.apiKey) {
-        await central.close();
-        throw new ApiError(401, "Invalid apiKey");
-      }
-      if (localNode.apiKey !== token) {
-        await central.close();
-        throw new ApiError(401, "Invalid apiKey");
-      }
+        const secretsStore = await store.getSecretsStore();
+        const passphrase = await getSyncPassphrase(secretsStore);
+        if (passphrase === null) {
+          res.status(400).json({ error: "passphrase-not-configured" });
+          return;
+        }
 
-      const secretsStore = await store.getSecretsStore();
-      const passphrase = await getSyncPassphrase(secretsStore);
-      if (passphrase === null) {
+        const records = await listSyncRecords(store);
+        const envelope = await wrapSecretsBundle(records, passphrase);
+        const localPeerInfo = await central.getLocalPeerInfo();
+        res.json({ ...envelope, sourceNodeId: localPeerInfo.nodeId, exportedAt: new Date().toISOString() });
+      } finally {
         await central.close();
-        res.status(400).json({ error: "passphrase-not-configured" });
-        return;
       }
-
-      const records = await listSyncRecords(store);
-      const envelope = await wrapSecretsBundle(records, passphrase);
-      const localPeerInfo = await central.getLocalPeerInfo();
-      await central.close();
-      res.json({ ...envelope, sourceNodeId: localPeerInfo.nodeId, exportedAt: new Date().toISOString() });
     } catch (err: unknown) {
       if (err instanceof ApiError) {
         throw err;
