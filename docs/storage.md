@@ -288,6 +288,7 @@ The `tasks.githubTracking` JSON column stores per-task GitHub tracking state (`e
 | `agentHeartbeats` | Heartbeat run events linked to agents (`agentId` FK cascade). |
 | `approval_requests` | Durable approval request records: requester actor snapshot, target action payload (category/action/resource/context), lifecycle status (`pending`/`approved`/`denied`/`completed`), optional task/run context, and requested/decided/completed timestamps. |
 | `approval_request_audit_events` | Append-only audit trail for approval requests. Each row stores event type (`created`/`approved`/`denied`/`completed`), immutable actor snapshot, optional note, and deterministic per-request ordering by `(createdAt, rowid)`. |
+| `secrets` | Encrypted secret KV rows (`key` unique) with raw BLOB `value_ciphertext` + per-row random `nonce` (AES-256-GCM), per-secret `access_policy` CHECK (`auto`/`prompt`/`deny`), env-materialization metadata (`env_exportable`, `env_export_key`), and read-audit fields (`last_read_at`, `last_read_by`). Plaintext is never written to the database. |
 | `task_documents` | Task-scoped document metadata/content keyed by `(taskId, key)` with current revision pointer. |
 | `task_document_revisions` | Immutable revision history for task documents (content snapshots by revision). |
 | `__meta` | Schema version + monotonic `lastModified` change detector. |
@@ -328,6 +329,12 @@ The `tasks.githubTracking` JSON column stores per-task GitHub tracking state (`e
 | `eval_runs` | Eval run lifecycle state (status, trigger, scope, evaluation window boundaries, evaluated task IDs/counts, aggregate scores, provenance). |
 | `eval_task_results` | Per-task eval outcomes linked to runs (`runId` FK cascade), including durable task snapshots and structured score payloads. `categoryScores[]` stores canonical per-category fields (`category`, `deterministicScore`, `aiScore`, `finalScore`, `weight`, `band`, `rationale`, `evidence[]`), plus `overallScore` derived from category finals. Also stores deterministic/AI signal payloads, summary rationale, structured follow-up suggestions (`suggestionId`, `dedupeKey`, recommendation, lifecycle state, suppression fields, optional `createdTaskId` linkage), and a bounded `TaskEvaluationEvidenceBundle` (fixed source-order groups, capped entry counts, max 500-char excerpts with truncation marker) embedded in result metadata for backward-compatible persistence. |
 | `eval_run_events` | Append-only eval run event trail (`runId` FK cascade, ordered by `seq`) for orchestration/debug auditing and downstream API/UI drill-down. |
+
+### Central SQLite Tables Inventory (`packages/core/src/central-db.ts`)
+
+| Table | Purpose |
+|---|---|
+| `secrets_global` | Global-scope counterpart of `secrets`, stored in `~/.fusion/fusion-central.db`; encrypted KV rows with BLOB `value_ciphertext` + per-row random `nonce` (AES-256-GCM), `access_policy` CHECK (`auto`/`prompt`/`deny`), env metadata (`env_exportable`, `env_export_key`), read-audit fields (`last_read_at`, `last_read_by`), and unique index on `key` (plaintext is never persisted). |
 
 ### Schema self-heal on init
 
