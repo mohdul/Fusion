@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { chmod, mkdir, open, readFile, stat } from "node:fs/promises";
+import * as fs from "node:fs/promises";
 import { join } from "node:path";
 import { resolveGlobalDir } from "./global-settings.js";
 
@@ -27,15 +27,19 @@ export class MasterKeyCorruptError extends Error {
   }
 }
 
+type FsLike = Pick<typeof fs, "mkdir" | "open" | "chmod" | "stat" | "readFile">;
+
 export class MasterKeyManager {
   private readonly globalDir: string;
   private readonly filePath: string;
   private readonly injectedKeytar?: KeytarLike;
+  private readonly fsModule: FsLike;
 
-  constructor(options?: { globalDir?: string; keytarModule?: KeytarLike }) {
+  constructor(options?: { globalDir?: string; keytarModule?: KeytarLike; fsModule?: FsLike }) {
     this.globalDir = resolveGlobalDir(options?.globalDir);
     this.filePath = join(this.globalDir, MASTER_KEY_FILENAME);
     this.injectedKeytar = options?.keytarModule;
+    this.fsModule = options?.fsModule ?? fs;
   }
 
   async getOrCreateKey(): Promise<Buffer> {
@@ -121,12 +125,15 @@ export class MasterKeyManager {
     try {
       await this.writeFileKey(generated, { overwrite: false });
       return generated;
-    } catch {
+    } catch (error) {
+      if (error instanceof MasterKeyPermissionError) {
+        throw error;
+      }
       const afterRace = await this.readFileKey();
       if (afterRace) {
         return afterRace;
       }
-      throw new Error("failed to persist master key");
+      throw new Error("failed to persist master key", { cause: error });
     }
   }
 
@@ -160,7 +167,7 @@ export class MasterKeyManager {
 
   private async readFileKey(): Promise<Buffer | null> {
     try {
-      const value = await readFile(this.filePath);
+      const value = await this.fsModule.readFile(this.filePath);
       if (value.length !== 32) {
         throw new MasterKeyCorruptError("file", "file master key is corrupt");
       }
@@ -177,15 +184,15 @@ export class MasterKeyManager {
   }
 
   private async writeFileKey(value: Buffer, options: { overwrite: boolean }): Promise<void> {
-    await mkdir(this.globalDir, { recursive: true });
-    const handle = await open(this.filePath, options.overwrite ? "w" : "wx");
+    await this.fsModule.mkdir(this.globalDir, { recursive: true });
+    const handle = await this.fsModule.open(this.filePath, options.overwrite ? "w" : "wx");
     try {
       await handle.writeFile(value);
     } finally {
       await handle.close();
     }
-    await chmod(this.filePath, 0o600);
-    const fileStat = await stat(this.filePath);
+    await this.fsModule.chmod(this.filePath, 0o600);
+    const fileStat = await this.fsModule.stat(this.filePath);
     if ((fileStat.mode & 0o777) !== 0o600) {
       throw new MasterKeyPermissionError();
     }
