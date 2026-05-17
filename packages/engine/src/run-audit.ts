@@ -206,7 +206,9 @@ export type FilesystemMutationType =
   | "binary:install-requested"
   | "binary:install-success"
   | "binary:install-failed"
-  | "binary:install-denied";
+  | "binary:install-denied"
+  | "secret:sync-push"
+  | "secret:sync-pull";
 
 export type SandboxMutationType = "sandbox:prepare" | "sandbox:run" | "sandbox:failure" | "sandbox:fallback";
 
