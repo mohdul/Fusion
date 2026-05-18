@@ -1,7 +1,7 @@
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, lstatSync, readdirSync, rmSync, realpathSync } from "node:fs";
-import { join, relative, resolve, isAbsolute } from "node:path";
+import { basename, join, relative, resolve, isAbsolute } from "node:path";
 import type { Column, Settings, TaskStore, WorktrunkSettings } from "@fusion/core";
 import { assertCleanBranchAtBase, inspectBranchConflict } from "./branch-conflicts.js";
 import { worktreePoolLog } from "./logger.js";
@@ -14,6 +14,7 @@ import {
   removeWorktree as removeWorktreeViaBackend,
   resolveWorktreeBackend as resolveWorktreeBackendViaSettings,
 } from "./worktree-backend.js";
+import { cleanupSecretsEnvFile } from "./secrets-env-writer.js";
 
 export {
   NativeWorktreeBackend,
@@ -763,6 +764,17 @@ export async function reapOrphanWorktrees(
     // This directory is on disk but has no .git entry and is not a registered
     // worktree — it is a half-initialized orphan.  Remove it.
     try {
+      try {
+        await cleanupSecretsEnvFile({
+          worktreePath: resolvedFull,
+          taskId: `orphan:${name}`,
+          expectedFingerprint: null,
+          filename: ".env",
+          logger: worktreePoolLog,
+        });
+      } catch (error) {
+        worktreePoolLog.warn(`secrets-env cleanup failed for orphan ${name}: ${error instanceof Error ? error.message : String(error)}`);
+      }
       rmSync(resolvedFull, { recursive: true, force: true });
       worktreePoolLog.log(`reapOrphanWorktrees: removed half-initialized orphan ${name}`);
       removed++;
