@@ -59,6 +59,7 @@ import {
   classifyBootstrapMisbinding,
   classifyForeignCommits,
   classifyForeignOnlyContamination,
+  classifyMisroutedForeignCommit,
   isBranchConflictError,
   reanchorBranchToBase,
   inspectBranchConflict,

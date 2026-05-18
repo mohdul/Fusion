@@ -1563,6 +1563,22 @@ export class ProjectEngine {
             errorMsg.includes("Deterministic build verification failed");
 
           if (taskOnErr && isVerificationError) {
+            const refreshedTaskOnVerificationError = await store.getTask(taskId).catch(() => null);
+            if (
+              refreshedTaskOnVerificationError?.column === "done"
+              && refreshedTaskOnVerificationError.mergeDetails?.mergeConfirmed === true
+            ) {
+              const commitSha = refreshedTaskOnVerificationError.mergeDetails.commitSha;
+              const shortSha = typeof commitSha === "string" && commitSha.length > 0
+                ? commitSha.slice(0, 8)
+                : "unknown";
+              const errorTail = errorMsg.length > 200 ? `${errorMsg.slice(0, 200)}…` : errorMsg;
+              const message = `[verification] post-finalize verification failed for already-on-main fast-path; no action (commit=${shortSha}, error=${errorTail})`;
+              await store.logEntry(taskId, message, "VerificationError").catch(() => undefined);
+              runtimeLog.log(`Auto-merge: ${taskId} ${message}`);
+              continue;
+            }
+
             if (
               err instanceof VerificationError
               && err.verificationResult?.environmentFault?.kind === "missing-workspace-entry"

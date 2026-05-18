@@ -162,6 +162,7 @@ export type DatabaseMutationType =
   | "task:auto-recover-already-merged"
   | "task:auto-recover-finalize-already-on-main"
   | "task:auto-recover-branch-misbound"
+  | "task:auto-recover-misrouted-foreign-commit"
   | "task:auto-recover-foreign-only-contamination"
   | "task:auto-recover-foreign-only-contamination-skipped"
   | "task:auto-recover-node-unreachable"

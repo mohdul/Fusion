@@ -51,7 +51,7 @@ type MockTask = {
   error: string | null;
   paused?: boolean;
   steps?: Array<{ status: string }>;
-  mergeDetails?: { mergeConfirmed?: boolean } | null;
+  mergeDetails?: { mergeConfirmed?: boolean; commitSha?: string; mergedAt?: string } | null;
   verificationFailureCount?: number;
   mergeConflictBounceCount?: number;
   branch?: string;
@@ -720,6 +720,51 @@ describe("ProjectEngine merge error recovery", () => {
       true,
     );
     expect(hasErrorLog(errorSpy, "persist failed")).toBe(true);
+  });
+
+  it("treats post-finalize verification failures as a no-op diagnostic", async () => {
+    const verificationError = new Error("Deterministic test verification failed: assertion mismatch in workspace");
+    verificationError.name = "VerificationError";
+    vi.mocked(aiMergeTask).mockRejectedValueOnce(verificationError);
+
+    const store = makeStore({
+      tasks: [
+        makeTask({
+          column: "in-review",
+          status: "merging",
+          verificationFailureCount: 2,
+        }),
+        makeTask({
+          column: "done",
+          status: null,
+          verificationFailureCount: 2,
+          mergeDetails: { mergeConfirmed: true, commitSha: "abcdef1234567890" },
+        }),
+      ],
+    });
+    const engine = createEngine(store);
+
+    await runMergeCycle(engine);
+
+    expect(store.moveTask).not.toHaveBeenCalledWith(TASK_ID, "in-progress");
+    expect(store.updateTask).not.toHaveBeenCalledWith(
+      TASK_ID,
+      expect.objectContaining({ status: "merging-fix" }),
+    );
+    expect(store.updateTask).not.toHaveBeenCalledWith(
+      TASK_ID,
+      expect.objectContaining({ verificationFailureCount: 3 }),
+    );
+    expect(store.addTaskComment).not.toHaveBeenCalledWith(
+      TASK_ID,
+      expect.stringContaining("Please fix the failing"),
+      "agent",
+    );
+    expect(store.logEntry).toHaveBeenCalledWith(
+      TASK_ID,
+      expect.stringContaining("[verification] post-finalize verification failed for already-on-main fast-path; no action"),
+      "VerificationError",
+    );
   });
 
   it("moves task back to in-progress with merge-remediation status on verification errors", async () => {

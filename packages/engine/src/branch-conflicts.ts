@@ -545,6 +545,49 @@ export async function classifyForeignCommits(
   }
 }
 
+export interface ClassifyMisroutedForeignCommitInput {
+  repoDir: string;
+  sha: string;
+  commitSubject: string;
+  commitBody: string;
+  currentTaskId: string;
+}
+
+export interface ClassifyMisroutedForeignCommitResult {
+  misrouted: boolean;
+  foreignTaskId?: string;
+  paths: string[];
+}
+
+export async function classifyMisroutedForeignCommit(
+  input: ClassifyMisroutedForeignCommitInput,
+): Promise<ClassifyMisroutedForeignCommitResult> {
+  const { repoDir, sha, commitSubject, commitBody, currentTaskId } = input;
+  const subjectPattern = /^(feat|fix|test|chore|docs|refactor|perf|build)\((FN-\d+)\):/i;
+  const trailerPattern = /(?:^|\n)Fusion-Task-Id:\s*(FN-\d+)\s*(?:\n|$)/i;
+  const subjectMatch = commitSubject.match(subjectPattern);
+  const trailerMatch = commitBody.match(trailerPattern);
+  const foreignTaskId = (trailerMatch?.[1] ?? subjectMatch?.[2] ?? "").toUpperCase();
+  if (!foreignTaskId || foreignTaskId === currentTaskId.toUpperCase()) {
+    return { misrouted: false, paths: [] };
+  }
+
+  const pathsOutput = await runGit(
+    repoDir,
+    `git diff-tree --root --no-commit-id --name-only -r ${quoteShellArg(sha)}`,
+  ).catch(() => "");
+  const paths = pathsOutput
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return {
+    misrouted: paths.length > 0 && paths.every((path) => path.startsWith(".changeset/")),
+    foreignTaskId,
+    paths,
+  };
+}
+
 export async function classifyForeignOnlyContamination(
   input: ClassifyForeignOnlyContaminationInput,
 ): Promise<ClassifyForeignOnlyContaminationResult> {
