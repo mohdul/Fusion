@@ -69,7 +69,7 @@ function OptionChips<T extends { login?: string; name?: string; color?: string }
           const key = getKey(item);
           const hasColor = Boolean(includeColor && item.color);
           const chipStyle = hasColor
-            ? ({ "--pr-chip-label-color": `#${item.color}` } as CSSProperties)
+            ? ({ "--pr-chip-label-color": "#" + item.color } as CSSProperties)
             : undefined;
           return (
             <span
