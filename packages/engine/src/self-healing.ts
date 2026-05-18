@@ -3578,6 +3578,7 @@ export class SelfHealingManager {
     try {
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return 0;
+      if (!settings.autoMerge) return 0;
 
       const cycleStartMs = Date.now();
       const timeoutMs = settings.taskStuckTimeoutMs;
