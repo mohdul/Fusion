@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import type { RunMutationContext, Settings, Task, TaskStore } from "@fusion/core";
+import type { RunMutationContext, Settings, Task, TaskStore, SecretsStore } from "@fusion/core";
 import { generateWorktreeName, slugify } from "./worktree-names.js";
 import { resolveTaskWorktreePathForBackend } from "./worktree-paths.js";
 import { hydrateWorktreeDb } from "./worktree-db-hydrate.js";
@@ -32,6 +32,7 @@ import {
   type WorktrunkOpName,
 } from "./worktrunk-failure-handler.js";
 import type { RunAuditor } from "./run-audit.js";
+import { writeSecretsEnvFile } from "./secrets-env-writer.js";
 
 const execAsync = promisify(exec);
 
@@ -48,9 +49,10 @@ export interface AcquireTaskWorktreeOptions {
   settings: Partial<Settings>;
   pool?: WorktreePool;
   logger?: { log: (m: string) => void; warn: (m: string) => void; error?: (m: string) => void };
-  audit?: RunAuditor;
+  audit?: Pick<RunAuditor, "git" | "filesystem">;
   runContext?: RunMutationContext;
   runInitCommand?: boolean;
+  secretsStore?: Pick<SecretsStore, "listEnvExportable">;
   createWorktree?: (
     branch: string,
     path: string,
@@ -153,7 +155,7 @@ async function maybeWarnForeignTaskStartPoint(
 }
 
 export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Promise<AcquireTaskWorktreeResult> {
-  const { task, rootDir, store, settings, pool, logger, audit, runContext, createWorktree, runConfiguredCommand, runInitCommand, taskEnv } = opts;
+  const { task, rootDir, store, settings, pool, logger, audit, runContext, createWorktree, runConfiguredCommand, runInitCommand, taskEnv, secretsStore } = opts;
   const notifyFallback = async (op: WorktrunkOpName, stderr?: string) => {
     await store.logEntry(task.id, `Worktrunk ${op} failed; continuing with native worktree backend (${stderr ?? "no stderr"})`, undefined, runContext);
   };
@@ -251,6 +253,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
   if (task.worktree && isResume) {
     logger?.log(`Reusing existing worktree: ${worktreePath}`);
     const hydrated = await hydrate(worktreePath);
+    // FN-4912: resume path reuses the prior on-disk .env (and its fingerprint sidecar). Rewrite is owned by the next fresh acquisition.
     return { worktreePath, branch: task.branch ?? branchName, source: "existing", hydrated, isResume: true };
   }
 
@@ -338,6 +341,20 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
             runContext,
           });
           const hydrated = await hydrate(worktreePath);
+          try {
+            await writeSecretsEnvFile({
+              rootDir,
+              worktreePath,
+              taskId: task.id,
+              settings,
+              worktreeSource: "pool",
+              secretsStore,
+              audit,
+              logger,
+            });
+          } catch (err) {
+            logger?.warn?.(`${task.id}: secrets-env write failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+          }
           return {
             worktreePath,
             branch,
@@ -449,5 +466,19 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
     runContext,
   });
   const hydrated = await hydrate(worktreePath);
+  try {
+    await writeSecretsEnvFile({
+      rootDir,
+      worktreePath,
+      taskId: task.id,
+      settings,
+      worktreeSource: "fresh",
+      secretsStore,
+      audit,
+      logger,
+    });
+  } catch (err) {
+    logger?.warn?.(`${task.id}: secrets-env write failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+  }
   return { worktreePath, branch, source: acquiredFromPool ? "pool" : "fresh", hydrated, isResume: false };
 }

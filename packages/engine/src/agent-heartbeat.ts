@@ -111,6 +111,7 @@ export interface HeartbeatMonitorOptions {
   reflectionService?: AgentReflectionService;
   /** Optional self-improvement service for periodic self-improve injection */
   selfImproveService?: SelfImproveServiceLike;
+  secretsStore?: Pick<import("@fusion/core").SecretsStore, "listEnvExportable">;
 }
 
 /** Options for waking up an agent */
@@ -2397,6 +2398,7 @@ export class HeartbeatMonitor {
               audit,
               runContext,
               runInitCommand: false,
+              secretsStore: this.options.secretsStore,
             });
             sessionCwd = acquisition.worktreePath;
           } catch (worktreeErr) {

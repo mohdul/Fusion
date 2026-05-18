@@ -902,6 +902,7 @@ export interface TaskExecutorOptions {
   /** MessageStore for sending messages to other agents. When provided, executor agents gain fn_send_message capability. */
   messageStore?: import("@fusion/core").MessageStore;
   missionStore?: MissionStore;
+  secretsStore?: Pick<import("@fusion/core").SecretsStore, "listEnvExportable">;
   onSliceComplete?: (slice: Slice) => void;
   onStart?: (task: Task, worktreePath: string) => void;
   onComplete?: (task: Task) => void;
@@ -2860,6 +2861,7 @@ export class TaskExecutor {
         createWorktree: this.createWorktree.bind(this),
         runConfiguredCommand,
         taskEnv,
+        secretsStore: this.options.secretsStore,
       });
       worktreePath = acquisition.worktreePath;
 
