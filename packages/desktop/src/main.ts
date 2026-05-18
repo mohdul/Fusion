@@ -71,7 +71,6 @@ export function getCurrentDesktopLaunchMode(): DesktopLaunchMode {
 }
 
 async function resetLaunchModeAndReload(window: BrowserWindow): Promise<void> {
-  console.log("[desktop/main] resetLaunchModeAndReload start");
   try {
     const settings = await readShellSettings();
     settings.desktopMode = null;
@@ -96,13 +95,10 @@ async function resetLaunchModeAndReload(window: BrowserWindow): Promise<void> {
   // serverBaseUrl / shellMode query params so the gate re-prompts.
   try {
     if (isUrlRenderer()) {
-      console.log("[desktop/main] reloading URL renderer", getRendererUrl());
       await window.loadURL(getRendererUrl());
     } else {
-      console.log("[desktop/main] reloading file renderer", getRendererFilePath());
       await window.loadFile(getRendererFilePath());
     }
-    console.log("[desktop/main] resetLaunchModeAndReload complete");
   } catch (error) {
     console.error("[desktop/main] reload failed", error);
   }

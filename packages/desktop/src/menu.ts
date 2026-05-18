@@ -18,11 +18,7 @@ function buildConnectionSubmenu(options: AppMenuOptions): MenuItemConstructorOpt
       {
         label: "Change Launch Mode…",
         click: () => {
-          console.log("[desktop/menu] Change Launch Mode clicked");
-          if (!options.onChangeLaunchMode) {
-            console.warn("[desktop/menu] onChangeLaunchMode callback not provided");
-            return;
-          }
+          if (!options.onChangeLaunchMode) return;
           void Promise.resolve(options.onChangeLaunchMode()).catch((error: unknown) => {
             console.error("[desktop/menu] onChangeLaunchMode failed", error);
           });
