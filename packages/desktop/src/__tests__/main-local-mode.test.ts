@@ -62,6 +62,7 @@ vi.mock("../native.js", () => ({
   saveDesktopLaunchMode: vi.fn(async () => undefined),
   saveWindowState: vi.fn(),
   setupAutoUpdater: vi.fn(),
+  startUpdateCheckInterval: vi.fn(() => vi.fn()),
   clampWindowStateToVisibleDisplay: vi.fn((state) => state),
 }));
 vi.mock("../deep-link.js", () => ({ registerDeepLinkProtocol: vi.fn(), setupDeepLinkHandler: vi.fn() }));

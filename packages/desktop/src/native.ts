@@ -212,55 +212,174 @@ export function showDesktopNotification(
   }
 }
 
+type AutoUpdaterLike = {
+  autoDownload: boolean;
+  autoInstallOnAppQuit: boolean;
+  on: (event: string, handler: (...args: unknown[]) => void) => unknown;
+  checkForUpdates: () => Promise<unknown>;
+};
+
+let cachedAutoUpdater: AutoUpdaterLike | null = null;
+let autoUpdaterLoadPromise: Promise<AutoUpdaterLike | null> | null = null;
+let listenersBound = false;
+let hasRunInitialUpdateCheck = false;
+let autoUpdaterWindow: BrowserWindow | undefined;
+let updateIntervalTimer: ReturnType<typeof setInterval> | null = null;
+let updateIntervalDisposer: (() => void) | null = null;
+let updateIntervalWindow: BrowserWindow | null = null;
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  return "Unknown error";
+}
+
+async function resolveAutoUpdater(): Promise<AutoUpdaterLike | null> {
+  if (cachedAutoUpdater) {
+    return cachedAutoUpdater;
+  }
+
+  if (!autoUpdaterLoadPromise) {
+    autoUpdaterLoadPromise = (async () => {
+      try {
+        const mod = (await import("electron-updater")) as {
+          default?: { autoUpdater?: unknown };
+          autoUpdater?: unknown;
+        };
+        const namedAutoUpdater = "autoUpdater" in mod ? (mod as { autoUpdater?: unknown }).autoUpdater : undefined;
+        const autoUpdater = (mod.default?.autoUpdater ?? namedAutoUpdater) as AutoUpdaterLike | undefined;
+
+        if (!autoUpdater) {
+          console.warn("[desktop/native] Auto-updater module loaded without autoUpdater export");
+          return null;
+        }
+
+        cachedAutoUpdater = autoUpdater;
+        return autoUpdater;
+      } catch (error) {
+        console.warn("[desktop/native] Auto-updater unavailable", error);
+        return null;
+      }
+    })();
+  }
+
+  return autoUpdaterLoadPromise;
+}
+
+function bindAutoUpdaterListeners(autoUpdater: AutoUpdaterLike): void {
+  if (listenersBound) {
+    return;
+  }
+
+  listenersBound = true;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on("update-available", (info) => {
+    showDesktopNotification("Fusion Update Available", "Update available — downloading in background", {
+      silent: true,
+    });
+    autoUpdaterWindow?.webContents.send("update-available", info);
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    showDesktopNotification("Fusion Update Ready", "Update ready — will install on quit", {
+      silent: true,
+    });
+    autoUpdaterWindow?.webContents.send("update-downloaded", info);
+  });
+
+  autoUpdater.on("update-not-available", (info) => {
+    showDesktopNotification("Fusion is up to date", "You're on the latest version", {
+      silent: true,
+    });
+    autoUpdaterWindow?.webContents.send("update-not-available", info);
+  });
+
+  autoUpdater.on("error", (error) => {
+    const message = getErrorMessage(error);
+    console.error("[desktop/native] Auto-updater error", error);
+    autoUpdaterWindow?.webContents.send("update-error", { message });
+  });
+}
+
 export function setupAutoUpdater(mainWindow?: BrowserWindow): void {
+  if (mainWindow) {
+    autoUpdaterWindow = mainWindow;
+  }
+
   void (async () => {
     try {
-      const mod = (await import("electron-updater")) as {
-        default?: { autoUpdater?: unknown };
-        autoUpdater?: unknown;
-      };
-      const autoUpdater = (mod.default?.autoUpdater ?? mod.autoUpdater) as
-        | {
-            autoDownload: boolean;
-            autoInstallOnAppQuit: boolean;
-            on: (event: string, handler: (...args: unknown[]) => void) => unknown;
-            checkForUpdates: () => Promise<unknown>;
-          }
-        | undefined;
-
+      const autoUpdater = await resolveAutoUpdater();
       if (!autoUpdater) {
-        console.warn("[desktop/native] Auto-updater module loaded without autoUpdater export");
         return;
       }
 
-      autoUpdater.autoDownload = true;
-      autoUpdater.autoInstallOnAppQuit = true;
+      bindAutoUpdaterListeners(autoUpdater);
 
-      autoUpdater.on("update-available", (info) => {
-        showDesktopNotification("Fusion Update Available", "Update available — downloading in background", {
-          silent: true,
-        });
-        mainWindow?.webContents.send("update-available", info);
-      });
+      if (hasRunInitialUpdateCheck) {
+        return;
+      }
 
-      autoUpdater.on("update-downloaded", (info) => {
-        showDesktopNotification("Fusion Update Ready", "Update ready — will install on quit", {
-          silent: true,
-        });
-        mainWindow?.webContents.send("update-downloaded", info);
-      });
-
-      autoUpdater.on("error", (error) => {
-        console.error("[desktop/native] Auto-updater error", error);
-      });
-
+      hasRunInitialUpdateCheck = true;
       await autoUpdater.checkForUpdates().catch((error: unknown) => {
         console.error("[desktop/native] Auto-updater check failed", error);
       });
     } catch (error) {
-      console.warn("[desktop/native] Auto-updater unavailable", error);
+      console.warn("[desktop/native] Auto-updater setup failed", error);
     }
   })();
+}
+
+export async function triggerUpdateCheck(
+  mainWindow?: BrowserWindow,
+): Promise<{ status: "checking" } | { status: "unavailable"; reason: string } | { status: "error"; error: string }> {
+  setupAutoUpdater(mainWindow);
+
+  const autoUpdater = await resolveAutoUpdater();
+  if (!autoUpdater) {
+    return { status: "unavailable", reason: "updater_unavailable" };
+  }
+
+  try {
+    await autoUpdater.checkForUpdates();
+    return { status: "checking" };
+  } catch (error) {
+    return { status: "error", error: getErrorMessage(error) };
+  }
+}
+
+export function startUpdateCheckInterval(mainWindow: BrowserWindow, intervalMs = 4 * 60 * 60 * 1000): () => void {
+  autoUpdaterWindow = mainWindow;
+
+  if (updateIntervalDisposer && updateIntervalWindow === mainWindow) {
+    return updateIntervalDisposer;
+  }
+
+  if (updateIntervalTimer) {
+    clearInterval(updateIntervalTimer);
+    updateIntervalTimer = null;
+  }
+
+  updateIntervalWindow = mainWindow;
+  updateIntervalTimer = setInterval(() => {
+    void triggerUpdateCheck(mainWindow);
+  }, intervalMs);
+
+  updateIntervalDisposer = () => {
+    if (updateIntervalTimer) {
+      clearInterval(updateIntervalTimer);
+      updateIntervalTimer = null;
+    }
+    updateIntervalDisposer = null;
+    updateIntervalWindow = null;
+  };
+
+  return updateIntervalDisposer;
 }
 
 function normalizeServerBaseUrl(serverUrl: string): string | null {

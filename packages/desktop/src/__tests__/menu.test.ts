@@ -87,11 +87,13 @@ describe("application menu", () => {
     });
   });
 
-  it("macOS template includes App menu with About, Preferences and Quit", async () => {
+  it("macOS template includes App menu with About, Preferences, update check and Quit", async () => {
+    const onCheckForUpdates = vi.fn();
     const { buildMenuTemplate } = await import("../menu.ts");
     const template = buildMenuTemplate({
       mainWindow: createMainWindowMock() as never,
       appName: "Fusion",
+      onCheckForUpdates,
     });
 
     expect(template[0]?.label).toBe("Fusion");
@@ -99,12 +101,17 @@ describe("application menu", () => {
     const appMenu = template[0]?.submenu as MenuItemConstructorOptions[];
     expect(appMenu.some((item) => item.label === "About Fusion")).toBe(true);
     expect(appMenu.some((item) => item.label === "Preferences")).toBe(true);
+    const checkForUpdates = appMenu.find((item) => item.label === "Check for Updates…");
+    expect(checkForUpdates).toBeDefined();
 
     const preferences = appMenu.find((item) => item.label === "Preferences");
     const quit = appMenu.find((item) => item.label === "Quit Fusion");
 
     expect(preferences?.accelerator).toBe("CmdOrCtrl+,");
     expect(quit?.accelerator).toBe("CmdOrCtrl+Q");
+
+    checkForUpdates?.click?.({} as never, {} as never, {} as never);
+    expect(onCheckForUpdates).toHaveBeenCalledTimes(1);
   });
 
   it("Edit menu includes standard editing shortcuts", async () => {
@@ -191,16 +198,26 @@ describe("application menu", () => {
     expect(findMenuItem(template, "Hide Fusion")).toBeUndefined();
   });
 
-  it("Help menu contains Fusion Documentation link", async () => {
+  it("Help menu contains update check and Fusion Documentation link on non-macOS", async () => {
+    Object.defineProperty(process, "platform", {
+      value: "win32",
+      configurable: true,
+    });
+    const onCheckForUpdates = vi.fn();
     const { buildMenuTemplate } = await import("../menu.ts");
     const template = buildMenuTemplate({
       mainWindow: createMainWindowMock() as never,
       appName: "Fusion",
+      onCheckForUpdates,
     });
 
     const docsItem = findMenuItem(template, "Fusion Documentation");
+    const checkForUpdates = findMenuItem(template, "Check for Updates…");
 
     expect(docsItem).toBeDefined();
+    expect(checkForUpdates).toBeDefined();
+    checkForUpdates?.click?.({} as never, {} as never, {} as never);
+    expect(onCheckForUpdates).toHaveBeenCalledTimes(1);
     docsItem?.click?.({} as never, {} as never, {} as never);
     expect(mocks.shell.openExternal).toHaveBeenCalledWith(
       "https://github.com/Runfusion/Fusion#readme",

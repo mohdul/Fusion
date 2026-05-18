@@ -7,8 +7,9 @@ export interface SystemInfo {
 }
 
 export interface UpdateCheckResult {
-  status: "checking" | "error";
+  status: "checking" | "unavailable" | "error";
   error?: string;
+  reason?: string;
 }
 
 export interface DeepLinkResult {
@@ -52,6 +53,8 @@ export interface FusionAPI {
   // Auto-updater events
   onUpdateAvailable(callback: (info: { version: string }) => void): () => void;
   onUpdateDownloaded(callback: () => void): () => void;
+  onUpdateNotAvailable(callback: (info: { version?: string }) => void): () => void;
+  onUpdateError(callback: (info: { message: string }) => void): () => void;
 
   // Generic IPC invoke bridge
   invoke(channel: string, payload?: unknown): Promise<unknown>;

@@ -95,6 +95,11 @@ const mocks = vi.hoisted(() => {
   const setupAutoUpdater = vi.fn(() => {
     callLog.push("setupAutoUpdater");
   });
+  const stopUpdateCheckInterval = vi.fn();
+  const startUpdateCheckInterval = vi.fn(() => {
+    callLog.push("startUpdateCheckInterval");
+    return stopUpdateCheckInterval;
+  });
 
   const loadWindowState = vi.fn(async () => {
     callLog.push("loadWindowState");
@@ -135,6 +140,8 @@ const mocks = vi.hoisted(() => {
     registerDeepLinkProtocol,
     setupDeepLinkHandler,
     setupAutoUpdater,
+    startUpdateCheckInterval,
+    stopUpdateCheckInterval,
     loadWindowState,
     loadDesktopLaunchMode,
     saveDesktopLaunchMode,
@@ -177,6 +184,7 @@ vi.mock("../native.js", () => ({
   saveDesktopLaunchMode: mocks.saveDesktopLaunchMode,
   saveWindowState: mocks.saveWindowState,
   setupAutoUpdater: mocks.setupAutoUpdater,
+  startUpdateCheckInterval: mocks.startUpdateCheckInterval,
   DEFAULT_WINDOW_STATE: mocks.DEFAULT_WINDOW_STATE,
   normalizeDesktopRemoteLaunch: vi.fn((settings) => {
     const active = settings.profiles.find((profile: { id: string }) => profile.id === settings.activeProfileId);
@@ -258,6 +266,7 @@ describe("main integration", () => {
       "registerDeepLinkProtocol",
       "setupDeepLinkHandler",
       "setupAutoUpdater",
+      "startUpdateCheckInterval",
     ]);
   });
 
@@ -319,6 +328,7 @@ describe("main integration", () => {
         mainWindow: instance,
         appName: "Fusion",
         onChangeLaunchMode: expect.any(Function),
+        onCheckForUpdates: expect.any(Function),
       }),
     );
   });
@@ -367,7 +377,7 @@ describe("main integration", () => {
     expect(mocks.saveWindowState).toHaveBeenCalledWith(instance);
   });
 
-  it("before-quit destroys tray and marks app as quitting", async () => {
+  it("before-quit disposes update interval, destroys tray and marks app as quitting", async () => {
     const { run } = await importMainModule();
 
     run();
@@ -378,6 +388,7 @@ describe("main integration", () => {
 
     const [trayInstance] = mocks.trayInstances;
     expect(mocks.app.isQuitting).toBe(true);
+    expect(mocks.stopUpdateCheckInterval).toHaveBeenCalledTimes(1);
     expect(trayInstance.destroy).toHaveBeenCalledTimes(1);
   });
 

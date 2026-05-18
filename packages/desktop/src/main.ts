@@ -11,6 +11,8 @@ import {
   saveDesktopLaunchMode,
   saveWindowState,
   setupAutoUpdater,
+  triggerUpdateCheck,
+  startUpdateCheckInterval,
   normalizeDesktopRemoteLaunch,
   buildRemoteShellHandoffUrl,
   clampWindowStateToVisibleDisplay,
@@ -46,6 +48,7 @@ let localRuntimeManager: LocalRuntimeManager | null = null;
 let currentDesktopLaunchMode: DesktopLaunchMode = "choose";
 let currentRemoteLaunch: NormalizedDesktopRemoteLaunch | null = null;
 let localRuntimeStartupAttempted = false;
+let stopUpdateCheckInterval: (() => void) | null = null;
 
 function getAppWithQuitFlag(): Electron.App & AppWithQuitFlag {
   return app as Electron.App & AppWithQuitFlag;
@@ -216,6 +219,9 @@ export async function initializeApp(): Promise<void> {
     onChangeLaunchMode: async () => {
       await resetLaunchModeAndReload(createdWindow);
     },
+    onCheckForUpdates: async () => {
+      await triggerUpdateCheck(createdWindow);
+    },
   });
 
   tray = new Tray(nativeImage.createEmpty());
@@ -265,6 +271,7 @@ export async function initializeApp(): Promise<void> {
   registerDeepLinkProtocol();
   setupDeepLinkHandler(createdWindow);
   setupAutoUpdater(createdWindow);
+  stopUpdateCheckInterval = startUpdateCheckInterval(createdWindow);
 
   if (windowState?.isMaximized === true) {
     createdWindow.maximize();
@@ -285,6 +292,12 @@ export function run(): void {
 
   app.on("before-quit", () => {
     appWithQuitFlag.isQuitting = true;
+
+    if (stopUpdateCheckInterval) {
+      stopUpdateCheckInterval();
+      stopUpdateCheckInterval = null;
+    }
+
     if (tray) {
       tray.destroy();
       tray = null;

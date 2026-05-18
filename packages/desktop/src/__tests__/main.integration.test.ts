@@ -84,6 +84,7 @@ vi.mock("../native.js", () => ({
   saveDesktopLaunchMode: mocks.saveDesktopLaunchMode,
   saveWindowState: mocks.saveWindowState,
   setupAutoUpdater: mocks.setupAutoUpdater,
+  startUpdateCheckInterval: vi.fn(() => vi.fn()),
   clampWindowStateToVisibleDisplay: vi.fn((state) => state),
 }));
 

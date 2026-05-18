@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => {
   const showExportSettingsDialog = vi.fn();
   const showImportSettingsDialog = vi.fn();
   const setupAutoUpdater = vi.fn();
+  const triggerUpdateCheck = vi.fn(async () => ({ status: "checking" as const }));
   const readShellSettings = vi.fn(async () => ({
     desktopMode: "remote",
     hasCompletedModeSelection: true,
@@ -33,6 +34,7 @@ const mocks = vi.hoisted(() => {
     showExportSettingsDialog,
     showImportSettingsDialog,
     setupAutoUpdater,
+    triggerUpdateCheck,
     readShellSettings,
     writeShellSettings,
   };
@@ -51,6 +53,7 @@ vi.mock("../native.js", () => ({
   showExportSettingsDialog: mocks.showExportSettingsDialog,
   showImportSettingsDialog: mocks.showImportSettingsDialog,
   setupAutoUpdater: mocks.setupAutoUpdater,
+  triggerUpdateCheck: mocks.triggerUpdateCheck,
 }));
 
 vi.mock("../shell-settings.js", () => ({
@@ -116,8 +119,17 @@ describe("ipc handlers", () => {
     mocks.ipcHandlers.clear();
   });
 
-  it("registers shell channels", async () => {
-    await registerHandlers();
+  it("app:checkForUpdates delegates to triggerUpdateCheck", async () => {
+    const { window } = await registerHandlers();
+    const handler = mocks.ipcHandlers.get("app:checkForUpdates");
+    mocks.triggerUpdateCheck.mockResolvedValueOnce({ status: "checking" });
+
+    await expect(handler?.({})).resolves.toEqual({ status: "checking" });
+    expect(mocks.triggerUpdateCheck).toHaveBeenCalledWith(window);
+    expect(mocks.setupAutoUpdater).not.toHaveBeenCalled();
+  });
+
+  it("registers shell channels", async () => {    await registerHandlers();
 
     const channels = new Set(mocks.ipcMain.handle.mock.calls.map(([channel]) => channel));
     expect(channels.has("shell:getState")).toBe(true);

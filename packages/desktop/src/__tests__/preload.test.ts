@@ -70,8 +70,40 @@ describe("preload", () => {
     expect(mocks.ipcRenderer.invoke).toHaveBeenCalledWith("shell:openConnectionManager");
   });
 
-  it("fusionShell delegates connection-management methods to IPC", async () => {
+  it("electronAPI exposes update-not-available and update-error listeners", async () => {
     await importPreloadModule();
+    const api = getExposed<{
+      onUpdateNotAvailable: (listener: (info: { version?: string }) => void) => () => void;
+      onUpdateError: (listener: (info: { message: string }) => void) => () => void;
+    }>("electronAPI");
+
+    const onNotAvailable = vi.fn();
+    const onError = vi.fn();
+
+    const unsubscribeNotAvailable = api?.onUpdateNotAvailable(onNotAvailable);
+    const unsubscribeError = api?.onUpdateError(onError);
+
+    const notAvailableHandler = mocks.ipcRenderer.on.mock.calls.find(([channel]) => channel === "update-not-available")?.[1] as
+      | ((event: unknown, info: { version?: string }) => void)
+      | undefined;
+    const errorHandler = mocks.ipcRenderer.on.mock.calls.find(([channel]) => channel === "update-error")?.[1] as
+      | ((event: unknown, info: { message: string }) => void)
+      | undefined;
+
+    notAvailableHandler?.({} as never, { version: "1.2.3" });
+    errorHandler?.({} as never, { message: "network" });
+
+    expect(onNotAvailable).toHaveBeenCalledWith({ version: "1.2.3" });
+    expect(onError).toHaveBeenCalledWith({ message: "network" });
+
+    unsubscribeNotAvailable?.();
+    unsubscribeError?.();
+
+    expect(mocks.ipcRenderer.removeListener).toHaveBeenCalledWith("update-not-available", expect.any(Function));
+    expect(mocks.ipcRenderer.removeListener).toHaveBeenCalledWith("update-error", expect.any(Function));
+  });
+
+  it("fusionShell delegates connection-management methods to IPC", async () => {    await importPreloadModule();
     const shell = getExposed<{
       getState: () => Promise<unknown>;
       listProfiles: () => Promise<unknown>;

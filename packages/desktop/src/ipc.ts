@@ -1,5 +1,10 @@
 import { app, type BrowserWindow, ipcMain, type Tray } from "electron";
-import { setupAutoUpdater, showExportSettingsDialog, showImportSettingsDialog, type NormalizedDesktopRemoteLaunch } from "./native.js";
+import {
+  showExportSettingsDialog,
+  showImportSettingsDialog,
+  triggerUpdateCheck,
+  type NormalizedDesktopRemoteLaunch,
+} from "./native.js";
 import { type EngineStatus, updateTrayStatus } from "./tray.js";
 import {
   applyDeleteProfile,
@@ -95,10 +100,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, tray: Tray, optio
     appVersion: app.getVersion(),
   }));
 
-  ipcMain.handle("app:checkForUpdates", () => {
+  ipcMain.handle("app:checkForUpdates", async () => {
     try {
-      setupAutoUpdater(mainWindow);
-      return { status: "checking" as const };
+      return await triggerUpdateCheck(mainWindow);
     } catch (error) {
       return { status: "error" as const, error: error instanceof Error ? error.message : String(error) };
     }

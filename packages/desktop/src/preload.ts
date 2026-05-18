@@ -102,6 +102,16 @@ const electronApi = {
     ipcRenderer.on("update-downloaded", handler);
     return () => ipcRenderer.removeListener("update-downloaded", handler);
   },
+  onUpdateNotAvailable: (callback: (info: { version?: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, info: { version?: string }) => callback(info);
+    ipcRenderer.on("update-not-available", handler);
+    return () => ipcRenderer.removeListener("update-not-available", handler);
+  },
+  onUpdateError: (callback: (info: { message: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, info: { message: string }) => callback(info);
+    ipcRenderer.on("update-error", handler);
+    return () => ipcRenderer.removeListener("update-error", handler);
+  },
   invoke: (channel: string, payload?: unknown): Promise<unknown> => ipcRenderer.invoke(channel, payload),
 };
 

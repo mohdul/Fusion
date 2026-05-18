@@ -151,6 +151,7 @@ vi.mock("../native.js", () => ({
   saveDesktopLaunchMode: mainDeps.saveDesktopLaunchMode,
   saveWindowState: mainDeps.saveWindowState,
   setupAutoUpdater: mainDeps.setupAutoUpdater,
+  startUpdateCheckInterval: vi.fn(() => vi.fn()),
   clampWindowStateToVisibleDisplay: vi.fn((state, displays) => {
     if (state.x === undefined || state.y === undefined) {
       return state;

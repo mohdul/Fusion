@@ -319,6 +319,7 @@ describe("native integrations", () => {
       await vi.waitFor(() => {
         expect(mocks.autoUpdater.on).toHaveBeenCalledWith("update-available", expect.any(Function));
         expect(mocks.autoUpdater.on).toHaveBeenCalledWith("update-downloaded", expect.any(Function));
+        expect(mocks.autoUpdater.on).toHaveBeenCalledWith("update-not-available", expect.any(Function));
         expect(mocks.autoUpdater.on).toHaveBeenCalledWith("error", expect.any(Function));
         expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1);
       });
@@ -358,13 +359,33 @@ describe("native integrations", () => {
       );
     });
 
-    it("error handler does not crash", async () => {
+    it("update-not-available triggers notification and renderer IPC", async () => {
+      const { setupAutoUpdater } = await importNativeModule();
+
+      setupAutoUpdater(mocks.browserWindow as never);
+      await vi.dynamicImportSettled();
+      mocks.updaterHandlers.get("update-not-available")?.({ version: "1.2.0" });
+
+      const latestNotification = mocks.notificationInstances.at(-1);
+      expect(latestNotification?.options).toMatchObject({
+        title: "Fusion is up to date",
+        body: "You're on the latest version",
+        silent: true,
+      });
+      expect(mocks.browserWindow.webContents.send).toHaveBeenCalledWith(
+        "update-not-available",
+        expect.objectContaining({ version: "1.2.0" }),
+      );
+    });
+
+    it("error handler sends renderer IPC and does not crash", async () => {
       const { setupAutoUpdater } = await importNativeModule();
 
       setupAutoUpdater(mocks.browserWindow as never);
       await vi.dynamicImportSettled();
 
       expect(() => mocks.updaterHandlers.get("error")?.(new Error("network"))).not.toThrow();
+      expect(mocks.browserWindow.webContents.send).toHaveBeenCalledWith("update-error", { message: "network" });
     });
 
     it("catches checkForUpdates rejection", async () => {
@@ -375,6 +396,22 @@ describe("native integrations", () => {
       await vi.dynamicImportSettled();
     });
 
+    it("calling setupAutoUpdater twice does not rebind listeners or rerun initial check", async () => {
+      const { setupAutoUpdater } = await importNativeModule();
+
+      setupAutoUpdater(mocks.browserWindow as never);
+      await vi.dynamicImportSettled();
+      await vi.waitFor(() => {
+        expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1);
+      });
+
+      setupAutoUpdater(mocks.browserWindow as never);
+      await vi.dynamicImportSettled();
+
+      expect(mocks.autoUpdater.on).toHaveBeenCalledTimes(4);
+      expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1);
+    });
+
     it("wraps setup in try/catch when updater throws during registration", async () => {
       const { setupAutoUpdater } = await importNativeModule();
       mocks.autoUpdater.on.mockImplementationOnce(() => {
@@ -383,6 +420,62 @@ describe("native integrations", () => {
 
       expect(() => setupAutoUpdater(mocks.browserWindow as never)).not.toThrow();
       await vi.dynamicImportSettled();
+    });
+  });
+
+  describe("triggerUpdateCheck", () => {
+    it("returns checking when checkForUpdates succeeds", async () => {
+      const { triggerUpdateCheck } = await importNativeModule();
+
+      await expect(triggerUpdateCheck(mocks.browserWindow as never)).resolves.toEqual({ status: "checking" });
+    });
+
+    it("returns error when checkForUpdates rejects", async () => {
+      const { triggerUpdateCheck } = await importNativeModule();
+      mocks.autoUpdater.checkForUpdates.mockRejectedValue(new Error("network down"));
+
+      await expect(triggerUpdateCheck(mocks.browserWindow as never)).resolves.toEqual({
+        status: "error",
+        error: "network down",
+      });
+    });
+
+    it("returns unavailable when autoUpdater export is missing", async () => {
+      vi.resetModules();
+      vi.doMock("electron-updater", () => ({ default: {} }));
+
+      const { triggerUpdateCheck } = await importNativeModule();
+
+      await expect(triggerUpdateCheck(mocks.browserWindow as never)).resolves.toEqual({
+        status: "unavailable",
+        reason: "updater_unavailable",
+      });
+
+      vi.resetModules();
+      vi.doMock("electron-updater", () => ({
+        default: { autoUpdater: mocks.autoUpdater },
+        autoUpdater: mocks.autoUpdater,
+      }));
+    });
+  });
+
+  describe("startUpdateCheckInterval", () => {
+    it("schedules interval, triggers checks, and clears timer with stable disposer per window", async () => {
+      const { startUpdateCheckInterval } = await importNativeModule();
+
+      const disposerA = startUpdateCheckInterval(mocks.browserWindow as never, 1_000);
+      const disposerB = startUpdateCheckInterval(mocks.browserWindow as never, 1_000);
+      expect(disposerB).toBe(disposerA);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.dynamicImportSettled();
+
+      expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalled();
+
+      disposerA();
+      const callsAfterDispose = mocks.autoUpdater.checkForUpdates.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(mocks.autoUpdater.checkForUpdates.mock.calls.length).toBe(callsAfterDispose);
     });
   });
 

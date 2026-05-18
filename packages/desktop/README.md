@@ -90,7 +90,7 @@ Desktop boots through a shell-owned mode chooser before mounting the dashboard a
 | `window:close` | renderer → main | none | `Promise<void>` |
 | `window:isMaximized` | renderer → main | none | `Promise<boolean>` |
 | `app:getSystemInfo` | renderer → main | none | `Promise<{ platform; arch; electronVersion; nodeVersion; appVersion; }>` |
-| `app:checkForUpdates` | renderer → main | none | `Promise<{ status: "checking" } \| { status: "error"; error: string }>` |
+| `app:checkForUpdates` | renderer → main | none | `Promise<{ status: "checking" } \| { status: "unavailable"; reason: string } \| { status: "error"; error: string }>` |
 | `app:getServerPort` | renderer → main | none | `Promise<number \| undefined>` (external CLI port when present; otherwise embedded local runtime port when running) |
 | `desktopRuntime:getStatus` | renderer → main | none | `Promise<DesktopRuntimeStatus>` |
 | `desktopRuntime:startLocal` | renderer → main | none | `Promise<DesktopRuntimeStatus>` |
@@ -108,6 +108,8 @@ Desktop boots through a shell-owned mode chooser before mounting the dashboard a
 | `deep-link` | main → renderer | `DeepLinkResult` (`{ type, id, raw }`) |
 | `update-available` | main → renderer | update info object (includes `version`) |
 | `update-downloaded` | main → renderer | no payload is currently forwarded by preload |
+| `update-not-available` | main → renderer | update info object (typically includes current `version`) |
+| `update-error` | main → renderer | `{ message: string }` |
 
 ## Local Bundled Runtime Lifecycle
 
@@ -148,7 +150,8 @@ Desktop local mode uses an in-process runtime manager (`src/local-runtime.ts`) t
 8. `registerDeepLinkProtocol()`
 9. `setupDeepLinkHandler(mainWindow)`
 10. `setupAutoUpdater(mainWindow)`
-11. `mainWindow.maximize()` when restored state was maximized
+11. `startUpdateCheckInterval(mainWindow)` (4-hour periodic background checks)
+12. `mainWindow.maximize()` when restored state was maximized
 
 ### Window state and close-to-tray behavior
 
@@ -163,6 +166,7 @@ Desktop local mode uses an in-process runtime manager (`src/local-runtime.ts`) t
 ### Quit cleanup
 
 - `before-quit` sets `app.isQuitting = true`
+- Periodic updater interval is disposed
 - Tray instance is destroyed (`tray.destroy()`)
 - `mainWindow` is nulled on `closed` for clean re-creation on macOS `activate`
 
@@ -182,6 +186,8 @@ Desktop local mode uses an in-process runtime manager (`src/local-runtime.ts`) t
     - `onDeepLink(callback)`
     - `onUpdateAvailable(callback)`
     - `onUpdateDownloaded(callback)`
+    - `onUpdateNotAvailable(callback)`
+    - `onUpdateError(callback)`
 - `window.fusionShell`
   - `getState()`, `listProfiles()`, `saveProfile()`, `deleteProfile()`
   - `setActiveProfile()`, `setDesktopMode()`
@@ -234,8 +240,8 @@ renderer (window.fusionAPI)
 
 The desktop shell installs a native menu with standard shortcuts.
 
-- **macOS:** App, Edit, View, Window, and Help menus.
-- **Windows/Linux:** Edit, View, Window, and Help (no App menu).
+- **macOS:** App, Edit, View, Window, and Help menus (App menu includes **Check for Updates…**).
+- **Windows/Linux:** Edit, View, Window, and Help (Help includes **Check for Updates…**).
 - Keyboard shortcuts use Electron `CmdOrCtrl` accelerators for cross-platform behavior.
 - View menu includes reload, force reload, dev tools toggle, and zoom controls.
 
@@ -249,7 +255,10 @@ The desktop shell installs a native menu with standard shortcuts.
 - **Desktop notifications**
   - `showDesktopNotification(title, body, options?)` wraps Electron `Notification` with support checks and optional click callback wiring.
 - **Auto-updater integration**
-  - `setupAutoUpdater(mainWindow?)` configures `electron-updater`, checks for updates, and relays `update-available` / `update-downloaded` events to the renderer via IPC.
+  - `setupAutoUpdater(mainWindow?)` is idempotent, binds updater listeners once, and runs the initial check only once.
+  - `triggerUpdateCheck(mainWindow?)` performs on-demand checks (manual menu/IPC trigger) and returns `checking`/`unavailable`/`error` status.
+  - `startUpdateCheckInterval(mainWindow, intervalMs?)` schedules periodic background checks (default every 4 hours) and returns a disposer for quit cleanup.
+  - Events forwarded to renderer include `update-available`, `update-downloaded`, `update-not-available`, and `update-error`.
   - Failures are logged and treated as non-fatal (important for unsigned/local dev builds).
 - **Window state persistence**
   - `loadWindowState()` reads `window-state.json` from `app.getPath("userData")`.
@@ -292,6 +301,8 @@ FN-1076 depends on these exact exports and names.
 | `showImportSettingsDialog` | `(parentWindow?) => Promise<string \| null>` |
 | `showDesktopNotification` | `(title, body, options?) => void` |
 | `setupAutoUpdater` | `(mainWindow?) => void` |
+| `triggerUpdateCheck` | `(mainWindow?) => Promise<{ status: "checking" } \| { status: "unavailable"; reason: string } \| { status: "error"; error: string }>` |
+| `startUpdateCheckInterval` | `(mainWindow, intervalMs?) => () => void` |
 | `loadWindowState` | `() => Promise<WindowState \| null>` |
 | `saveWindowState` | `(mainWindow) => void` |
 | `loadDesktopLaunchMode` | `() => Promise<"choose" \| "local" \| "remote">` |

@@ -9,6 +9,7 @@ export interface AppMenuOptions {
   mainWindow: BrowserWindow;
   appName: string;
   onChangeLaunchMode?: () => Promise<void> | void;
+  onCheckForUpdates?: () => Promise<void> | void;
 }
 
 function buildConnectionSubmenu(options: AppMenuOptions): MenuItemConstructorOptions {
@@ -34,6 +35,15 @@ function buildAppSubmenu(options: AppMenuOptions): MenuItemConstructorOptions {
     submenu: [
       {
         label: `About ${options.appName}`,
+      },
+      {
+        label: "Check for Updates…",
+        click: () => {
+          if (!options.onCheckForUpdates) return;
+          void Promise.resolve(options.onCheckForUpdates()).catch((error: unknown) => {
+            console.error("[desktop/menu] onCheckForUpdates failed", error);
+          });
+        },
       },
       {
         type: "separator",
@@ -217,10 +227,19 @@ function buildWindowSubmenu(isMac: boolean): MenuItemConstructorOptions {
   };
 }
 
-function buildHelpSubmenu(): MenuItemConstructorOptions {
+function buildHelpSubmenu(options: AppMenuOptions): MenuItemConstructorOptions {
   return {
     label: "Help",
     submenu: [
+      {
+        label: "Check for Updates…",
+        click: () => {
+          if (!options.onCheckForUpdates) return;
+          void Promise.resolve(options.onCheckForUpdates()).catch((error: unknown) => {
+            console.error("[desktop/menu] onCheckForUpdates failed", error);
+          });
+        },
+      },
       {
         label: "Fusion Documentation",
         click: () => {
@@ -239,7 +258,7 @@ export function buildMenuTemplate(options: AppMenuOptions): MenuItemConstructorO
     buildViewSubmenu(options),
     buildConnectionSubmenu(options),
     buildWindowSubmenu(isMac),
-    buildHelpSubmenu(),
+    buildHelpSubmenu(options),
   ];
 
   if (isMac) {
