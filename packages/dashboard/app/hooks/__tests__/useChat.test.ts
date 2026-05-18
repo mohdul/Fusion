@@ -92,8 +92,11 @@ const setDocumentVisibilityState = (state: DocumentVisibilityState) => {
 };
 
 describe("useChat", () => {
+  const chatSessionsCacheKey = (projectId: string) => `kb-dashboard-chat-sessions-cache:${projectId}`;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     mockFetchChatSessions.mockResolvedValue({ sessions: [] });
     mockFetchChatSession.mockResolvedValue({
       session: makeSession({ id: "session-001", agentId: "agent-001" }),
@@ -136,6 +139,186 @@ describe("useChat", () => {
 
     expect(result.current.sessions[0]?.id).toBe("session-001");
     expect(result.current.sessions[1]?.id).toBe("session-002");
+  });
+
+  it("hydrates sessions from cache synchronously and skips initial loading state", async () => {
+    const projectId = "proj-cache-hit";
+    localStorage.setItem(
+      chatSessionsCacheKey(projectId),
+      JSON.stringify({
+        savedAt: Date.now(),
+        data: [
+          makeSession({ id: "session-001", agentId: "agent-001", updatedAt: "2026-04-08T00:00:00.000Z" }),
+          makeSession({ id: "session-002", agentId: "agent-002", updatedAt: "2026-04-07T00:00:00.000Z" }),
+        ],
+      }),
+    );
+
+    let resolveFetch: ((value: { sessions: ChatSession[] }) => void) | undefined;
+    mockFetchChatSessions.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+
+    const { result } = renderHook(() => useChat(projectId));
+
+    expect(result.current.sessions).toHaveLength(2);
+    expect(result.current.sessionsLoading).toBe(false);
+
+    act(() => {
+      resolveFetch?.({ sessions: [] });
+    });
+
+    await waitFor(() => {
+      expect(mockFetchChatSessions).toHaveBeenCalledWith(projectId);
+    });
+  });
+
+  it("writes sorted sessions to cache after successful refresh", async () => {
+    const projectId = "proj-write-through";
+    mockFetchChatSessions.mockResolvedValueOnce({
+      sessions: [
+        makeSession({ id: "session-001", agentId: "agent-001", updatedAt: "2026-04-08T00:00:00.000Z" }),
+        makeSession({ id: "session-003", agentId: "agent-003", updatedAt: "2026-04-10T00:00:00.000Z" }),
+        makeSession({ id: "session-002", agentId: "agent-002", updatedAt: "2026-04-09T00:00:00.000Z" }),
+      ],
+    });
+
+    renderHook(() => useChat(projectId));
+
+    await waitFor(() => {
+      const raw = localStorage.getItem(chatSessionsCacheKey(projectId));
+      expect(raw).toBeTruthy();
+      const parsed = JSON.parse(raw ?? "null") as { data: ChatSession[] };
+      expect(parsed.data.map((session) => session.id)).toEqual(["session-003", "session-002", "session-001"]);
+    });
+  });
+
+  it("keeps first-time load semantics when cache is missing", async () => {
+    const projectId = "proj-cache-miss";
+    mockFetchChatSessions.mockResolvedValueOnce({
+      sessions: [
+        makeSession({ id: "session-001", agentId: "agent-001", updatedAt: "2026-04-08T00:00:00.000Z" }),
+        makeSession({ id: "session-002", agentId: "agent-002", updatedAt: "2026-04-10T00:00:00.000Z" }),
+      ],
+    });
+
+    const { result } = renderHook(() => useChat(projectId));
+
+    expect(result.current.sessionsLoading).toBe(true);
+
+    await waitFor(() => {
+      expect(result.current.sessionsLoading).toBe(false);
+      expect(result.current.sessions.map((session) => session.id)).toEqual(["session-002", "session-001"]);
+    });
+  });
+
+  it("clears stale cache envelope when refresh fails with empty in-memory sessions", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-10T00:02:30.000Z"));
+
+    const projectId = "proj-empty-failure";
+    localStorage.setItem(
+      chatSessionsCacheKey(projectId),
+      JSON.stringify({
+        savedAt: new Date("2026-04-10T00:00:00.000Z").getTime(),
+        data: [makeSession({ id: "session-stale", agentId: "agent-001" })],
+      }),
+    );
+
+    mockFetchChatSessions.mockRejectedValueOnce(new Error("network down"));
+
+    const { result } = renderHook(() => useChat(projectId));
+
+    expect(result.current.sessions).toEqual([]);
+
+    await waitFor(() => {
+      expect(result.current.sessionsLoading).toBe(false);
+    });
+
+    expect(localStorage.getItem(chatSessionsCacheKey(projectId))).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it("preserves cache envelope when refresh fails after cached sessions hydrate", async () => {
+    const projectId = "proj-non-empty-failure";
+    localStorage.setItem(
+      chatSessionsCacheKey(projectId),
+      JSON.stringify({
+        savedAt: Date.now(),
+        data: [makeSession({ id: "session-cached", agentId: "agent-001" })],
+      }),
+    );
+
+    mockFetchChatSessions.mockRejectedValueOnce(new Error("network down"));
+
+    const { result } = renderHook(() => useChat(projectId));
+
+    expect(result.current.sessions).toHaveLength(1);
+
+    await waitFor(() => {
+      expect(result.current.sessionsLoading).toBe(false);
+    });
+
+    expect(localStorage.getItem(chatSessionsCacheKey(projectId))).toBeTruthy();
+  });
+
+  it("rehydrates cached sessions per project on project switch", async () => {
+    localStorage.setItem(
+      chatSessionsCacheKey("p1"),
+      JSON.stringify({ savedAt: Date.now(), data: [makeSession({ id: "session-p1", agentId: "agent-001" })] }),
+    );
+    localStorage.setItem(
+      chatSessionsCacheKey("p2"),
+      JSON.stringify({ savedAt: Date.now(), data: [makeSession({ id: "session-p2", agentId: "agent-002" })] }),
+    );
+
+    let deferredResolve: ((value: { sessions: ChatSession[] }) => void) | undefined;
+    mockFetchChatSessions.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          deferredResolve = resolve;
+        }),
+    );
+
+    const { result, rerender } = renderHook(({ projectId }: { projectId: string }) => useChat(projectId), {
+      initialProps: { projectId: "p1" },
+    });
+
+    expect(result.current.sessions.map((session) => session.id)).toEqual(["session-p1"]);
+    expect(result.current.sessionsLoading).toBe(false);
+
+    rerender({ projectId: "p2" });
+
+    expect(result.current.sessions.map((session) => session.id)).toEqual(["session-p2"]);
+    expect(result.current.sessionsLoading).toBe(false);
+
+    act(() => {
+      deferredResolve?.({ sessions: [] });
+    });
+  });
+
+  it("revalidates sessions in the background when projectId changes", async () => {
+    mockFetchChatSessions
+      .mockResolvedValueOnce({ sessions: [makeSession({ id: "session-p1", agentId: "agent-001" })] })
+      .mockResolvedValueOnce({ sessions: [makeSession({ id: "session-p2", agentId: "agent-002" })] });
+
+    const { rerender } = renderHook(({ projectId }: { projectId: string }) => useChat(projectId), {
+      initialProps: { projectId: "p1" },
+    });
+
+    await waitFor(() => {
+      expect(mockFetchChatSessions).toHaveBeenCalledWith("p1");
+    });
+
+    rerender({ projectId: "p2" });
+
+    await waitFor(() => {
+      expect(mockFetchChatSessions).toHaveBeenCalledWith("p2");
+    });
+    expect(mockFetchChatSessions).toHaveBeenCalledTimes(2);
   });
 
   it("sendMessage is synchronous and returns void", async () => {
