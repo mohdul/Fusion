@@ -4076,6 +4076,40 @@ describe("SettingsModal", () => {
       });
     });
 
+    it("keeps delay enabled when failure mode is terminal-only", async () => {
+      mockFetchSettings.mockResolvedValueOnce({
+        ...defaultSettings,
+        failureNotificationMode: "terminal-only",
+      });
+      renderModal();
+      await waitForSettingsModalReady();
+      await openNotificationsSection();
+
+      const modeSelect = screen.getByLabelText("Failure notification mode") as HTMLSelectElement;
+      const delayInput = screen.getByLabelText("Failure notification delay (ms)") as HTMLInputElement;
+
+      expect(modeSelect.value).toBe("terminal-only");
+      expect(delayInput).not.toBeDisabled();
+    });
+
+    it("persists terminal-only selection on save", async () => {
+      renderModal();
+      await waitForSettingsModalReady();
+      await openNotificationsSection();
+
+      const modeSelect = screen.getByLabelText("Failure notification mode") as HTMLSelectElement;
+      await userEvent.selectOptions(modeSelect, "terminal-only");
+      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => {
+        expect(mockUpdateGlobalSettings).toHaveBeenCalledWith(
+          expect.objectContaining({
+            failureNotificationMode: "terminal-only",
+          }),
+        );
+      });
+    });
+
     it.each([
       {
         provider: "ntfy",
