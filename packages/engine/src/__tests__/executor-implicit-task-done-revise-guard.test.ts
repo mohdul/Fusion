@@ -69,7 +69,7 @@ describe("FN-4946 implicit completion + REVISE verdict interaction", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("does not double-burn retry count when refusal is already handled", async () => {
+  it("handles implicit refusal once without falling into no-fn_task_done exhaustion handling", async () => {
     const store = createMockStore();
     const executor = new TaskExecutor(store as any, "/repo");
 
@@ -80,5 +80,13 @@ describe("FN-4946 implicit completion + REVISE verdict interaction", () => {
     );
     expect(retryCountUpdates).toHaveLength(1);
     expect(retryCountUpdates[0]?.[1]).toEqual(expect.objectContaining({ taskDoneRetryCount: 1 }));
+
+    const noFnTaskDoneEscalations = store.updateTask.mock.calls.filter(
+      ([id, patch]: [string, Record<string, unknown>]) =>
+        id === "FN-4946-R2"
+        && typeof patch.error === "string"
+        && patch.error.includes("Agent finished without calling fn_task_done"),
+    );
+    expect(noFnTaskDoneEscalations).toHaveLength(0);
   });
 });
