@@ -137,10 +137,6 @@ export {
   type DuplicateMatchInput,
 } from "./duplicate-detection.js";
 export { getTaskDuplicateLineage } from "./duplicate-lineage.js";
-export { DUPLICATE_OF_METADATA_KEY } from "./types.js";
-export {
-  getTaskDuplicateLineage,
-} from "./duplicate-lineage.js";
 export {
   findSameAgentDuplicates,
   archiveAsSameAgentDuplicate,

@@ -271,10 +271,9 @@ describe("TaskCard", () => {
     });
   });
 
-  it("archives done task when archive-instead is chosen", async () => {
+  it("hides delete button for done tasks while keeping archive action", () => {
     const onDeleteTask = vi.fn(async () => makeTask());
     const onArchiveTask = vi.fn(async () => makeTask({ column: "archived" }));
-    mockConfirmWithChoice.mockResolvedValueOnce("tertiary");
 
     render(
       <TaskCard
@@ -286,14 +285,8 @@ describe("TaskCard", () => {
       />,
     );
 
-    await act(async () => {
-      fireEvent.click(screen.getByLabelText("Delete task"));
-    });
-
-    await waitFor(() => {
-      expect(onArchiveTask).toHaveBeenCalledWith("FN-001");
-      expect(onDeleteTask).not.toHaveBeenCalled();
-    });
+    expect(screen.queryByLabelText("Delete task")).toBeNull();
+    expect(screen.getByLabelText("Archive task")).toBeDefined();
   });
 
   it("keeps two-button delete flow for non-done task", async () => {
