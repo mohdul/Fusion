@@ -206,6 +206,7 @@
 
 .pr-error__hint {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .pr-error__actions {
@@ -236,24 +237,6 @@
 
   .pr-create-modal__draft {
     align-self: start;
-  }
-
-  .pr-create-modal__preflight-row {
-    grid-template-columns: auto 1fr;
-  }
-
-  .pr-create-modal__preflight-row .status-dot {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .pr-create-modal__preflight-row svg {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
-  .pr-create-modal__preflight-row > div {
-    grid-column: 1 / -1;
   }
 
   .pr-create-modal__inline-actions {
