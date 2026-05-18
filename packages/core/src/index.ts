@@ -140,6 +140,13 @@ export {
 } from "./duplicate-detection.js";
 export { getTaskDuplicateLineage } from "./duplicate-lineage.js";
 export {
+  __getDeterministicGuardMutexSize,
+  runDeterministicDuplicateGuard,
+  reconcileDeterministicDuplicate,
+  type DeterministicGuardOptions,
+  type DeterministicGuardOutcome,
+} from "./duplicate-guard.js";
+export {
   findSameAgentDuplicates,
   archiveAsSameAgentDuplicate,
   type SameAgentDuplicateInput,
