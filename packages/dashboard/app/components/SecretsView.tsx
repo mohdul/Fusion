@@ -21,6 +21,8 @@ interface SecretsViewProps {
   addToast?: (msg: string, kind?: ToastKind) => void;
 }
 
+const RESERVED_SYNC_PASSPHRASE_KEY = "__sync_passphrase__";
+
 interface SecretFormState {
   key: string;
   value: string;
@@ -53,6 +55,11 @@ export const SecretsView = ({ addToast }: SecretsViewProps) => {
   const [showValue, setShowValue] = useState(false);
   const [revealedValues, setRevealedValues] = useState<Record<string, string | null>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [syncPassphraseConfigured, setSyncPassphraseConfigured] = useState(false);
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncPassphrase, setSyncPassphrase] = useState("");
+  const [syncPassphraseConfirm, setSyncPassphraseConfirm] = useState("");
+  const [syncSaving, setSyncSaving] = useState(false);
   const revealTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const copyTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
@@ -85,13 +92,62 @@ export const SecretsView = ({ addToast }: SecretsViewProps) => {
     }
   }, [request]);
 
+  const loadSyncPassphraseStatus = useCallback(async () => {
+    try {
+      const data = await request<{ configured: boolean }>("/api/secrets/sync-passphrase");
+      setSyncPassphraseConfigured(Boolean(data.configured));
+    } catch (err) {
+      addToast?.(`Failed to load sync passphrase status: ${err instanceof Error ? err.message : String(err)}`, "error");
+    }
+  }, [addToast, request]);
+
   useEffect(() => {
     void loadSecrets();
+    void loadSyncPassphraseStatus();
     return () => {
       revealTimersRef.current.forEach((timer) => clearTimeout(timer));
       copyTimersRef.current.forEach((timer) => clearTimeout(timer));
     };
-  }, [loadSecrets]);
+  }, [loadSecrets, loadSyncPassphraseStatus]);
+
+  const closeSyncModal = () => {
+    setSyncModalOpen(false);
+    setSyncPassphrase("");
+    setSyncPassphraseConfirm("");
+  };
+
+  const saveSyncPassphrase = async (passphrase: string) => {
+    await request<{ success: boolean }>("/api/secrets/sync-passphrase", {
+      method: "PUT",
+      body: JSON.stringify({ passphrase }),
+    });
+  };
+
+  const submitSyncPassphrase = async () => {
+    setSyncSaving(true);
+    try {
+      await saveSyncPassphrase(syncPassphrase);
+      addToast?.(syncPassphraseConfigured ? "Sync passphrase rotated" : "Sync passphrase set", "success");
+      closeSyncModal();
+      await loadSyncPassphraseStatus();
+    } catch (err) {
+      addToast?.(`Failed to save sync passphrase: ${err instanceof Error ? err.message : String(err)}`, "error");
+    } finally {
+      setSyncSaving(false);
+    }
+  };
+
+  const clearSyncPassphraseHandler = async () => {
+    const confirmed = window.confirm("Clear the cross-node sync passphrase? Existing sync pairs will stop working until you set a new passphrase.");
+    if (!confirmed) return;
+    try {
+      await request<{ success: boolean }>("/api/secrets/sync-passphrase", { method: "DELETE" });
+      addToast?.("Sync passphrase cleared", "success");
+      await loadSyncPassphraseStatus();
+    } catch (err) {
+      addToast?.(`Failed to clear sync passphrase: ${err instanceof Error ? err.message : String(err)}`, "error");
+    }
+  };
 
   const openCreate = () => {
     setEditing(null);
@@ -188,7 +244,14 @@ export const SecretsView = ({ addToast }: SecretsViewProps) => {
     await loadSecrets();
   };
 
-  const sortedSecrets = useMemo(() => [...secrets].sort((a, b) => a.key.localeCompare(b.key)), [secrets]);
+  const sortedSecrets = useMemo(
+    () => [...secrets]
+      .filter((secret) => !(secret.scope === "global" && secret.key === RESERVED_SYNC_PASSPHRASE_KEY))
+      .sort((a, b) => a.key.localeCompare(b.key)),
+    [secrets],
+  );
+
+  const syncPassphraseMatches = syncPassphrase.length > 0 && syncPassphrase === syncPassphraseConfirm;
 
   return (
     <section className="secrets-view">
@@ -199,6 +262,23 @@ export const SecretsView = ({ addToast }: SecretsViewProps) => {
           <button className="btn btn-primary btn-sm" onClick={openCreate}><Plus size={14} /> Add Secret</button>
         </div>
       </div>
+
+      <article className="card secrets-sync-card">
+        <div className="secrets-sync-header">
+          <div>
+            <h3>Cross-Node Sync Passphrase</h3>
+            <p className="secrets-sync-status"><span className={`status-dot ${syncPassphraseConfigured ? "status-dot--online" : "status-dot--pending"}`} aria-hidden="true" /> {syncPassphraseConfigured ? "Configured" : "Not configured"}</p>
+          </div>
+          <div className="secrets-sync-actions">
+            <button className="btn" onClick={() => setSyncModalOpen(true)}>{syncPassphraseConfigured ? "Rotate" : "Set passphrase"}</button>
+            {syncPassphraseConfigured ? <button className="btn btn-danger" onClick={() => void clearSyncPassphraseHandler()}>Clear</button> : null}
+          </div>
+        </div>
+        <p className="secrets-sync-copy">
+          Shared passphrase used to wrap cross-node secret bundles. Both nodes in a sync pair must share the same value. Stored locally only; never transmitted. {" "}
+          <a href="/docs/secrets.md#cross-node-sync" target="_blank" rel="noreferrer">Learn more</a>
+        </p>
+      </article>
 
       {error ? <div className="form-error">{error}</div> : null}
       {loading ? <div className="secrets-loading"><RefreshCw size={14} className="spin" /> Loading…</div> : null}
@@ -241,6 +321,21 @@ export const SecretsView = ({ addToast }: SecretsViewProps) => {
           );
         })}
       </div>
+
+      {syncModalOpen ? (
+        <div className="modal-overlay open" role="presentation">
+          <div className="modal" role="dialog" aria-modal="true" aria-label={syncPassphraseConfigured ? "Rotate sync passphrase" : "Set sync passphrase"}>
+            <div className="modal-header">
+              <h3>{syncPassphraseConfigured ? "Rotate sync passphrase" : "Set sync passphrase"}</h3>
+              <button className="modal-close" onClick={closeSyncModal} aria-label="Close">×</button>
+            </div>
+            <div className="form-group"><label>Passphrase</label><input aria-label="Passphrase" className="input" type="password" autoComplete="new-password" value={syncPassphrase} onChange={(e) => setSyncPassphrase(e.target.value)} /></div>
+            <div className="form-group"><label>Confirm passphrase</label><input aria-label="Confirm passphrase" className="input" type="password" autoComplete="new-password" value={syncPassphraseConfirm} onChange={(e) => setSyncPassphraseConfirm(e.target.value)} /></div>
+            {!syncPassphraseMatches && syncPassphraseConfirm.length > 0 ? <div className="form-error">Passphrases must match.</div> : null}
+            <div className="modal-actions"><div className="modal-actions-right"><button className="btn" onClick={closeSyncModal}>Cancel</button><button className="btn btn-primary" onClick={() => void submitSyncPassphrase()} disabled={!syncPassphraseMatches || syncSaving}>{syncPassphraseConfigured ? "Rotate" : "Set passphrase"}</button></div></div>
+          </div>
+        </div>
+      ) : null}
 
       {showModal ? (
         <div className="modal-overlay open" role="presentation">
