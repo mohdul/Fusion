@@ -14,7 +14,7 @@ describe("FN-4973: executor worktree conflict cleanup", () => {
     activeSessionRegistry.clear();
   });
 
-  it("reconciles stale self-owned registry entry before removal", async () => {
+  it("clears stale self-owned registry entry before removal", async () => {
     const store = createMockStore();
     const executor = new TaskExecutor(store, "/tmp/test");
     store.listTasks.mockResolvedValue([]);
@@ -28,7 +28,7 @@ describe("FN-4973: executor worktree conflict cleanup", () => {
     expect(activeSessionRegistry.lookupByPath(CONFLICT_PATH)).toBeNull();
     expect(store.logEntry).toHaveBeenCalledWith(
       "FN-4973",
-      "Reconciled stale self-owned active-session registration",
+      "Cleared stale self-owned activeSessionRegistry entry",
       CONFLICT_PATH,
     );
   });

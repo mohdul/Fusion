@@ -8881,7 +8881,7 @@ Backward compat fallback: if JSON is unavailable, you may still begin output wit
     taskId: string,
   ): Promise<boolean> {
     const activeSessionRecord = activeSessionRegistry.lookupByPath(worktreePath);
-    if (activeSessionRecord?.taskId === taskId) {
+    if (activeSessionRecord?.taskId === taskId && !this.hasActiveWorktreeBinding(taskId, worktreePath)) {
       executorLog.warn(
         `[FN-4976] ${taskId}: clearing stale self-owned activeSessionRegistry entry before cleanup for ${worktreePath}`,
       );
