@@ -8,7 +8,8 @@ import {
   ArrowRightLeft, 
   Settings,
   AlertTriangle,
-  Folder
+  Folder,
+  Trash2,
 } from "lucide-react";
 import type { ActivityFeedEntry } from "../api";
 
@@ -32,6 +33,8 @@ const TYPE_CONFIG: Record<ActivityFeedEntry["type"], {
   "task:merged": { label: "Merged", icon: GitMerge, color: "var(--color-success)" },
   "task:failed": { label: "Failed", icon: AlertTriangle, color: "var(--color-error)" },
   "task:duplicate-warning-overridden": { label: "Duplicate Override", icon: AlertTriangle, color: "var(--color-warning)" },
+  "task:auto-archived-ghost-bug": { label: "Auto-Archived (Ghost Bug)", icon: AlertTriangle, color: "var(--color-warning)" },
+  "task:auto-archived-duplicate": { label: "Auto-Archived (Duplicate)", icon: Trash2, color: "var(--text-muted)" },
   "settings:updated": { label: "Settings", icon: Settings, color: "var(--text-muted)" },
   "project:isolation-transition": { label: "Isolation", icon: Folder, color: "var(--color-info)" },
 };

@@ -113,6 +113,38 @@ describe("ActivityLogModal", () => {
     });
   });
 
+  it("renders labels and icons for auto-archived event types", async () => {
+    mockFetchActivityLog.mockResolvedValueOnce([
+      {
+        id: "ghost",
+        timestamp: new Date().toISOString(),
+        type: "task:auto-archived-ghost-bug",
+        details: "Auto-archived ghost bug task",
+      },
+      {
+        id: "duplicate",
+        timestamp: new Date().toISOString(),
+        type: "task:auto-archived-duplicate",
+        details: "Auto-archived duplicate task",
+      },
+    ]);
+
+    const { container } = render(
+      <ActivityLogModal
+        isOpen={true}
+        onClose={mockOnClose}
+        tasks={mockTasks}
+        onOpenTaskDetail={mockOnOpenTaskDetail}
+      />,
+    );
+
+    expect(await screen.findByText("Task Auto-Archived (Ghost Bug)")).toBeTruthy();
+    expect(await screen.findByText("Task Auto-Archived (Duplicate)")).toBeTruthy();
+
+    const icons = container.querySelectorAll(".activity-log-entry-icon .activity-icon");
+    expect(icons).toHaveLength(2);
+  });
+
   it("calls onClose when close button clicked", async () => {
     render(
       <ActivityLogModal

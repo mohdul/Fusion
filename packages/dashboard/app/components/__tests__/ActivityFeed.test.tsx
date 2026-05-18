@@ -17,6 +17,7 @@ vi.mock("lucide-react", async () => {
     Settings: () => <span data-testid="settings-icon">⚙</span>,
     AlertTriangle: () => <span data-testid="alert-icon">⚠</span>,
     Folder: () => <span data-testid="folder-icon">📁</span>,
+    Trash2: () => <span data-testid="trash-icon">🗑</span>,
   };
 });
 
@@ -134,7 +135,9 @@ describe("ActivityFeed", () => {
       makeEntry({ id: "4", type: "task:deleted" }),
       makeEntry({ id: "5", type: "task:merged" }),
       makeEntry({ id: "6", type: "task:failed" }),
-      makeEntry({ id: "7", type: "settings:updated" }),
+      makeEntry({ id: "7", type: "task:auto-archived-ghost-bug" }),
+      makeEntry({ id: "8", type: "task:auto-archived-duplicate" }),
+      makeEntry({ id: "9", type: "settings:updated" }),
     ];
     
     render(<ActivityFeed entries={entries} />);
@@ -145,6 +148,8 @@ describe("ActivityFeed", () => {
     expect(screen.getByText("Deleted")).toBeDefined();
     expect(screen.getByText("Merged")).toBeDefined();
     expect(screen.getByText("Failed")).toBeDefined();
+    expect(screen.getByText("Auto-Archived (Ghost Bug)")).toBeDefined();
+    expect(screen.getByText("Auto-Archived (Duplicate)")).toBeDefined();
     expect(screen.getByText("Settings")).toBeDefined();
   });
 
