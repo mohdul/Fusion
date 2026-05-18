@@ -24,6 +24,14 @@ export interface SecretRecord {
   lastReadBy: string | null;
 }
 
+export interface EnvExportableSecret {
+  id: string;
+  key: string;
+  exportKey: string;
+  scope: SecretScope;
+  plaintextValue: string;
+}
+
 interface SecretRow {
   id: string;
   key: string;
@@ -132,6 +140,50 @@ export class SecretsStore {
     }
 
     return [...this.listSecrets("project"), ...this.listSecrets("global")];
+  }
+
+  async listEnvExportable(opts?: { keyPrefix?: string }): Promise<EnvExportableSecret[]> {
+    const keyPrefix = opts?.keyPrefix;
+    const projectRows = this.listSecrets("project");
+    const globalRows = this.listSecrets("global");
+    const exported = new Map<string, EnvExportableSecret>();
+
+    const collect = async (row: SecretRecord): Promise<void> => {
+      if (!row.envExportable) return;
+      if (keyPrefix && !row.key.startsWith(keyPrefix)) return;
+      const exportKey = row.envExportKey?.trim() || row.key;
+      if (exported.has(exportKey)) {
+        if (row.scope === "global") {
+          console.debug(`[secrets-store] dropping global env export key due to project override: ${exportKey}`);
+        }
+        return;
+      }
+      try {
+        const revealed = await this.revealSecret(row.id, row.scope, {
+          agentId: null,
+          userId: "fusion:secrets-env-writer",
+        });
+        exported.set(exportKey, {
+          id: row.id,
+          key: row.key,
+          exportKey,
+          scope: row.scope,
+          plaintextValue: revealed.plaintextValue,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`[secrets-store] failed to reveal env exportable secret ${row.scope}:${row.key}: ${message}`);
+      }
+    };
+
+    for (const row of projectRows) {
+      await collect(row);
+    }
+    for (const row of globalRows) {
+      await collect(row);
+    }
+
+    return [...exported.values()];
   }
 
   getSecretMetadata(id: string, scope: SecretScope): SecretRecord | null {
