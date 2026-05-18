@@ -64,7 +64,7 @@ The current implementation exposes a `MasterKeyProvider` abstraction consumed by
 - Required contract: async provider that returns a **32-byte** key.
 - Validation failures return non-sensitive `SecretCryptoError` codes.
 
-⚠️ Runtime keychain/filesystem resolution and rotation workflow are not yet wired in this branch. Track follow-up: **FN-4867**.
+Runtime keychain/filesystem resolution is wired via `MasterKeyProvider` and consumed by `SecretsStore`; rotation UX remains follow-up work.
 
 ## Access Policies
 
@@ -85,15 +85,23 @@ Implementation references:
 - `packages/core/src/secret-access-policy.ts`
 - `packages/core/src/types.ts` (`GlobalSettings.secretsAccessPolicy`)
 
-⚠️ Approval API integration (`POST /api/approvals/:id/decision`) for secret reads is not yet wired in this branch. Track follow-up: **FN-4867**.
+Approval integration is active through `fn_secret_get` policy handling (`packages/cli/src/extension.ts:1581-1611`) and approvals lifecycle APIs.
 
 ## Dashboard CRUD
 
-⚠️ A dedicated dashboard `SecretsView` is not present in this branch. Secret CRUD currently exists at the core store layer only. Track follow-up: **FN-4867**.
+Secret persistence primitives are shipped at the store/API layer; a dedicated end-user `SecretsView` remains separate product work.
 
 ## Agent Access (`fn_secret_get`)
 
-⚠️ The `fn_secret_get` pi-extension tool is not present in `packages/cli/src/extension.ts` in this branch. Any tool signature, resolution order, and runtime return contract remain pending implementation. Track follow-up: **FN-4867**.
+`fn_secret_get` is shipped in `packages/cli/src/extension.ts:1542-1629`.
+
+Tool contract:
+- Params: `key` (required), `scope` (`project` or `global`, optional).
+- Resolution: key lookup in requested scope; missing key returns not-found result without plaintext.
+- Policy outcomes:
+  - `auto` → reveals and returns plaintext value (`secret:read` audit at `extension.ts:1615`).
+  - `prompt` → creates approval request and returns `details.outcome: "pending_approval"` (`extension.ts:1607-1611`).
+  - `deny` → immediate refusal and `secret:approval-denied` audit (`extension.ts:1581-1583`).
 
 ## `.env` Auto-write into Worktrees
 
@@ -105,7 +113,7 @@ Fusion can materialize env-exportable secrets into each acquired task worktree w
 - Fingerprint sidecar: successful writes persist `.fusion-secrets-env.fingerprint` containing `<sha256>\n<filename>\n` (mode `0o600`) so teardown can verify file integrity before deletion.
 - Teardown cleanup: when a worktree is removed, Fusion deletes the managed env file only when the on-disk fingerprint still matches; edited files are preserved and only the sidecar is removed.
 
-Remaining non-env follow-up work (tool wiring, approvals, sync UX/polish) continues under **FN-4867**.
+Settings shape is project-scoped in `ProjectSettings` (`packages/core/src/types.ts:2599-2609`): `secretsEnv` (env materialization config) and `secretsSyncPassphrase` (ciphertext already wrapped under local master key by caller; see `types.ts:2602-2604`).
 
 ## Cross-node Sync
 
@@ -116,7 +124,7 @@ Fusion now exposes four secrets sync endpoints:
 - `POST /api/secrets/sync-receive` — inbound apply endpoint (Bearer `apiKey` required).
 - `GET /api/secrets/sync-export` — inbound export endpoint (Bearer `apiKey` required).
 
-Envelope format is `WrappedSecretsBundle` from `packages/core/src/secrets-sync.ts`: `{ version, ciphertext, salt, nonce, kdf, kdfParams }` plus transport metadata (`sourceNodeId`, `exportedAt`). Wrapping uses scrypt (`N=32768, r=8, p=1, keyLen=32`) and AES-256-GCM with fresh 12-byte nonce + 16-byte salt per export. `TODO(FN-4867)` remains for planned Argon2id migration.
+Envelope format is `WrappedSecretsBundle` from `packages/core/src/secrets-sync.ts:33-38`: `{ version, ciphertext, salt, nonce, kdf, kdfParams }` plus transport metadata (`sourceNodeId`, `exportedAt`). Wrapping uses scrypt (`N=32768, r=8, p=1, keyLen=32`, `secrets-sync.ts:17-22`) and AES-256-GCM with base64 `ciphertext`/`salt`/`nonce` (`secrets-sync.ts:68-78`).
 
 Sync passphrase storage is local-only: reserved key `__sync_passphrase__` in `secrets_global` with `access_policy="deny"` and `env_exportable=false`, encrypted under the local master key. The passphrase is never transmitted and never returned by HTTP endpoints.
 
@@ -126,10 +134,7 @@ Error mapping:
 - Missing passphrase returns HTTP `400` with `{ "error": "passphrase-not-configured" }`.
 - Bearer auth failures return HTTP `401`.
 
-Audit events emitted on apply/send paths:
-
-- `secret:sync-push`
-- `secret:sync-pull`
+Inbound auth contract is enforced in route code (`packages/dashboard/src/routes/register-secrets-sync-inbound-routes.ts:99-114`, `:181-196`): missing/invalid Bearer `Authorization` or mismatched local `apiKey` returns 401.
 
 Audit payloads exclude plaintext values, passphrases, and envelope crypto material (`ciphertext`, `salt`, `nonce`).
 
@@ -151,11 +156,10 @@ Filesystem-domain secret audit taxonomy:
 - `secret:env-cleanup`
 - `secret:env-cleanup-skipped`
 
-Wired in this branch/task lineage: `secret:read`, `secret:create`, `secret:update`, `secret:delete`, and approval events (`secret:approval-requested`, `secret:approval-granted`, `secret:approval-denied`).
+All listed events are enumerated in `packages/engine/src/run-audit.ts:261-274` (union at `run-audit.ts:325`). Route/tool emitters include: `secret:sync-push` (`packages/dashboard/src/routes/register-secrets-sync-routes.ts:92`), `secret:sync-pull` (`register-secrets-sync-routes.ts:180`, `register-secrets-sync-inbound-routes.ts:158-164`), `secret:read` + approval events (`packages/cli/src/extension.ts:1581-1615`), env materialization/cleanup (`packages/engine/src/secrets-env-writer.ts:99-217`).
 
-Pending follow-ups:
-- Sync endpoint/event integration details continue under **FN-4913** (`secret:sync-push`, `secret:sync-pull`).
-- Non-env secret platform follow-ons remain tracked under **FN-4867** (tool wiring, approval UX, sync passphrase/runtime surfaces).
+Track follow-up: **FN-5031** (missing `packages/core/src/__tests__/secrets-env.test.ts` contract file).
+Track follow-up: **FN-5032** (`docs/settings-reference.md` still marks shipped secrets settings as planned in some rows).
 
 **Plaintext prohibition:** audit payload metadata must never include plaintext, decrypted values, ciphertext, or nonce fields. Use `assertNoSecretPlaintext(...)` as the canonical enforcement helper before emitting secret audit events.
 
@@ -163,9 +167,6 @@ Pending follow-ups:
 
 - Backups: preserve both SQLite data and master-key material/provider source used by deployment.
 - If master key material is lost, encrypted secret values become unrecoverable.
-- Out-of-scope / pending integration items for this branch:
-  - Full runtime master-key management + rotation UX
-  - `fn_secret_get` tool surface
-  - Additional secrets platform follow-ons tracked under FN-4867 (tool wiring, approval/sync UX, advanced rotation/profile capabilities)
-  - Cross-node secret sync endpoints/passphrase exchange
-  - Advanced capabilities (TTL/rotation automation, env-set profiles, KMS/Vault backends, per-node asymmetric sync)
+- Pending advanced capabilities:
+  - Full rotation UX and key lifecycle tooling
+  - TTL/rotation automation, env-set profiles, KMS/Vault backends, per-node asymmetric sync

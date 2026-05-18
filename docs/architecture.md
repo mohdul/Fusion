@@ -256,7 +256,7 @@ Per-secret policy/metadata:
 - Environment materialization metadata is stored on each secret:
   - `envExportable: boolean`
   - `envExportKey: string | null`
-  - Actual worktree `.env` materialization behavior is tracked separately (FN-4794); these fields are the metadata contract that drives that future flow.
+  - Engine worktree acquisition now materializes managed env files when `ProjectSettings.secretsEnv.enabled` is true (see `packages/engine/src/worktree-acquisition.ts:345-483` and `packages/engine/src/secrets-env-writer.ts`).
 - Read provenance is captured on reveal via `lastReadAt` and `lastReadBy`.
 
 Error contract:
@@ -271,7 +271,11 @@ Public API surface:
 - `revealSecret(id, scope, { agentId?, userId? }): Promise<{ key, plaintextValue }>` (the only decrypting method; updates read provenance)
 
 Settings boundary:
-- There is currently no top-level project/global setting that governs secrets behavior; access policy is defined per secret row. A global default policy is future work (FN-4792).
+- Global default policy: `GlobalSettings.secretsAccessPolicy` (used by `resolveSecretAccessPolicy`).
+- Project-level secrets settings: `ProjectSettings.secretsEnv` and `ProjectSettings.secretsSyncPassphrase` (`packages/core/src/types.ts:2599-2609`).
+- `secretsSyncPassphrase` must be pre-wrapped ciphertext under local master key by caller (`packages/core/src/types.ts:2602-2604`).
+- Agent secret reads are exposed via `fn_secret_get` (`packages/cli/src/extension.ts:1542-1629`).
+- Cross-node sync routes ship at `/api/nodes/:id/secrets/push`, `/api/nodes/:id/secrets/pull`, `/api/secrets/sync-receive`, `/api/secrets/sync-export` with inbound Bearer apiKey validation (`packages/dashboard/src/routes/register-secrets-sync-inbound-routes.ts:99-114`, `:181-196`).
 
 ### Mesh state read path for dashboard topology
 
