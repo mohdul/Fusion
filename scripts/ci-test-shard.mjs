@@ -86,17 +86,104 @@ export function countPackageTestFiles(packageDir, { projectRoot = process.cwd() 
  * @typedef {ShardEntry & { weight: number }} WeightedShardEntry
  */
 
+const DEFAULT_BALANCE_TOLERANCE = 0.05;
+
+function appendSplitEntries(result, pkg, total, perShardBudget) {
+  const sliceCount = Math.min(total, Math.max(2, Math.ceil(pkg.testFileCount / perShardBudget)));
+  const sliceWeight = Math.ceil(pkg.testFileCount / sliceCount);
+  for (let i = 1; i <= sliceCount; i += 1) {
+    result.push({
+      name: pkg.name,
+      weight: sliceWeight,
+      shardIndex: i,
+      shardCount: sliceCount,
+    });
+  }
+}
+
+function splitEntry(entry, total, perShardBudget) {
+  const splitEntries = [];
+  appendSplitEntries(splitEntries, { name: entry.name, testFileCount: entry.weight }, total, perShardBudget);
+  return splitEntries;
+}
+
+function assignWeightedEntries(entries, total) {
+  const totalWeight = entries.reduce((sum, entry) => sum + entry.weight, 0);
+  const perShardBudget = total > 0 ? totalWeight / total : 0;
+  const shardWeights = Array.from({ length: total }, () => 0);
+  const shardAssignments = Array.from({ length: total }, () => []);
+  const sorted = [...entries].sort((a, b) => {
+    if (b.weight !== a.weight) return b.weight - a.weight;
+    const byName = a.name.localeCompare(b.name);
+    if (byName !== 0) return byName;
+    return (a.shardIndex ?? 0) - (b.shardIndex ?? 0);
+  });
+
+  for (const entry of sorted) {
+    const eligibleIndices = [];
+    for (let index = 0; index < total; index += 1) {
+      const alreadyHasSlice =
+        entry.shardCount &&
+        shardAssignments[index].some((assigned) => assigned.name === entry.name && assigned.shardCount);
+      if (!alreadyHasSlice) {
+        eligibleIndices.push(index);
+      }
+    }
+
+    const candidates = eligibleIndices.length > 0 ? eligibleIndices : Array.from({ length: total }, (_, i) => i);
+    let bestUnderBudgetIndex = null;
+    let bestUnderBudgetProjected = Number.NEGATIVE_INFINITY;
+    let bestOvershootIndex = null;
+    let bestOvershootProjected = Number.POSITIVE_INFINITY;
+
+    for (const index of candidates) {
+      const projected = shardWeights[index] + entry.weight;
+      if (projected <= perShardBudget) {
+        if (
+          projected > bestUnderBudgetProjected ||
+          (projected === bestUnderBudgetProjected && (bestUnderBudgetIndex === null || index < bestUnderBudgetIndex))
+        ) {
+          bestUnderBudgetIndex = index;
+          bestUnderBudgetProjected = projected;
+        }
+        continue;
+      }
+
+      if (
+        projected < bestOvershootProjected ||
+        (projected === bestOvershootProjected && (bestOvershootIndex === null || index < bestOvershootIndex))
+      ) {
+        bestOvershootIndex = index;
+        bestOvershootProjected = projected;
+      }
+    }
+
+    const targetIndex = bestUnderBudgetIndex ?? bestOvershootIndex ?? candidates[0] ?? 0;
+    shardAssignments[targetIndex].push(entry);
+    shardWeights[targetIndex] += entry.weight;
+  }
+
+  return { shardWeights, perShardBudget };
+}
+
 /**
+ * Two-pass split planner:
+ * 1) threshold pass keeps existing behavior (`threshold`, default 0.5), and
+ * 2) balance pass force-splits remaining unsplit packages when keeping them
+ *    whole would exceed the configured max variance target (default 5%).
+ *
  * @param {Array<{name:string, testFileCount:number}>} packages
  * @param {number} total
- * @param {{ threshold?: number }} [options]
+ * @param {{ threshold?: number, balanceTolerance?: number }} [options]
  * @returns {WeightedShardEntry[]}
  */
 export function computeSplitPlan(packages, total, options = {}) {
   const threshold = options.threshold ?? 0.5;
+  const balanceTolerance = options.balanceTolerance ?? DEFAULT_BALANCE_TOLERANCE;
   const totalWeight = packages.reduce((sum, p) => sum + p.testFileCount, 0);
   const perShardBudget = total > 0 ? totalWeight / total : 0;
   const splitLimit = perShardBudget * threshold;
+  const maxAllowedProjected = perShardBudget * (1 + balanceTolerance);
 
   const result = [];
   for (const pkg of packages) {
@@ -105,27 +192,56 @@ export function computeSplitPlan(packages, total, options = {}) {
       pkg.testFileCount > 0 &&
       perShardBudget > 0 &&
       pkg.testFileCount > splitLimit;
-    const sliceCount = shouldConsiderSplit
-      ? Math.min(total, Math.max(2, Math.ceil(pkg.testFileCount / perShardBudget)))
-      : 1;
 
-    if (sliceCount < 2) {
+    if (!shouldConsiderSplit) {
       result.push({ name: pkg.name, weight: pkg.testFileCount });
       continue;
     }
 
-    const sliceWeight = Math.ceil(pkg.testFileCount / sliceCount);
-    for (let i = 1; i <= sliceCount; i += 1) {
-      result.push({
-        name: pkg.name,
-        weight: sliceWeight,
-        shardIndex: i,
-        shardCount: sliceCount,
-      });
-    }
+    appendSplitEntries(result, pkg, total, perShardBudget);
   }
 
-  return result;
+  if (total <= 1 || perShardBudget <= 0 || balanceTolerance <= 0) {
+    return result;
+  }
+
+  if (!Number.isFinite(threshold) || threshold > 1) {
+    return result;
+  }
+
+  const forceSplitThreshold = splitLimit * threshold;
+  let rebalanceResult = result.map((entry) => {
+    if (entry.shardCount) return entry;
+    const projectedBestCaseMax = perShardBudget + entry.weight;
+    const shouldForceSplit =
+      entry.weight > 0 &&
+      entry.weight > forceSplitThreshold &&
+      projectedBestCaseMax > maxAllowedProjected;
+    return shouldForceSplit ? splitEntry(entry, total, perShardBudget) : entry;
+  }).flat();
+
+  while (true) {
+    const { shardWeights } = assignWeightedEntries(rebalanceResult, total);
+    const varianceRatio = (Math.max(...shardWeights) - Math.min(...shardWeights)) / perShardBudget;
+    if (!(varianceRatio > balanceTolerance)) {
+      return rebalanceResult;
+    }
+
+    const nextCandidate = rebalanceResult
+      .filter((entry) => !entry.shardCount && entry.weight > perShardBudget * balanceTolerance)
+      .sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name))[0];
+
+    if (!nextCandidate) {
+      return rebalanceResult;
+    }
+
+    rebalanceResult = rebalanceResult.flatMap((entry) => {
+      if (!entry.shardCount && entry.name === nextCandidate.name && entry.weight === nextCandidate.weight) {
+        return splitEntry(entry, total, perShardBudget);
+      }
+      return entry;
+    });
+  }
 }
 
 /**
