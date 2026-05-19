@@ -1837,7 +1837,7 @@ export function createDelegateTaskTool(
 
       try {
         // Create task assigned to the target agent
-        const { task } = await createAgentTask(taskStore, {
+        const { task, wasDuplicate } = await createAgentTask(taskStore, {
           description: params.description,
           dependencies: params.dependencies,
           column: "todo",
@@ -1852,7 +1852,7 @@ export function createDelegateTaskTool(
         return {
           content: [{
             type: "text" as const,
-            text: `Delegated to ${agent.name} (${agent.id}): Created ${task.id}${deps}. ` +
+            text: `Delegated to ${agent.name} (${agent.id}): ${wasDuplicate ? "Linked existing" : "Created"} ${task.id}${deps}. ` +
               `The task will be picked up by ${agent.name} on their next heartbeat cycle.`,
           }],
           details: { taskId: task.id, agentId: agent.id, agentName: agent.name },
