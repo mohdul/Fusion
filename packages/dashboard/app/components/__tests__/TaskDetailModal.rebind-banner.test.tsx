@@ -8,7 +8,7 @@ import { makeTask, noop, noopDelete, noopMerge, noopMove, noopOpenDetail, setupT
 setupTaskDetailModalHooks();
 
 describe("TaskDetailModal rebind banner", () => {
-  it("shows banner only for in-review tasks with missing branch/worktree", () => {
+  it("shows banner only for in-review tasks with missing branch", () => {
     const { rerender } = render(
       <TaskDetailModal
         task={makeTask({ column: "in-review", branch: null, worktree: "/tmp/wt" })}
@@ -21,7 +21,7 @@ describe("TaskDetailModal rebind banner", () => {
       />,
     );
 
-    expect(screen.getByText("Branch binding lost")).toBeTruthy();
+    expect(screen.getByText("Branch needs reattachment")).toBeTruthy();
 
     rerender(
       <TaskDetailModal
@@ -34,7 +34,8 @@ describe("TaskDetailModal rebind banner", () => {
         addToast={noop}
       />,
     );
-    expect(screen.getByText("Branch binding lost")).toBeTruthy();
+    // FN-5113: branch present + worktree cleared is the healthy post-handoff/post-rebind state (see AGENTS.md FN-5083). Banner must NOT show.
+    expect(screen.queryByText("Branch needs reattachment")).toBeNull();
 
     rerender(
       <TaskDetailModal
@@ -47,7 +48,7 @@ describe("TaskDetailModal rebind banner", () => {
         addToast={noop}
       />,
     );
-    expect(screen.queryByText("Branch binding lost")).toBeNull();
+    expect(screen.queryByText("Branch needs reattachment")).toBeNull();
   });
 
   it("calls recover endpoint and renders applied result", async () => {
@@ -72,10 +73,10 @@ describe("TaskDetailModal rebind banner", () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Recover from branch" }));
+    await userEvent.click(screen.getByRole("button", { name: "Reattach branch" }));
 
     expect(recoverSpy).toHaveBeenCalledWith("FN-099", undefined);
-    expect(await screen.findByText(/Recovered fusion\/fn-099/)).toBeTruthy();
+    expect(await screen.findByText(/Reattached fusion\/fn-099/)).toBeTruthy();
   });
 
   it("renders skipped reason and candidates", async () => {
@@ -101,9 +102,9 @@ describe("TaskDetailModal rebind banner", () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Recover from branch" }));
+    await userEvent.click(screen.getByRole("button", { name: "Reattach branch" }));
 
-    expect(await screen.findByText(/Recovery skipped: ambiguous-candidates/)).toBeTruthy();
+    expect(await screen.findByText(/Reattachment skipped: ambiguous-candidates/)).toBeTruthy();
     expect(screen.getByText(/fusion\/FN-099/)).toBeTruthy();
   });
 });
