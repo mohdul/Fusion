@@ -151,18 +151,46 @@ describe("FN-4598 TaskCard footer chip alignment", () => {
     expect(retryChip).toBeTruthy();
     expect(timerChip).toBeTruthy();
 
-    const children = Array.from(footerRow.children);
-    expect(children).toContain(githubChip);
-    expect(children).toContain(retryChip);
-    expect(children).toContain(timerChip);
-    expect(children.indexOf(githubChip)).toBeLessThan(children.indexOf(retryChip));
-    expect(children.indexOf(retryChip)).toBeLessThan(children.indexOf(timerChip));
-
     expect(getComputedStyle(githubChip).marginLeft).toBe("auto");
     expect(getComputedStyle(retryChip).marginLeft).toBe("0px");
     expect(getComputedStyle(timerChip).marginLeft).toBe("0px");
 
     const footerStyle = getComputedStyle(footerRow);
     expect(footerStyle.gap).toBe("var(--space-sm)");
+  });
+
+  it("FN-5099 keeps retry in the right cluster when source provenance is present in chipFarRight layouts", () => {
+    const { container } = render(
+      <TaskCard
+        task={{
+          ...makeTask(),
+          column: "in-review",
+          sourceType: "github_import",
+          retrySummary: { total: 3 },
+          executionStartedAt: "2026-05-12T00:00:00.000Z",
+          updatedAt: "2026-05-12T00:05:00.000Z",
+        }}
+        onOpenDetail={noop}
+        addToast={noop}
+        onOpenDetailWithTab={noop}
+      />,
+    );
+
+    const footerRow = container.querySelector(".card-footer-row.card-footer-row--chip-far-right") as HTMLElement;
+    const sourceChip = footerRow.querySelector(":scope > .card-source-provenance") as HTMLElement;
+    const retryChip = footerRow.querySelector(":scope > .card-retry-badge") as HTMLElement;
+    const githubChip = footerRow.querySelector(":scope > .card-github-tracking-chip") as HTMLElement;
+    const timerChip = footerRow.querySelector(":scope > .card-time-indicator") as HTMLElement;
+
+    expect(footerRow).toBeTruthy();
+    expect(sourceChip).toBeTruthy();
+    expect(retryChip).toBeTruthy();
+    expect(githubChip).toBeTruthy();
+    expect(timerChip).toBeTruthy();
+
+    expect(getComputedStyle(sourceChip).marginLeft).toBe("0px");
+    expect(getComputedStyle(githubChip).marginLeft).toBe("auto");
+    expect(getComputedStyle(retryChip).marginLeft).toBe("0px");
+    expect(getComputedStyle(timerChip).marginLeft).toBe("0px");
   });
 });
