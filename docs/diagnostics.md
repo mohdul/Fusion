@@ -33,3 +33,11 @@ Operator interpretation:
 - `surface-stale-paused-reviews`
   - Log prefix: `Stale paused review surfaced [stale-paused-review]: paused ...`
   - Purpose: paused in-review backlog-health detector gated by `stalePausedReviewThresholdMs`.
+
+## No-progress churn stuck-task escalation (`[executor]`, `[stuck-detector]`, `[self-healing]`)
+
+- Trigger shape: one loop classification/compact-and-resume has already fired for the current `execute()` lifecycle, then ignored `fn_task_update` rebuffs accumulate to `ignoredStepUpdateCount >= 25` without intervening progress.
+- Executor diagnostic: `[executor] <taskId>: no-progress churn detected (ignoredStepUpdates=N, stuckKillStreak=M) — escalating to STUCK_NO_PROGRESS_CHURN`.
+- Self-healing diagnostic: `<taskId> no-progress churn detected (ignoredStepUpdates=N, stuckKillStreak=M) — marking failed`.
+- Audit event: `task:stuck-no-progress-churn-terminalized` with `{ taskId, ignoredStepUpdateCount, stuckKillStreak, lastReason: "no-progress-churn" }`.
+- Outcome: task is marked `status: "failed"`, moved to `in-review`, and not requeued; operators should decompose/rescope the task instead of waiting for more automatic stuck-kill retries.
