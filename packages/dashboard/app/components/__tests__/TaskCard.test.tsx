@@ -3036,6 +3036,18 @@ describe("TaskCard", () => {
       expectedLabel: null,
     },
     {
+      name: "clamps live diff count when landed files are attribution-restricted",
+      diff: { stats: { filesChanged: 5, additions: 10, deletions: 2 }, loading: false },
+      mergeDetails: { landedFilesAttributionRestricted: true, landedFiles: ["a.ts"] },
+      expectedLabel: "1 file changed",
+    },
+    {
+      name: "does not clamp when attribution restriction is absent",
+      diff: { stats: { filesChanged: 5, additions: 10, deletions: 2 }, loading: false },
+      mergeDetails: { landedFiles: ["a.ts"] },
+      expectedLabel: "5 files changed",
+    },
+    {
       name: "uses singular grammar for one live file",
       diff: { stats: { filesChanged: 1, additions: 1, deletions: 0 }, loading: false },
       mergeDetails: undefined,
