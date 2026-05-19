@@ -4095,6 +4095,8 @@ export class SelfHealingManager {
    * Non-overlap contract:
    * - `surfaceStalePausedReviews()` owns paused in-review tasks.
    * - `surfaceInReviewStalls()` owns reason-driven in-review stalls.
+   *
+   * No-op when `settings.autoMerge === false` — PR-based review flow owns lifecycle until human merge.
    */
   async surfaceInReviewStalled(): Promise<number> {
     try {
@@ -4254,10 +4256,10 @@ export class SelfHealingManager {
   async recoverGhostReviewTasks(): Promise<number> {
     try {
       const settings = await this.store.getSettings();
-      const timeoutMs = settings.taskStuckTimeoutMs;
-      if (!timeoutMs || timeoutMs <= 0) return 0;
       if (settings.globalPause || settings.enginePaused) return 0;
       if (settings.autoMerge === false) return 0;
+      const timeoutMs = settings.taskStuckTimeoutMs;
+      if (!timeoutMs || timeoutMs <= 0) return 0;
 
       const now = Date.now();
       const executingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
