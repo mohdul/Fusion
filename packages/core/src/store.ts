@@ -882,6 +882,8 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   private lastKnownModified: number = 0;
   /** ISO timestamp of last poll — used to filter changed tasks */
   private lastPollTime: string | null = null;
+  /** One-shot startup sweep flag for clearing stale pause fields on done tasks. */
+  private donePauseBackfillDone = false;
   /** Short-lived startup memo for repeated slim listTasks reads before steady-state watch/polling. */
   private startupSlimListMemo = new Map<string, { expiresAt: number; promise: Promise<Task[]> }>();
   private static readonly STARTUP_SLIM_LIST_MEMO_TTL_MS = 2_500;
@@ -6511,6 +6513,25 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     this.taskCache.clear();
     for (const task of tasks) {
       this.taskCache.set(task.id, { ...task });
+    }
+
+    if (!this.donePauseBackfillDone) {
+      const repairedTaskIds: string[] = [];
+      for (const [taskId, cachedTask] of this.taskCache.entries()) {
+        if (cachedTask.column !== "done") continue;
+        if (!this.clearDoneTransientFields(cachedTask)) continue;
+
+        await this.atomicWriteTaskJson(this.taskDir(taskId), cachedTask);
+        this.taskCache.set(taskId, { ...cachedTask });
+        repairedTaskIds.push(taskId);
+      }
+      this.donePauseBackfillDone = true;
+
+      storeLog.info("done-task pause metadata backfill completed", {
+        phase: "watch:done-pause-backfill",
+        repairedCount: repairedTaskIds.length,
+        repairedTaskIds: repairedTaskIds.slice(0, 20),
+      });
     }
 
     // Store current lastModified

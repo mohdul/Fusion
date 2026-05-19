@@ -120,7 +120,7 @@ export function probeFts5(db: DatabaseSync): boolean {
 
 // ── Schema Definition ────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 87;
+const SCHEMA_VERSION = 88;
 
 function normalizeTaskComments(
   steeringComments: SteeringComment[] | undefined,
@@ -3430,6 +3430,28 @@ export class Database {
       this.applyMigration(87, () => {
         this.addColumnIfMissing("tasks", "deletedAt", "TEXT");
         this.db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_deletedAt ON tasks(deletedAt)");
+      });
+    }
+
+    if (version < 88) {
+      this.applyMigration(88, () => {
+        try {
+          const result = this.db
+            .prepare(`UPDATE tasks
+                SET paused = 0,
+                    userPaused = 0,
+                    pausedByAgentId = NULL,
+                    pausedReason = NULL
+              WHERE column = 'done'
+                AND (paused = 1
+                  OR userPaused = 1
+                  OR pausedByAgentId IS NOT NULL
+                  OR pausedReason IS NOT NULL)`)
+            .run();
+          console.log(`[done-paused-backfill] db.ts migration repaired ${result.changes} done task rows`);
+        } catch (error) {
+          console.warn("[done-paused-backfill] db.ts migration failed", error);
+        }
       });
     }
 
