@@ -28,17 +28,29 @@ Dashboard `POST /tasks` now performs a pre-create duplicate gate using token-ove
 - Override creates emit activity type `task:duplicate-warning-overridden` with acknowledged IDs and scored candidate metadata.
 - Duplicate lineage is persisted on the task row via canonical source fields (`sourceType: "task_duplicate"`, `sourceParentTaskId`) plus `sourceMetadata.duplicateOfTaskIds` when available, so `fn task show <id>` and Task Detail views can render duplicate-of linkage directly from task provenance.
 
-#### Deterministic duplicate guard (FN-4918)
+#### Deterministic duplicate guard (FN-4918, extended by FN-5060)
 
-`POST /tasks` also applies a deterministic guard for exact normalized content matches (title + description fingerprint) within a 60s window.
+Fusion applies a deterministic guard for exact normalized content matches (title + description fingerprint) within a 60s window. The shared implementation lives in `packages/core/src/duplicate-guard.ts` (`runDeterministicDuplicateGuard` + `reconcileDeterministicDuplicate`) and is wired into all primary task-creation surfaces:
 
-- If an existing same-fingerprint task is found in-window, create returns `409` with `{ error: "duplicate_candidates", details: { matches: [{ ..., score: 1, deterministic: true }] } }`.
-- If two creates race across processes and both reach persistence, post-create reconciliation can return `200` with the canonical older task and auto-archive the newer sibling.
+- Dashboard `POST /tasks`
+- CLI `fn task create` (`runTaskCreate`)
+- Engine `createAgentTask` (powers `fn_task_create`, including triage subtask splits)
+- Mission feature triage (`MissionStore.triageFeature`)
+
+Behavior is consistent across these surfaces:
+
+- If an existing same-fingerprint task is found in-window, create returns/behaves as a link-to-existing result (`duplicate_candidates` for API, `Linked existing ...` for CLI/tool responses).
+- If two creates race across processes and both reach persistence, post-create reconciliation keeps the older canonical task and auto-archives the newer sibling.
 - New rows stamp `task.source.sourceMetadata.contentFingerprint` for deterministic matching.
 - Reconciled losers stamp `task.source.sourceMetadata.deterministicDuplicateOf = <canonicalTaskId>` and are archived (not deleted).
 - Reconciliation archives record activity event `task:auto-archived-deterministic-duplicate`.
 
-This deterministic layer complements (does not replace) the FN-4829 similarity warning gate. `bypassDuplicateCheck: true` on `POST /tasks` disables both gates. FN-4892 remains a separate engine-side same-agent intake heuristic at triage finalize.
+Bypass controls:
+
+- Dashboard API: `bypassDuplicateCheck: true` skips deterministic + similarity duplicate gates.
+- CLI: `fn task create --no-dedup` skips deterministic duplicate guard.
+
+This deterministic layer complements (does not replace) the FN-4829 similarity warning gate. FN-4892 remains a separate engine-side same-agent intake heuristic at triage finalize.
 
 ##### Fail-open boundary (FN-5084)
 

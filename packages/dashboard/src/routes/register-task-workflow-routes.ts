@@ -166,6 +166,10 @@ interface TaskWorkflowRouteDeps {
   runGitCommand: (args: string[], cwd: string, timeoutMs: number) => Promise<string>;
   trimTaskDetailActivityLog: (task: TaskDetail) => TaskDetail;
   triggerCommentWakeForAssignedAgent: (scopedStore: TaskStore, task: Task, wake: { triggeringCommentType: "steering" | "task" | "pr"; triggeringCommentIds?: string[]; triggerDetail: string }) => Promise<void>;
+  resolveSelfHealingManager: (scopedStore: TaskStore) => {
+    rootDir: string;
+    reconcileInReviewBranchRebind: (opts?: { includeTaskIds?: Set<string> }) => Promise<import("@fusion/engine").RebindResult>;
+  } | undefined;
 }
 
 export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWorkflowRouteDeps): void {
