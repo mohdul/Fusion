@@ -1515,8 +1515,14 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
       getTaskMergeBlocker,
     });
 
-    // Start engines for all registered projects eagerly
-    await engineManager.startAll();
+    // Start engines for all registered projects in the background. The
+    // on-access fast path (server's onProjectFirstAccessed) and the
+    // reconciliation loop below both cover correctness, so awaiting here
+    // just blocks the TUI on the slowest project's git/state init.
+    void engineManager.startAll().catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      logSink.warn(`Background engine startup failed: ${message}`, "dashboard");
+    });
 
     let hybridExecutor: HybridExecutor | undefined = undefined;
     const hybridGate = await shouldUseHybridExecutor(centralCoreForEngine);
