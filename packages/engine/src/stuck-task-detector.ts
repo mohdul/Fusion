@@ -301,7 +301,6 @@ export class StuckTaskDetector {
       entry.lastProgressAt = Date.now();
       entry.activitySinceProgress = 0;
       entry.ignoredStepUpdateCount = 0;
-      entry.loopObservedInLifecycle = false;
       entry.recoveryInProgress = false;
     }
   }
