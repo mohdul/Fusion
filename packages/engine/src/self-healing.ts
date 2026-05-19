@@ -1706,11 +1706,14 @@ export class SelfHealingManager {
   /**
    * STANDING: do not auto-discard stranded commits. Reclaim preserves commits;
    * unrecoverable conflicts are escalated for human review.
+   *
+   * No-op when `settings.autoMerge === false` — PR-based review flow owns lifecycle until human merge.
    */
   async reclaimSelfOwnedBranchConflicts(): Promise<number> {
     try {
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return 0;
+      if (settings.autoMerge === false) return 0;
 
       const todoCandidates = await this.store.listTasks({ column: "todo", slim: true });
       const inProgressCandidates = await this.store.listTasks({ column: "in-progress", slim: true });

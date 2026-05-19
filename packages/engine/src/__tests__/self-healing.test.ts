@@ -7621,8 +7621,10 @@ describe("autoMerge gating for mutating in-review sweeps (FN-5147)", () => {
     "recoverStuckMergeDeadlocks",
     "recoverOrphanOnlyScopeViolations",
     "recoverAlreadyMergedReviewTasks",
+    "recoverForeignOnlyContaminatedInReviewTasks",
     "recoverMissingWorktreeReviewFailures",
     "recoverPartialProgressNoTaskDoneFailures",
+    "reclaimSelfOwnedBranchConflicts",
   ] as const)("skips entirely when autoMerge is disabled (respects PR-based review flow): %s", async (methodName) => {
     if (methodName === "recoverReviewTasksWithFailedPreMergeSteps") {
       manager = new SelfHealingManager(store, { rootDir: "/tmp/test-project", recoverFailedPreMergeStep: vi.fn() });
