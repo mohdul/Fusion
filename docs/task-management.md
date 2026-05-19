@@ -58,6 +58,40 @@ The deterministic **pre-check** now fails open: transient store query failures, 
 
 Only legitimate deterministic duplicate detections continue to propagate as `409` via `ApiError` from `conflict("duplicate_candidates", ...)`. The post-create FN-4918 reconciliation pass remains the second line of defense.
 
+#### Near-duplicate intent guard (FN-5152)
+
+Fusion adds a separate near-duplicate layer for tasks whose raw descriptions differ but whose implementation intent converges.
+
+Order on dashboard `POST /api/tasks` is:
+
+1. Deterministic fingerprint guard (FN-4918 / FN-5060)
+2. Similarity warning gate (FN-4829)
+3. Near-duplicate intent guard (FN-5152)
+
+Both FN-5152 layers **fail open**: extraction errors, store-query failures, parse failures, and timeout paths log a warning and continue through normal create/finalize flow.
+
+Layer 1 runs synchronously on dashboard intake before task creation. It extracts an intent signature from the incoming title/description and compares it with active recent tasks. The signature stores four capped arrays:
+
+- `routePaths` — route-like paths such as `/pr/options` or `/api/tasks/:id/pr/preflight`
+- `filePaths` — concrete source/docs paths such as `packages/dashboard/src/routes/register-task-workflow-routes.ts`
+- `identifiers` — high-signal identifier-shaped tokens such as `PrCreateModal`
+- `titleTokens` — non-stopword title tokens used for the title Jaccard check
+
+When at least two distinct high-signal tokens overlap and title-token Jaccard is at least `0.30`, dashboard intake returns `409 duplicate_candidates` with matches carrying `reason: "near-duplicate-intent"` plus `sharedTokens` so callers can explain the overlap. Clients may bypass that specific match with `acknowledgedDuplicates: ["FN-..."]`; `bypassDuplicateCheck: true` still skips the create-time duplicate gates entirely.
+
+To avoid false positives from broad hot files, the matcher treats an overlap consisting only of generic large files (`register-git-github.ts`, `register-task-workflow-routes.ts`, `store.ts`, `types.ts`, `styles.css`) more strictly and requires title-token Jaccard of at least `0.50`.
+
+Layer 1 persists `source.sourceMetadata.intentSignature` on created tasks so later checks can reuse pre-extracted vectors.
+
+Layer 2 runs in triage `finalizeApprovedTask` after `PROMPT.md` is written and parses `## File Scope` as an additional backstop. If the new spec overlaps an older active task on concrete File Scope / intent tokens and still clears the title threshold, the newer task is auto-archived instead of moved to `todo`.
+
+Near-duplicate archival is reversible and leaves lineage markers behind:
+
+- `source.sourceMetadata.nearDuplicateOf = <canonicalTaskId>`
+- activity event `task:auto-archived-near-duplicate`
+
+This layer complements, rather than replaces, FN-4829 similarity detection, FN-4918 deterministic deduplication, and FN-4892 same-agent intake heuristics.
+
 ### Intake auto-archive (ghost-bug preflight + same-agent duplicate)
 
 Fusion applies two conservative intake heuristics that may auto-archive newly filed tasks before execution starts:
