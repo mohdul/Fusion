@@ -28,6 +28,7 @@ import { MasterKeyManager } from "./master-key.js";
 import { hasSyncPassphraseConfigured } from "./secrets-sync-passphrase.js";
 import { getTaskMergeBlocker, resolveTaskMergeTarget } from "./task-merge.js";
 import { getInReviewStallReason } from "./in-review-stall.js";
+import { getInReviewStalledSignal } from "./in-review-stalled.js";
 import { getStalePausedReviewSignal } from "./stale-paused-review.js";
 import { getStalePausedTodoSignal } from "./stale-paused-todo.js";
 import { getTaskAgeStalenessSignal, type TaskAgeStalenessThresholds } from "./task-age-staleness.js";
@@ -3691,6 +3692,11 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         now,
         thresholdMs: settings.stalePausedReviewThresholdMs,
       });
+      task.inReviewStalled = getInReviewStalledSignal(task, {
+        now,
+        thresholdMs: settings.inReviewStalledThresholdMs,
+        autoMerge: settings.autoMerge,
+      });
       task.stalePausedTodo = getStalePausedTodoSignal(task, {
         now,
         thresholdMs: settings.stalePausedTodoThresholdMs,
@@ -3877,6 +3883,11 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         now,
         thresholdMs: settings.stalePausedReviewThresholdMs,
       });
+      task.inReviewStalled = getInReviewStalledSignal(task, {
+        now,
+        thresholdMs: settings.inReviewStalledThresholdMs,
+        autoMerge: settings.autoMerge,
+      });
       task.stalePausedTodo = getStalePausedTodoSignal(task, {
         now,
         thresholdMs: settings.stalePausedTodoThresholdMs,
@@ -4018,6 +4029,11 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       task.stalePausedReview = getStalePausedReviewSignal(task, {
         now,
         thresholdMs: settings.stalePausedReviewThresholdMs,
+      });
+      task.inReviewStalled = getInReviewStalledSignal(task, {
+        now,
+        thresholdMs: settings.inReviewStalledThresholdMs,
+        autoMerge: settings.autoMerge,
       });
       task.stalePausedTodo = getStalePausedTodoSignal(task, {
         now,
