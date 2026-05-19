@@ -7,3 +7,16 @@ The dashboard insight router runs stale-run recovery sweeps for `project_insight
 - Recovery writes `terminalCause: "orphaned_active_run_recovered"` and lifecycle failure metadata (`failureClass: "non_retryable"`, `retryable: false`).
 - Recovery appends both `warning` and `status_changed` events on `project_insight_run_events` with `metadata.recovery = "orphaned_active_run"`.
 - `metadata.recoverySource` indicates where recovery occurred: `startup`, `periodic`, `drive_by`, or `manual`.
+
+## Dependency-blocked Todo backlog health (`[dependency-blocked-todo]`)
+
+Self-healing now runs `surface-dependency-blocked-todos` during both startup recovery and periodic maintenance.
+
+- Normal path emits a workflow insight titled `Backlog health: dependency-blocked todos YYYY-MM-DD`.
+- Fallback path (insight store unavailable) writes a per-task log entry prefixed with `[dependency-blocked-todo]` against the top blocker task.
+- Reporter summary warnings include group count, total blocked Todo count, and top blocker IDs.
+
+Operator interpretation:
+- `ageBucket: "fresh"` → expected dependency queueing.
+- `ageBucket: "aging"` → review blocker progress.
+- `ageBucket: "stale"` → emerging stall; escalate/unblock blocker.

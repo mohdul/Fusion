@@ -338,6 +338,11 @@ Default notes:
 | `backlogPressureRatioThreshold` | `number` | `10` | Alert threshold for `todoCount / max(inProgressCount, 1)`; alerts only when ratio is strictly greater than this value. |
 | `backlogPressureMinTodoCount` | `number` | `5` | Minimum Todo inventory required before backlog-pressure detection can fire. |
 | `backlogPressureAlertCooldownMs` | `number` | `86400000` | Minimum cooldown between backlog-pressure alerts (default 24h). |
+| `dependencyBlockedTodoReportEnabled` | `boolean` | `true` | Enables dependency-blocked Todo backlog-health reporting. |
+| `dependencyBlockedTodoFreshAgeMs` | `number` | `1800000` | Blocker-age threshold below which dependency-blocked Todo groups are bucketed as `fresh` (30 minutes). |
+| `dependencyBlockedTodoStaleAgeMs` | `number` | `14400000` | Blocker-age threshold at/above which dependency-blocked Todo groups are bucketed as `stale` (4 hours). |
+| `dependencyBlockedTodoMinCount` | `number` | `1` | Minimum blocked Todo count required for a blocker group to be included in reporting. |
+| `dependencyBlockedTodoReportCooldownMs` | `number` | `21600000` | Minimum cooldown between dependency-blocked Todo insight emissions (6 hours). |
 | `aiSessionTtlMs` | `number` | `604800000` | TTL in ms for persisted planning/subtask/mission sessions (7 days). |
 | `aiSessionCleanupIntervalMs` | `number` | `3600000` | Interval in ms for AI session cleanup sweeps (1 hour). |
 | `autoUnpauseEnabled` | `boolean` | `true` | Auto-unpause after rate-limit-triggered pauses; manual pauses stay paused until explicitly unpaused by the user. |
@@ -430,11 +435,12 @@ Default notes:
 
 > Draft — finalize once FN-5009 / FN-5034 have shipped.
 
-Backlog health is the alert family for scheduler/backlog imbalance and stale paused Todo work. It is distinct from `capacityRiskBannerEnabled` / `capacityRiskTodoThreshold` (UI capacity-risk banner) and `stalePausedReviewThresholdMs` (paused `in-review` detector).
+Backlog health is the alert family for scheduler/backlog imbalance, dependency-blocked Todo fanout, and stale paused Todo work. It is distinct from `capacityRiskBannerEnabled` / `capacityRiskTodoThreshold` (UI capacity-risk banner) and `stalePausedReviewThresholdMs` (paused `in-review` detector).
 
 | Detector | Trigger condition | Settings | Severity | Surfacing channel | Cooldown / suppression |
 | --- | --- | --- | --- | --- | --- |
 | Backlog-pressure imbalance | TODO(FN-5009): finalize from `packages/engine/src/backlog-pressure-reporter.ts` trigger predicate implementation. | TODO(FN-5009): finalize from `packages/core/src/settings-schema.ts` backlog-pressure keys/defaults. | TODO(FN-5009): finalize from reporter title/content fields and fallback log-entry payload shape. | TODO(FN-5009): finalize from reporter insight category/fingerprint + fallback log-entry prefix behavior. | TODO(FN-5009): finalize from reporter cooldown and dedupe gates (`backlogPressureAlertCooldownMs`, enable/disable semantics). |
+| Dependency-blocked Todo fanout | Groups Todo tasks blocked by the same non-done blocker (`dependencies` + `blockedBy`) using blocker fanout and blocker age buckets (`fresh`/`aging`/`stale`). Suppresses purely-fresh low-signal cases (`totalBlockedTodoCount < 3`). | `dependencyBlockedTodoReportEnabled`, `dependencyBlockedTodoFreshAgeMs`, `dependencyBlockedTodoStaleAgeMs`, `dependencyBlockedTodoMinCount`, `dependencyBlockedTodoReportCooldownMs` | Workflow alert with blocker-group summary (`blockedTodoCount`, `blockingAgeMs`, age bucket, top IDs). | Durable insight title prefix `Backlog health: dependency-blocked todos YYYY-MM-DD`; fallback per-task log prefix `[dependency-blocked-todo]` when insight store is unavailable. | Project cooldown gate via `dependencyBlockedTodoReportCooldownMs`; disabled entirely when `dependencyBlockedTodoReportEnabled` is false. |
 | Stale paused Todo | TODO(FN-5034): finalize from `packages/core/src/stale-paused-todo.ts` signal threshold predicate and trigger semantics. | TODO(FN-5034): finalize from `packages/core/src/settings-schema.ts` `stalePausedTodoThresholdMs` row/default. | TODO(FN-5034): finalize from stale-paused-todo signal `code` + surfaced log payload fields. | TODO(FN-5034): finalize from `packages/engine/src/self-healing.ts` `surfaceStalePausedTodos` `logEntry` format and channel. | TODO(FN-5034): finalize from per-task suppression logic (history/code-change checks) in `surfaceStalePausedTodos`. |
 
 ### Per-task token budget
