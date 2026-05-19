@@ -404,6 +404,42 @@ describe("SelfHealingManager", () => {
       );
     });
 
+    it("terminalizes no-progress churn without incrementing stuck kill budget", async () => {
+      (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: "FN-001",
+        lineageId: "lin-001",
+        stuckKillCount: 3,
+      } as unknown as Task);
+
+      manager.start();
+
+      const result = await manager.checkStuckBudget("FN-001", "no-progress-churn", {
+        ignoredStepUpdateCount: 25,
+      });
+
+      expect(result).toBe(false);
+      expect(store.updateTask).toHaveBeenCalledWith("FN-001", {
+        status: "failed",
+        error: "STUCK_NO_PROGRESS_CHURN: detected 25 ignored step-update rebuffs after compact-and-resume failed to recover progress. Task is likely too large; decompose via fn_task_create child tasks or rescope. No further automatic retries will run.",
+      });
+      expect(store.moveTask).toHaveBeenCalledWith("FN-001", "in-review");
+      expect(store.logEntry).toHaveBeenCalledWith(
+        "FN-001",
+        "STUCK_NO_PROGRESS_CHURN: detected 25 ignored step-update rebuffs after compact-and-resume failed to recover progress. No further automatic retries will run. Pause the task, manually decompose the work via fn_task_create child tasks, or move it to triage to rescope.",
+      );
+      expect(store.recordRunAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+        domain: "database",
+        mutationType: "task:stuck-no-progress-churn-terminalized",
+        target: "FN-001",
+        metadata: expect.objectContaining({
+          taskId: "FN-001",
+          ignoredStepUpdateCount: 25,
+          stuckKillStreak: 3,
+          lastReason: "no-progress-churn",
+        }),
+      }));
+    });
+
     it("respects custom maxStuckKills setting", async () => {
       (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
         maxStuckKills: 1,

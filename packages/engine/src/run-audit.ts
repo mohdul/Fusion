@@ -228,6 +228,8 @@ export type DatabaseMutationType =
   | "task:auto-recover-completion-handoff-limbo"
   | "task:auto-recover-completion-handoff-limbo-exhausted"
   | "task:auto-recover-worktree-session-exhausted"
+  /** Metadata: { taskId: string; ignoredStepUpdateCount: number; stuckKillStreak: number; lastReason: "no-progress-churn" } */
+  | "task:stuck-no-progress-churn-terminalized"
   | "task:auto-recover-starved-refinement"
   /** Metadata: { rawDiffFileCount: number; attributedFileCount: number; foreignCommitCount: number; foreignCommitShas: string[]; source: string } */
   | "task:worktree-contamination-detected"

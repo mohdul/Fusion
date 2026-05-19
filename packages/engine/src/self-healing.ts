@@ -806,22 +806,70 @@ export class SelfHealingManager {
    * Check whether a stuck-killed task should be re-queued or marked as failed.
    * Called by StuckTaskDetector's `beforeRequeue` callback.
    *
-   * Terminal contract for stuck-loop exhaustion:
-   * - Task is marked `status: "failed"` with `error` starting with
-   *   `STUCK_LOOP_EXHAUSTED: ` and including kill count, max, and last reason.
-   * - Task is moved to `in-review` (best-effort if move fails).
-   * - Task log gets a final `STUCK_LOOP_EXHAUSTED` entry with operator guidance
-   *   to manually retry, pause, or move to triage.
+   * Terminal contract for stuck-loop exhaustion and no-progress churn:
+   * - `STUCK_LOOP_EXHAUSTED`: increments the kill budget until exhausted, then
+   *   marks the task failed and parks it in `in-review`.
+   * - `STUCK_NO_PROGRESS_CHURN`: skips the budget entirely and terminalizes on
+   *   the first trigger with operator guidance to decompose or rescope.
    *
-   * @returns `true` if the task should be re-queued, `false` if budget exhausted
-   *          (task has been marked as permanently failed).
+   * @returns `true` if the task should be re-queued, `false` if terminalized.
    */
-  async checkStuckBudget(taskId: string, reason: "loop" | "inactivity" = "inactivity"): Promise<boolean> {
+  async checkStuckBudget(
+    taskId: string,
+    reason: "loop" | "inactivity" | "no-progress-churn" = "inactivity",
+    event?: { ignoredStepUpdateCount?: number },
+  ): Promise<boolean> {
     try {
       const settings = await this.store.getSettings();
       const maxKills = settings.maxStuckKills ?? 6;
 
       const task = await this.store.getTask(taskId);
+
+      if (reason === "no-progress-churn") {
+        const ignoredStepUpdateCount = event?.ignoredStepUpdateCount ?? 0;
+        const stuckKillStreak = task.stuckKillCount ?? 0;
+        log.warn(
+          `${taskId} no-progress churn detected ` +
+          `(ignoredStepUpdates=${ignoredStepUpdateCount}, stuckKillStreak=${stuckKillStreak}) — marking failed`,
+        );
+        const churnError =
+          `STUCK_NO_PROGRESS_CHURN: detected ${ignoredStepUpdateCount} ignored step-update rebuffs after compact-and-resume failed to recover progress. ` +
+          `Task is likely too large; decompose via fn_task_create child tasks or rescope. No further automatic retries will run.`;
+        await this.store.updateTask(taskId, {
+          status: "failed",
+          error: churnError,
+        });
+        try {
+          await this.store.moveTask(taskId, "in-review");
+        } catch (moveErr: unknown) {
+          const moveErrMessage = moveErr instanceof Error ? moveErr.message : String(moveErr);
+          log.warn(`${taskId} moveTask("in-review") failed (${moveErrMessage}) after STUCK_NO_PROGRESS_CHURN terminalization — task already marked failed, not re-queuing`);
+        }
+        await this.store.logEntry(
+          taskId,
+          `STUCK_NO_PROGRESS_CHURN: detected ${ignoredStepUpdateCount} ignored step-update rebuffs after compact-and-resume failed to recover progress. ` +
+          `No further automatic retries will run. Pause the task, manually decompose the work via fn_task_create child tasks, or move it to triage to rescope.`,
+        );
+        const churnAudit = createRunAuditor(this.store, {
+          runId: generateSyntheticRunId("fn5168-stuck-churn", taskId),
+          agentId: "self-healing",
+          taskId,
+          taskLineageId: task.lineageId,
+          phase: "stuck-no-progress-churn-terminalized",
+        });
+        await churnAudit.database({
+          type: "task:stuck-no-progress-churn-terminalized",
+          target: taskId,
+          metadata: {
+            taskId,
+            ignoredStepUpdateCount,
+            stuckKillStreak,
+            lastReason: reason,
+          },
+        });
+        return false;
+      }
+
       const newCount = (task.stuckKillCount ?? 0) + 1;
 
       if (newCount > maxKills) {
