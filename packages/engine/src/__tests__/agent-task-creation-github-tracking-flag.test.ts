@@ -65,10 +65,10 @@ describe("agent task creation githubTracking.enabled persistence", () => {
     const githubTrackingHookModule = await githubTrackingHookModulePromise;
     const githubTrackingModule = await githubTrackingModulePromise;
 
-    const maybeCreateSpy = vi.spyOn(githubTrackingModule, "maybeCreateTrackingIssue").mockResolvedValue({
+    const maybeCreateSpy = vi.spyOn(githubTrackingModule, "maybeCreateTrackingIssue").mockImplementation(async () => ({
       created: false,
       reason: "no_repo_configured",
-    });
+    }));
 
     githubTrackingHookModule.registerGithubTrackingHook();
 
