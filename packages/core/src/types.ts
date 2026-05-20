@@ -1630,6 +1630,8 @@ export interface Task {
    * Distinct from issueInfo/sourceIssue, which describe imported source issues.
    */
   githubTracking?: TaskGithubTracking;
+  /** Durable source provenance for task creation/import metadata. */
+  source?: TaskSource;
   /** Durable source provenance for the originating external issue. */
   sourceIssue?: TaskSourceIssue;
   log: TaskLogEntry[];
