@@ -656,9 +656,10 @@
   display: flex;
   align-items: center;
   gap: var(--space-sm);
+  row-gap: var(--space-xs);
   margin-top: var(--space-sm);
   min-width: 0;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .card-session-files {
@@ -708,9 +709,11 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-sm);
+  row-gap: var(--space-xs);
+  justify-content: flex-end;
   margin-left: auto;
   min-width: 0;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .card-source-provenance .provider-icon {
@@ -1318,6 +1321,7 @@
   .card-footer-row {
     margin-top: var(--space-xs);
     gap: var(--space-xs);
+    row-gap: var(--space-xs);
   }
 
   .card-time-indicator,
