@@ -35,6 +35,27 @@ describe("TaskStore", () => {
   const createSourceIssueFixture = () => harness.createSourceIssueFixture();
   const insertLogEntryWithTimestamp = (...args: any[]) => (harness as any).insertLogEntryWithTimestamp(...args);
 
+  describe("FN-5413 null description coercion", () => {
+    it.each([
+      ["undefined", undefined],
+      ["null", null],
+    ])("coerces %s description to empty string on persist", async (_label, description) => {
+      const created = await store.createTask({
+        description: "Initial description",
+      });
+
+      const task = await store.getTask(created.id);
+      (task as Task & { description?: string | null }).description = description;
+
+      expect(() => {
+        (store as unknown as { upsertTaskWithFtsRecovery: (task: Task) => void }).upsertTaskWithFtsRecovery(task);
+      }).not.toThrow();
+
+      const persisted = await store.getTask(created.id);
+      expect(persisted.description).toBe("");
+    });
+  });
+
   describe("breakIntoSubtasks task creation flag", () => {
     it("persists breakIntoSubtasks=true when explicitly requested", async () => {
       const task = await store.createTask({
