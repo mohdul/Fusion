@@ -1,4 +1,5 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
@@ -647,6 +648,122 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
         expect(auditTypes).not.toContain("merge:reuse-handoff-acquired");
         expect(auditTypes).not.toContain("merge:reuse-handoff-refused");
         expect(auditTypes).toContain("task:auto-recover-finalize-already-on-main");
+      } finally {
+        await fixture.cleanup();
+      }
+    },
+    30_000,
+  );
+
+  // FN-5345/FN-5377 cleanup-safety backstop: the fast-path's worktree removal
+  // MUST preserve a worktree that has uncommitted tracked changes. We run
+  // `git status --porcelain --untracked-files=no` and skip the removal when
+  // tracked dirt is present. Untracked junk does not count (operator noise
+  // like .DS_Store should not block cleanup).
+  it.skipIf(!hasGit)(
+    "FN-5345: empty-own-diff fast-path preserves worktrees with uncommitted tracked changes",
+    async () => {
+      const fixture = await makeReliabilityFixture({
+        taskId: "FN-5279-RI-DIRTY-PRESERVE",
+        settings: {
+          baseBranch: "master",
+          mergeIntegrationWorktree: "reuse-task-worktree",
+        } as any,
+      });
+
+      try {
+        const { rootDir, store, task } = fixture;
+        const actualTask = await store.getTask(task.id);
+        const branch = `fusion/${actualTask!.id.toLowerCase()}`;
+        const worktreeRoot = `${rootDir}-worktrees`;
+        const worktreePath = join(worktreeRoot, actualTask!.id.toLowerCase());
+
+        git(rootDir, "git branch -m main master");
+        const completedSteps = (actualTask?.steps ?? []).map((step) => ({ ...step, status: "done" as const }));
+        await store.updateTask(task.id, {
+          baseBranch: "master",
+          branch,
+          steps: completedSteps,
+          currentStep: completedSteps.length,
+        } as any);
+        await fixture.createBranch(branch);
+        // Empty-own-diff handoff commit on the branch.
+        git(rootDir, `git commit --allow-empty -m 'test(${actualTask!.id}): verification-only handoff'`);
+        await fixture.checkout("master");
+
+        // Create the worktree at branch tip, then introduce a tracked
+        // modification (not committed) to simulate agent scratch.
+        await mkdir(worktreeRoot, { recursive: true });
+        git(rootDir, `git worktree add ${JSON.stringify(worktreePath)} ${JSON.stringify(branch)}`);
+        // README.md is created by the fixture as a tracked file. Modify it to
+        // produce tracked-dirty status.
+        await writeFile(join(worktreePath, "README.md"), "agent scratch: uncommitted edits\n");
+        await store.updateTask(task.id, { worktree: worktreePath, branch } as any);
+        store.enqueueMergeQueue(task.id);
+
+        const result = await aiMergeTask(store, rootDir, task.id);
+        expect(result.merged).toBe(true);
+        expect(result.noOp).toBe(true);
+
+        // Critical: the worktree must NOT be removed because it has tracked
+        // uncommitted changes. result.worktreeRemoved reflects that.
+        expect(result.worktreeRemoved).toBe(false);
+        expect(existsSync(worktreePath)).toBe(true);
+        expect(existsSync(join(worktreePath, "README.md"))).toBe(true);
+      } finally {
+        await fixture.cleanup();
+      }
+    },
+    30_000,
+  );
+
+  // FN-5345/FN-5377 cleanup-noise backstop: untracked junk (e.g. .DS_Store,
+  // editor swap files, build artifacts that are not gitignored at the task
+  // worktree level) must NOT block fast-path cleanup. Only tracked dirt does.
+  it.skipIf(!hasGit)(
+    "FN-5345: empty-own-diff fast-path cleans up worktrees with only untracked noise",
+    async () => {
+      const fixture = await makeReliabilityFixture({
+        taskId: "FN-5279-RI-UNTRACKED-OK",
+        settings: {
+          baseBranch: "master",
+          mergeIntegrationWorktree: "reuse-task-worktree",
+        } as any,
+      });
+
+      try {
+        const { rootDir, store, task } = fixture;
+        const actualTask = await store.getTask(task.id);
+        const branch = `fusion/${actualTask!.id.toLowerCase()}`;
+        const worktreeRoot = `${rootDir}-worktrees`;
+        const worktreePath = join(worktreeRoot, actualTask!.id.toLowerCase());
+
+        git(rootDir, "git branch -m main master");
+        const completedSteps = (actualTask?.steps ?? []).map((step) => ({ ...step, status: "done" as const }));
+        await store.updateTask(task.id, {
+          baseBranch: "master",
+          branch,
+          steps: completedSteps,
+          currentStep: completedSteps.length,
+        } as any);
+        await fixture.createBranch(branch);
+        git(rootDir, `git commit --allow-empty -m 'test(${actualTask!.id}): verification-only handoff'`);
+        await fixture.checkout("master");
+
+        await mkdir(worktreeRoot, { recursive: true });
+        git(rootDir, `git worktree add ${JSON.stringify(worktreePath)} ${JSON.stringify(branch)}`);
+        // Sprinkle untracked-only noise into the worktree.
+        await writeFile(join(worktreePath, ".DS_Store"), "binary junk\n");
+        await writeFile(join(worktreePath, "editor.swp"), "swap file\n");
+        await store.updateTask(task.id, { worktree: worktreePath, branch } as any);
+        store.enqueueMergeQueue(task.id);
+
+        const result = await aiMergeTask(store, rootDir, task.id);
+        expect(result.merged).toBe(true);
+        expect(result.noOp).toBe(true);
+        // Untracked-only is treated as clean — cleanup proceeds.
+        expect(result.worktreeRemoved).toBe(true);
+        expect(existsSync(worktreePath)).toBe(false);
       } finally {
         await fixture.cleanup();
       }

@@ -6510,9 +6510,11 @@ async function tryEarlyEmptyOwnDiffFinalize(input: {
   //
   // Safety rules:
   //   - FN-4811: never touch a worktree owned by a different task.
-  //   - Dirty worktrees are left alone (no --force) so we never silently
-  //     discard uncommitted scratch; self-healing's worktree sweep handles
-  //     them later.
+  //   - Dirty worktrees (tracked modifications or staged changes) are left
+  //     alone (no --force) so we never silently discard uncommitted work.
+  //     Untracked junk (.DS_Store, editor swap files, build artifacts) does
+  //     NOT block cleanup — we use `--untracked-files=no` and only respect
+  //     tracked dirt as a signal of agent work in progress.
   //   - Branch deletion only fires when task.branch was non-null on entry
   //     (i.e. the task explicitly owned a branch). If task.branch was null,
   //     `cleanupOrphanedBranches` handles any orphan ref later.
@@ -6528,12 +6530,18 @@ async function tryEarlyEmptyOwnDiffFinalize(input: {
       );
     } else {
       let dirty = false;
+      let dirtyDiagnostic: string | undefined;
       try {
         const { stdout } = await execAsync(
-          `git status --porcelain --untracked-files=normal`,
+          `git status --porcelain --untracked-files=no`,
           { cwd: stranded, encoding: "utf-8", timeout: 15_000 },
         );
-        dirty = stdout.trim().length > 0;
+        const trimmed = stdout.trim();
+        dirty = trimmed.length > 0;
+        if (dirty) {
+          // First few dirty paths, for operator diagnosis.
+          dirtyDiagnostic = trimmed.split("\n").slice(0, 5).join("; ");
+        }
       } catch (statusErr) {
         // Treat status failure as "unknown" — fail safe by skipping removal.
         dirty = true;
@@ -6543,12 +6551,16 @@ async function tryEarlyEmptyOwnDiffFinalize(input: {
       }
       if (dirty) {
         log.warn(
-          `${taskId}: skipping early-fast-path worktree cleanup — ${stranded} has uncommitted changes; self-healing sweep will reconcile later`,
+          `${taskId}: skipping early-fast-path worktree cleanup — ${stranded} has uncommitted tracked changes${dirtyDiagnostic ? ` (${dirtyDiagnostic})` : ""}; self-healing sweep will reconcile later`,
         );
       } else {
         try {
+          // --force here is safe: the tracked-only dirty check above already
+          // refused if there were uncommitted tracked changes. --force lets
+          // us discard untracked junk (.DS_Store, editor swap files, etc.)
+          // that would otherwise block `git worktree remove`.
           await execAsync(
-            `git worktree remove ${quoteArg(stranded)}`,
+            `git worktree remove --force ${quoteArg(stranded)}`,
             { cwd: projectRootDir, timeout: 30_000 },
           );
           worktreeRemoved = true;
@@ -6773,8 +6785,9 @@ export async function aiMergeTask(
     // lease bookkeeping stays consistent. Skip the direct-reuse shortcut here
     // and fall through to the existing acquisition path.
     const directReuseEligible = !(options.pool && settings.recycleWorktrees);
-    if (directReuseEligible) try {
-      const { stdout: porcelain } = await execAsync(
+    if (directReuseEligible) {
+      try {
+        const { stdout: porcelain } = await execAsync(
           `git worktree list --porcelain`,
           { cwd: projectRootDir, encoding: "utf-8", timeout: 30_000 },
         );
@@ -6885,10 +6898,11 @@ export async function aiMergeTask(
           });
           return;
         }
-    } catch (listErr) {
-      mergerLog.warn(
-        `${taskId}: git worktree list consult failed before reacquire; proceeding with fresh creation: ${listErr instanceof Error ? listErr.message : String(listErr)}`,
-      );
+      } catch (listErr) {
+        mergerLog.warn(
+          `${taskId}: git worktree list consult failed before reacquire; proceeding with fresh creation: ${listErr instanceof Error ? listErr.message : String(listErr)}`,
+        );
+      }
     }
 
     const acquisition = await acquireTaskWorktree({
