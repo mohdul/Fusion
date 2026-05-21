@@ -45,7 +45,7 @@ describe("prepare-commit-msg empty-commit guard (real git, FN-5345/FN-5377)", ()
       expect(empty.stderr).toContain("refusing empty commit");
       expect(empty.stderr).toContain("FN-5345/FN-5377");
 
-      // Review-finding regression: a commit message containing the substring
+      // Review-finding regression #1: a commit message containing the substring
       // '--amend' must NOT trick the parent-cmd tokenized check into allowing
       // the empty commit. The original glob pattern (*' --amend'*) would have
       // matched this; the tokenized check rejects it.
@@ -55,6 +55,31 @@ describe("prepare-commit-msg empty-commit guard (real git, FN-5345/FN-5377)", ()
       );
       expect(sneaky.status).not.toBe(0);
       expect(sneaky.stderr).toContain("refusing empty commit");
+
+      // Review-finding regression #2: combined short flags like '-am', '-vm',
+      // '-sm' must also count as message-supplying tokens, otherwise the
+      // tokenized scan continues past them and hits '--amend' in user-controlled
+      // message text. The combined-short-flag pattern -[!-]*[mF]* catches these
+      // while leaving '--amend' (starts with --) untouched.
+      const sneakyAm = git(
+        worktreeDir,
+        "git commit --allow-empty -am 'feat(FN-5345): fix --amend handling via -am'",
+      );
+      expect(sneakyAm.status).not.toBe(0);
+      expect(sneakyAm.stderr).toContain("refusing empty commit");
+      const sneakyVm = git(
+        worktreeDir,
+        "git commit --allow-empty -vm 'feat(FN-5345): fix --amend handling via -vm'",
+      );
+      expect(sneakyVm.status).not.toBe(0);
+      expect(sneakyVm.stderr).toContain("refusing empty commit");
+
+      // Legitimate combined short flag with -a and a modified TRACKED file:
+      // should succeed (not blocked by the message-flag detection — -a stages
+      // the tracked modification, the resulting commit is non-empty).
+      writeFileSync(join(worktreeDir, "real.txt"), "real-modified\n");
+      const legitAm = git(worktreeDir, "git commit -am 'feat(FN-5345): legit -am commit'");
+      expect(legitAm.status).toBe(0);
 
       // --amend --no-edit (no staged changes, amend HEAD) is ALLOWED.
       const amendNoEdit = git(worktreeDir, "git commit --amend --no-edit");

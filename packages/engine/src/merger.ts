@@ -6507,43 +6507,73 @@ async function tryEarlyEmptyOwnDiffFinalize(input: {
   // FN-5345/FN-5377: best-effort cleanup of the stranded worktree + branch
   // so .worktrees/ and the branch namespace do not accumulate empty-own-diff
   // residuals indefinitely. Failures are non-fatal: the task is already done.
+  //
+  // Safety rules:
+  //   - FN-4811: never touch a worktree owned by a different task.
+  //   - Dirty worktrees are left alone (no --force) so we never silently
+  //     discard uncommitted scratch; self-healing's worktree sweep handles
+  //     them later.
+  //   - Branch deletion only fires when task.branch was non-null on entry
+  //     (i.e. the task explicitly owned a branch). If task.branch was null,
+  //     `cleanupOrphanedBranches` handles any orphan ref later.
   let worktreeRemoved = false;
   let branchDeleted = false;
   const stranded = task.worktree?.trim();
+  const ownedBranchOnEntry = task.branch?.trim();
   if (stranded && existsSync(stranded)) {
-    // FN-4811 safety: never remove a worktree currently owned by a different
-    // task. Same-task or unowned paths are eligible.
     const activeRecord = activeSessionRegistry.lookupByPath(stranded);
     if (activeRecord && activeRecord.taskId !== taskId) {
       log.warn(
         `${taskId}: skipping early-fast-path worktree cleanup — path ${stranded} is owned by ${activeRecord.taskId}`,
       );
     } else {
+      let dirty = false;
       try {
-        await execAsync(
-          `git worktree remove --force ${quoteArg(stranded)}`,
-          { cwd: projectRootDir, timeout: 30_000 },
+        const { stdout } = await execAsync(
+          `git status --porcelain --untracked-files=normal`,
+          { cwd: stranded, encoding: "utf-8", timeout: 15_000 },
         );
-        worktreeRemoved = true;
-      } catch (removeErr) {
+        dirty = stdout.trim().length > 0;
+      } catch (statusErr) {
+        // Treat status failure as "unknown" — fail safe by skipping removal.
+        dirty = true;
         log.warn(
-          `${taskId}: failed to remove stranded worktree ${stranded} (non-fatal): ${removeErr instanceof Error ? removeErr.message : String(removeErr)}`,
+          `${taskId}: git status check failed for ${stranded}; skipping early-fast-path worktree removal: ${statusErr instanceof Error ? statusErr.message : String(statusErr)}`,
         );
+      }
+      if (dirty) {
+        log.warn(
+          `${taskId}: skipping early-fast-path worktree cleanup — ${stranded} has uncommitted changes; self-healing sweep will reconcile later`,
+        );
+      } else {
+        try {
+          await execAsync(
+            `git worktree remove ${quoteArg(stranded)}`,
+            { cwd: projectRootDir, timeout: 30_000 },
+          );
+          worktreeRemoved = true;
+        } catch (removeErr) {
+          log.warn(
+            `${taskId}: failed to remove stranded worktree ${stranded} (non-fatal): ${removeErr instanceof Error ? removeErr.message : String(removeErr)}`,
+          );
+        }
       }
     }
   }
-  try {
-    // Branch must be deleted from the project root, not from inside a
-    // worktree that may still be checked out to it.
-    await execAsync(
-      `git branch -D ${quoteArg(branch)}`,
-      { cwd: projectRootDir, timeout: 30_000 },
-    );
-    branchDeleted = true;
-  } catch (delErr) {
-    log.warn(
-      `${taskId}: failed to delete stranded branch ${branch} (non-fatal): ${delErr instanceof Error ? delErr.message : String(delErr)}`,
-    );
+  if (ownedBranchOnEntry) {
+    try {
+      // Branch must be deleted from the project root, not from inside a
+      // worktree that may still be checked out to it.
+      await execAsync(
+        `git branch -D ${quoteArg(ownedBranchOnEntry)}`,
+        { cwd: projectRootDir, timeout: 30_000 },
+      );
+      branchDeleted = true;
+    } catch (delErr) {
+      log.warn(
+        `${taskId}: failed to delete stranded branch ${ownedBranchOnEntry} (non-fatal): ${delErr instanceof Error ? delErr.message : String(delErr)}`,
+      );
+    }
   }
   if (worktreeRemoved || branchDeleted) {
     try {
@@ -6551,6 +6581,12 @@ async function tryEarlyEmptyOwnDiffFinalize(input: {
         worktree: worktreeRemoved ? null : task.worktree,
         branch: branchDeleted ? null : task.branch,
       });
+      // Keep the in-memory task in sync with the DB so the returned
+      // MergeResult.task does not advertise a removed path / deleted branch.
+      // (updateTask uses null as the "clear this field" sentinel; the
+      // in-memory Task type uses undefined for absent.)
+      if (worktreeRemoved) task.worktree = undefined;
+      if (branchDeleted) task.branch = undefined;
     } catch (updateErr) {
       log.warn(
         `${taskId}: failed to clear worktree/branch pointers after early-fast-path cleanup (non-fatal): ${updateErr instanceof Error ? updateErr.message : String(updateErr)}`,
@@ -6732,12 +6768,13 @@ export async function aiMergeTask(
     //     the new path would bypass pool bookkeeping and could collide with
     //     `PoolDoubleLeaseError`.
     const expectedBranch = task.branch || canonicalFusionBranchName(taskId);
-    const poolBypassRequired = Boolean(options.pool && settings.recycleWorktrees);
-    try {
-      if (poolBypassRequired) {
-        // Pool semantics require acquireTaskWorktree; skip direct-reuse.
-      } else {
-        const { stdout: porcelain } = await execAsync(
+    // FN-4954: when a worktree pool is attached and recycling is enabled, pool
+    // semantics REQUIRE going through `acquireTaskWorktree` so `WorktreePool`'s
+    // lease bookkeeping stays consistent. Skip the direct-reuse shortcut here
+    // and fall through to the existing acquisition path.
+    const directReuseEligible = !(options.pool && settings.recycleWorktrees);
+    if (directReuseEligible) try {
+      const { stdout: porcelain } = await execAsync(
           `git worktree list --porcelain`,
           { cwd: projectRootDir, encoding: "utf-8", timeout: 30_000 },
         );
@@ -6848,7 +6885,6 @@ export async function aiMergeTask(
           });
           return;
         }
-      }
     } catch (listErr) {
       mergerLog.warn(
         `${taskId}: git worktree list consult failed before reacquire; proceeding with fresh creation: ${listErr instanceof Error ? listErr.message : String(listErr)}`,

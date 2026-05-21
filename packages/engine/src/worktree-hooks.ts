@@ -139,7 +139,14 @@ fi
 for tok in $PARENT_CMD; do
   case "$tok" in
     -m|-F|--message|--file|--message=*|--file=*)
-      # Message args start here; everything after this is user-controlled.
+      # Long-form message args; everything after this is user-controlled.
+      break
+      ;;
+    -[!-]*[mF]*)
+      # Combined short flag containing 'm' or 'F' (e.g. -am, -vm, -sm, -aF).
+      # First char is '-', second is NOT '-' (so '--amend' does not match),
+      # and the cluster contains a message-supplying letter. Everything after
+      # this token is user-controlled message text.
       break
       ;;
     --amend)
