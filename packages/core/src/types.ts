@@ -1642,6 +1642,8 @@ export interface Task {
   scopeOverride?: boolean;
   /** Optional justification for bypassing the squash file-scope invariant. */
   scopeOverrideReason?: string;
+  /** Append-only list of file paths auto-widened into `## File Scope` by merger safety checks. */
+  scopeAutoWiden?: string[];
   /** Mission ID this task is linked to (for mission hierarchy) */
   missionId?: string;
   /** Slice ID this task is linked to (for mission hierarchy) */
@@ -1976,6 +1978,8 @@ export interface TaskCreateInput {
   scopeOverride?: boolean;
   /** Optional justification for bypassing the squash file-scope invariant. */
   scopeOverrideReason?: string;
+  /** Append-only list of file paths auto-widened into `## File Scope` by merger safety checks. */
+  scopeAutoWiden?: string[];
   /** Per-task GitHub issue tracking overrides for Fusion-created linked issues. */
   githubTracking?: Pick<TaskGithubTracking, "enabled" | "repoOverride">;
   /** Review level for task execution — controls review rigor: 0=None, 1=Plan Only, 2=Plan and Code, 3=Full */

@@ -156,6 +156,7 @@ export type GitMutationType =
   | "merge:auto-prerebase:failed"
   | "merge:layer3:foreign-file-skipped"
   | "merge:layer3:scope-override-bypass"
+  | "merge:scope:auto-widen"
   | "merge:reuse-handoff-acquired"
   | "merge:reuse-handoff-refused"
   | "merge:reuse-handoff-released"

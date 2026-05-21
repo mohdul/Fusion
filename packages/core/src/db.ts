@@ -120,7 +120,7 @@ export function probeFts5(db: DatabaseSync): boolean {
 
 // ── Schema Definition ────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 89;
+const SCHEMA_VERSION = 90;
 
 function normalizeTaskComments(
   steeringComments: SteeringComment[] | undefined,
@@ -268,6 +268,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   sliceId TEXT,
   scopeOverride INTEGER,
   scopeOverrideReason TEXT,
+  scopeAutoWiden TEXT DEFAULT '[]',
   assignedAgentId TEXT,
   pausedByAgentId TEXT,
   assigneeUserId TEXT,
@@ -1687,6 +1688,7 @@ export class Database {
       this.addColumnIfMissing("tasks", "review", "TEXT");
       this.addColumnIfMissing("tasks", "userPaused", "INTEGER DEFAULT 0");
       this.addColumnIfMissing("tasks", "pausedReason", "TEXT");
+      this.addColumnIfMissing("tasks", "scopeAutoWiden", "TEXT DEFAULT '[]'");
     }
 
     if (version >= SCHEMA_VERSION) return;
@@ -3523,6 +3525,12 @@ export class Database {
           CREATE INDEX IF NOT EXISTS idx_mergeQueue_leaseExpiresAt
             ON mergeQueue(leaseExpiresAt)
         `);
+      });
+    }
+
+    if (version < 90) {
+      this.applyMigration(90, () => {
+        this.addColumnIfMissing("tasks", "scopeAutoWiden", "TEXT DEFAULT '[]'");
       });
     }
 

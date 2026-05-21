@@ -87,4 +87,29 @@ describe("run-audit provisioning mutation types", () => {
       "merge:integration-ref-advance",
     ]);
   });
+
+  it("records merge:scope:auto-widen git events", async () => {
+    const store = new AuditStoreStub();
+    const auditor = createRunAuditor(store as unknown as TaskStore, { runId: "r1", agentId: "a1", taskId: "FN-5226" });
+
+    await auditor.git({
+      type: "merge:scope:auto-widen",
+      target: "fusion/fn-5226",
+      metadata: {
+        taskId: "FN-5226",
+        file: "AGENTS.md",
+        attribution: "subject-prefix",
+        commits: ["abc123"],
+      },
+    });
+
+    expect(store.events).toHaveLength(1);
+    expect(store.events[0]?.mutationType).toBe("merge:scope:auto-widen");
+    expect(store.events[0]?.metadata).toEqual({
+      taskId: "FN-5226",
+      file: "AGENTS.md",
+      attribution: "subject-prefix",
+      commits: ["abc123"],
+    });
+  });
 });

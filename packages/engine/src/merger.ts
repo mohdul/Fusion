@@ -111,6 +111,7 @@ import {
 import { acquireTaskWorktree } from "./worktree-acquisition.js";
 import { resolveIntegrationBranch } from "./integration-branch.js";
 import { advanceIntegrationBranchRef, IntegrationBranchConcurrentAdvanceError } from "./merger-ref-update-advance.js";
+import { appendAutoWidenedScopeToPrompt, evaluateScopeAutoWiden } from "./merger-scope-auto-widen.js";
 
 export { DiffVolumeRegressionError } from "./merger-diff-volume-gate.js";
 export { IntegrationBranchConcurrentAdvanceError } from "./merger-ref-update-advance.js";
@@ -534,7 +535,7 @@ async function findOwnedLandedCommitForTask(rootDir: string, task: Task): Promis
   return null;
 }
 
-function toTaskToken(value: string): string {
+export function toTaskToken(value: string): string {
   return value.toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
@@ -2652,6 +2653,7 @@ async function tryRecoverHardFailApply(params: {
       taskId,
       rootDir,
       branch: task.branch || canonicalFusionBranchName(taskId),
+      mergeTargetBranch: task.baseBranch || "main",
       conflictFiles: threeWayConflicted,
       auditor: undefined,
     });
@@ -3081,6 +3083,7 @@ async function restoreUnrelatedRootDirChanges(
     taskId,
     rootDir,
     branch: task.branch || canonicalFusionBranchName(taskId),
+    mergeTargetBranch: task.baseBranch || "main",
     conflictFiles: conflictedFiles,
     auditor: undefined,
   });
@@ -4080,10 +4083,11 @@ export async function applyLayer3ConflictScopePartition(params: {
   taskId: string;
   rootDir: string;
   branch: string;
+  mergeTargetBranch?: string;
   conflictFiles: string[];
   auditor?: RunAuditor;
 }): Promise<{ inScopeConflicts: string[]; skippedFiles: string[]; declaredScope: string[]; viaScopeOverride: boolean }> {
-  const { store, task, taskId, rootDir, branch, conflictFiles, auditor } = params;
+  const { store, task, taskId, rootDir, branch, mergeTargetBranch = "main", conflictFiles, auditor } = params;
   if (conflictFiles.length === 0 || typeof (store as Partial<TaskStore>).parseFileScopeFromPrompt !== "function") {
     return { inScopeConflicts: conflictFiles, skippedFiles: [], declaredScope: [], viaScopeOverride: false };
   }
@@ -4114,7 +4118,62 @@ export async function applyLayer3ConflictScopePartition(params: {
     return { inScopeConflicts: conflictFiles, skippedFiles: [], declaredScope, viaScopeOverride: false };
   }
 
-  const { inScope, outOfScope } = partitionConflictsByFileScope({ conflictFiles, declaredScope });
+  let effectiveDeclaredScope = [...declaredScope];
+  let outOfScope = conflictFiles.filter((file) => !matchesScope(file, effectiveDeclaredScope));
+  if (outOfScope.length > 0) {
+    const scopeAutoWiden = await evaluateScopeAutoWiden({
+      store,
+      task,
+      taskId,
+      rootDir,
+      branch,
+      baseRef: mergeTargetBranch,
+      candidateFiles: outOfScope,
+    });
+
+    if (scopeAutoWiden.widened.length > 0) {
+      try {
+        const widenedFiles = await appendAutoWidenedScopeToPrompt({
+          store,
+          taskId,
+          files: scopeAutoWiden.widened.map((entry) => entry.file),
+        });
+        if (widenedFiles.length > 0) {
+          effectiveDeclaredScope = await store.parseFileScopeFromPrompt(taskId);
+          const widenedSet = new Set(widenedFiles);
+          for (const widened of scopeAutoWiden.widened.filter((entry) => widenedSet.has(entry.file))) {
+            if (auditor) {
+              await auditor.git({
+                type: "merge:scope:auto-widen",
+                target: branch,
+                metadata: {
+                  taskId,
+                  file: widened.file,
+                  attribution: widened.attribution,
+                  commits: widened.commits,
+                },
+              }).catch((error: unknown) => {
+                mergerLog.warn(`${taskId}: failed to emit merge:scope:auto-widen run_audit event: ${error instanceof Error ? error.message : String(error)}`);
+              });
+            }
+          }
+          await store.appendAgentLog(
+            taskId,
+            `Layer 2.5 auto-widened File Scope: ${widenedFiles.join(", ")}`,
+            "text",
+            undefined,
+            "merger",
+          );
+        }
+      } catch (error) {
+        mergerLog.warn(`${taskId}: failed to persist Layer 2.5 auto-widened scope, continuing with strip path: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    outOfScope = outOfScope.filter((file) => !matchesScope(file, effectiveDeclaredScope));
+  }
+
+  const { inScope } = partitionConflictsByFileScope({ conflictFiles, declaredScope: effectiveDeclaredScope });
   for (const file of outOfScope) {
     // In merge and rebase conflict contexts, `--ours` resolves to the
     // integration-target side (main bytes), which we keep for out-of-scope files.
@@ -4142,7 +4201,7 @@ export async function applyLayer3ConflictScopePartition(params: {
         metadata: {
           taskId,
           skippedFiles: outOfScope,
-          declaredScope,
+          declaredScope: effectiveDeclaredScope,
           inScopeCount: inScope.length,
           viaScopeOverride: false,
         },
@@ -4152,7 +4211,7 @@ export async function applyLayer3ConflictScopePartition(params: {
     }
   }
 
-  return { inScopeConflicts: inScope, skippedFiles: outOfScope, declaredScope, viaScopeOverride: false };
+  return { inScopeConflicts: inScope, skippedFiles: outOfScope, declaredScope: effectiveDeclaredScope, viaScopeOverride: false };
 }
 
 /**
@@ -8180,6 +8239,7 @@ export async function aiMergeTask(
         options,
         result,
         settings,
+        mergeTargetBranch: mergeTarget.branch,
         testCommand: effectiveTestCommand,
         buildCommand: effectiveBuildCommand,
         testSource: effectiveTestSource,
@@ -9442,6 +9502,7 @@ interface MergeAttemptParams {
   options: MergerOptions;
   result: MergeResult;
   settings: Settings;
+  mergeTargetBranch?: string;
   testCommand?: string;
   buildCommand?: string;
   /** Source of the test command: 'explicit' from settings or 'inferred' from project files */
@@ -9568,6 +9629,7 @@ export async function executeMergeAttempt(
           taskId,
           rootDir,
           branch,
+          mergeTargetBranch: params.mergeTargetBranch ?? "main",
           conflictFiles: conflictedFiles,
           auditor: params.auditor,
         });
@@ -9760,6 +9822,7 @@ export async function executeMergeAttempt(
           taskId,
           rootDir,
           branch,
+          mergeTargetBranch: params.mergeTargetBranch ?? "main",
           conflictFiles: conflictedFiles,
           auditor: params.auditor,
         });
