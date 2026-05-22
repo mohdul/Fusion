@@ -226,7 +226,7 @@ export interface SelfHealingOptions {
    * the polling sweep's enqueue to silently no-op).
    */
   enqueueMerge?: (taskId: string) => boolean;
-  requeueForAutoMerge?: (taskId: string) => void | Promise<void>;
+  requeueForAutoMerge?: (taskId: string) => boolean | void | Promise<boolean | void>;
   isTaskActive?: (taskId: string) => boolean;
   clearMergeActive?: (taskId: string) => void;
   /**
@@ -1907,21 +1907,6 @@ export class SelfHealingManager {
     if (!task.branch || !task.worktree) return false;
     try {
       const integrationBranch = await resolveIntegrationBranch(this.options.rootDir, undefined);
-      const baseSha = task.baseCommitSha ?? task.baseBranch ?? task.executionStartBranch ?? integrationBranch;
-      if (!baseSha) return false;
-      const classification = await classifyForeignOnlyContamination({
-        repoDir: this.options.rootDir,
-        branchName: task.branch,
-        baseSha,
-        taskId: task.id,
-      }).catch(() => null);
-      if (!classification) return false;
-      if (
-        classification.kind !== "foreign-only-no-own-work" &&
-        classification.kind !== "foreign-only-already-upstream"
-      ) {
-        return false;
-      }
       const auditor = createRunAuditor(this.store, {
         runId: generateSyntheticRunId("self-heal", task.id),
         agentId: "self-healing",
@@ -1929,6 +1914,8 @@ export class SelfHealingManager {
         taskLineageId: task.lineageId,
         phase: "reanchor-foreign-only-contamination",
       });
+      // recoverForeignOnlyContamination internally classifies and bails on
+      // non-matching kinds, so we do not pre-classify here.
       const recovered = await recoverForeignOnlyContamination(task, {
         repoDir: this.options.rootDir,
         taskStore: this.store,
@@ -1938,7 +1925,7 @@ export class SelfHealingManager {
       if (!recovered.recovered) return false;
       await this.store.logEntry(
         task.id,
-        `Auto-reanchored ${task.branch} to base (${classification.kind}, ${classification.foreignCommitCount} foreign commit(s) discarded — no own work to preserve)`,
+        `Auto-reanchored ${task.branch} to base (foreign-only contamination, subtype=${recovered.subtype ?? "unknown"})`,
       );
       return true;
     } catch (err) {
@@ -5794,6 +5781,33 @@ export class SelfHealingManager {
         continue;
       }
 
+      let accepted = false;
+      if (this.options.requeueForAutoMerge || this.options.enqueueMerge) {
+        try {
+          // FN-5353: strict targetTaskId leasing in reuse handoff requires an
+          // explicit queue row before re-emitting auto-merge.
+          await this.store.enqueueMergeQueue(task.id);
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          log.warn(`recoverCompletionHandoffLimbo: enqueue failed for ${task.id}: ${errorMessage}`);
+          continue;
+        }
+
+        if (this.options.enqueueMerge) {
+          accepted = this.options.enqueueMerge(task.id);
+        } else if (this.options.requeueForAutoMerge) {
+          const enqueueResult = await this.options.requeueForAutoMerge(task.id);
+          accepted = enqueueResult !== false;
+        }
+      } else {
+        log.warn(`recoverCompletionHandoffLimbo: requeueForAutoMerge callback missing for ${task.id}`);
+      }
+
+      if (!accepted) {
+        log.warn(`recoverCompletionHandoffLimbo: merge requeue not accepted for ${task.id}; skipping limbo recovery budget increment`);
+        continue;
+      }
+
       await this.store.updateTask(task.id, {
         completionHandoffLimboRecoveryCount: currentCount + 1,
       });
@@ -5812,20 +5826,6 @@ export class SelfHealingManager {
       });
 
       await this.store.logEntry(task.id, "Auto-recovered (FN-4999): task in 'in-review' past handoff grace with no merge fan-out — re-emitting auto-merge handoff");
-      if (this.options.requeueForAutoMerge) {
-        try {
-          // FN-5353: strict targetTaskId leasing in reuse handoff requires an
-          // explicit queue row before re-emitting auto-merge.
-          await this.store.enqueueMergeQueue(task.id);
-        } catch (err) {
-          const errorMessage = err instanceof Error ? err.message : String(err);
-          log.warn(`recoverCompletionHandoffLimbo: enqueue failed for ${task.id}: ${errorMessage}`);
-          continue;
-        }
-        await this.options.requeueForAutoMerge(task.id);
-      } else {
-        log.warn(`recoverCompletionHandoffLimbo: requeueForAutoMerge callback missing for ${task.id}`);
-      }
     }
   }
 

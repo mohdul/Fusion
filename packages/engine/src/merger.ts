@@ -1,10 +1,23 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { execSync, exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { IDENTITY_GUARD_BYPASS_ENV } from "./worktree-hooks.js";
 
 // Internal git plumbing intentionally bypasses sandbox backends.
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
+
+/**
+ * Env for merger-driven `git commit` calls so the identity-guard pre-commit
+ * hook accepts commits made on a detached HEAD (intentional in
+ * reuse-task-worktree squash/verification-fix ceremonies). Scope is narrow —
+ * commit calls only, never plumbing like checkout/reset — and the guard
+ * checks for the exact value "1" so a leaked/empty var cannot accidentally
+ * bypass agent commits.
+ */
+function mergerCommitEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, [IDENTITY_GUARD_BYPASS_ENV]: "1" };
+}
 import {
   detectMissingWorkspaceEntry,
   runVerificationCommand as runVerificationCommandShared,
@@ -3897,7 +3910,7 @@ export async function commitOrAmendMergeWithFixes(
       });
       await execAsync(
         `git commit ${subjectArg} ${bodyArg}${trailerArg}${authorArg}`,
-        { cwd: rootDir },
+        { cwd: rootDir, env: mergerCommitEnv() },
       );
       if (store && lineageId) {
         const sha = (await execAsync("git rev-parse HEAD", { cwd: rootDir })).stdout.trim();
@@ -3940,7 +3953,7 @@ export async function commitOrAmendMergeWithFixes(
     });
     await execAsync(
       `git commit --amend ${subjectArg} ${bodyArg}${trailerArg}${authorArg}`,
-      { cwd: rootDir },
+      { cwd: rootDir, env: mergerCommitEnv() },
     );
     if (store && lineageId) {
       const sha = (await execAsync("git rev-parse HEAD", { cwd: rootDir })).stdout.trim();
@@ -4839,7 +4852,7 @@ async function ensureTaskTrailersOnHead(rootDir: string, task: Pick<Task, "id"> 
     for (const trailer of trailersToAdd) {
       amendCommand += ` --trailer "${trailer}"`;
     }
-    await execAsync(amendCommand, { cwd: rootDir });
+    await execAsync(amendCommand, { cwd: rootDir, env: mergerCommitEnv() });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     mergerLog.warn(`${task.id}: failed to add merge trailers to HEAD (${msg}) — relying on fallback ownership signals`);
@@ -9766,7 +9779,7 @@ export async function executeMergeAttempt(
             });
             await execAsync(
               `git commit ${subjectArg} ${bodyArg}${trailerArg}${authorArg}`,
-              { cwd: rootDir },
+              { cwd: rootDir, env: mergerCommitEnv() },
             );
             mergerLog.log(`${taskId}: committed after auto-resolving all conflicts`);
           } else {
@@ -9995,7 +10008,7 @@ export async function executeMergeAttempt(
       const trailerArg = buildTaskTrailerArgs(taskId);
       await execAsync(
         `git commit --amend ${subjectArg} ${bodyArg}${trailerArg}${authorArg}`,
-        { cwd: rootDir },
+        { cwd: rootDir, env: mergerCommitEnv() },
       );
       mergerLog.log(`${taskId}: rewrote AI-authored merge commit message with deterministic body`);
     } catch (err: unknown) {
@@ -10203,7 +10216,7 @@ async function finalizeSideStrategyAttempt(
   });
   await execAsync(
     `git commit ${subjectArg} ${bodyArg}${issueRefBodyArg}${trailerArg}${authorArg}`,
-    { cwd: rootDir },
+    { cwd: rootDir, env: mergerCommitEnv() },
   );
   mergerLog.log(`${taskId}: committed with -X ${side} auto-resolution`);
 
@@ -10570,7 +10583,7 @@ async function runAiAgentForCommit(params: AiAgentParams): Promise<{ success: bo
         });
         await execAsync(
           `git commit ${subjectArg} ${bodyArg}${issueRefBodyArg}${trailerArg}${authorArg}`,
-          { cwd: rootDir },
+          { cwd: rootDir, env: mergerCommitEnv() },
         );
       } else {
         // Build command was configured but agent didn't commit and didn't report failure

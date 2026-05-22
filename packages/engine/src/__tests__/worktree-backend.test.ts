@@ -34,6 +34,7 @@ vi.mock("../branch-conflicts.js", () => ({
 }));
 vi.mock("../worktree-hooks.js", () => ({
   installTaskWorktreeIdentityGuard: installGuardMock,
+  IDENTITY_GUARD_BYPASS_ENV: "FUSION_MERGER_BYPASS_IDENTITY_GUARD",
 }));
 vi.mock("../worktree-stale-lock.js", () => ({
   StaleWorktreeIndexLockError: class StaleWorktreeIndexLockError extends Error {

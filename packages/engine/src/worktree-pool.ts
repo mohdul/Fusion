@@ -460,7 +460,8 @@ export class WorktreePool {
     // freshly-created fn-5432/fn-5255 branches because the recycled worktree
     // was still pointing at the previous occupant's commit and base silently
     // collapsed onto HEAD.
-    if (!base || !base.trim() || base.trim().toUpperCase() === "HEAD") {
+    const trimmedBase = base?.trim() ?? "";
+    if (!trimmedBase || trimmedBase.toUpperCase() === "HEAD") {
       throw new Error(
         `prepareForTask: refusing to create branch ${branchName} from base ${JSON.stringify(base)} (worktree=${worktreePath}, startPoint=${String(startPoint)})`,
       );
