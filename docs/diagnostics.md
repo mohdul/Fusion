@@ -92,3 +92,16 @@ Dashboard Phase 1 resume instrumentation adds observation-only client/server tra
 - Disable knob: `window.__fusionDebug.resumeInstrumentation.setEnabled(false)`.
 
 FN-5415 extends this coverage across remaining board/data visibility hooks: `useNodes`, `useMeshState`, `useProjects`, and `useManagedDockerNodes`. Each now emits `trigger: "visibility"` with `reason: "debounced-refresh"` when refresh is taken and `reason: "debounce-skipped"` (including `detail.timeSinceLastRefreshMs`) when suppressed by debounce. This completes board/data-hook resume-correlation coverage needed for FN-5392 Phase 2 remediation analysis.
+
+### Phase 3 coverage (FN-5416)
+
+FN-5416 extends resume-correlation coverage to stream-focused hooks and their primary route shells:
+
+- Hooks
+  - `usePrChecksStream`: `remount`, `visibility`
+  - `useDevServerLogs`: `project-context-change`, `sse-open`, `sse-reconnect`
+  - `useResearch`: `sse-open`, `sse-reconnect`
+  - `useBackgroundSessions`: `sse-open`, `sse-reconnect`
+- Route shells
+  - `DevServerView`: `remount` / `route-active` / `route-inactive`
+  - `ResearchView`: `remount` / `route-active` / `route-inactive`
