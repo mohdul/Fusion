@@ -1,5 +1,6 @@
 import "./MobileNavBar.css";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   Activity,
   Bot,
@@ -296,7 +297,12 @@ export function MobileNavBar({
     || view === "stash-recovery"
     || (isPluginViewId(view) && !topLevelPrimaryPluginViews.some((entry) => buildPluginTaskViewId(entry.pluginId, entry.view.viewId) === view));
 
-  return (
+  // Portal the bar directly into document.body so its `position: fixed`
+  // can't be hijacked by an ancestor's containing block (any ancestor with
+  // transform/filter/will-change/contain creates a fixed-positioning
+  // containing block — and we hit exactly that on Android tablet, leaving
+  // the bar positioned far below the visible window).
+  const content = (
     <>
       <nav
         ref={navRef}
@@ -837,4 +843,6 @@ export function MobileNavBar({
       )}
     </>
   );
+  if (typeof document === "undefined") return content;
+  return createPortal(content, document.body);
 }
