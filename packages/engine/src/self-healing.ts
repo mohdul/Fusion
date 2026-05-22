@@ -244,6 +244,11 @@ export interface SelfHealingOptions {
    * blockedBy pointers. Must be >= staleMergingStatusMinAgeMs.
    */
   staleMergingFanoutMinAgeMs?: number;
+  /**
+   * Grace window for treating in-review merging statuses as unbacked when no
+   * active merger owns the task. Intended for manual retry/unpause refreshes.
+   */
+  unbackedMergingFanoutGraceMs?: number;
   hasActiveAgentExecution?: (agentId: string) => boolean;
   restartDurableAgentHeartbeat?: (agentId: string, context: { reason: string; attempt: number }) => Promise<boolean>;
   autoRecoveryDispatcher?: AutoRecoveryDispatcher;
@@ -303,6 +308,7 @@ const MAX_STARVATION_DROPS = 3;
 const DEADLOCK_RECOVERY_COOLDOWN_MS = 15 * 60_000;
 const DEFAULT_STALE_MERGING_STATUS_MIN_AGE_MS = 5 * 60_000;
 const DEFAULT_STALE_MERGING_FANOUT_MIN_AGE_MS = 15 * 60_000;
+const DEFAULT_UNBACKED_MERGING_FANOUT_GRACE_MS = 60_000;
 const DURABLE_ERROR_RECOVERY_MAX_RETRIES = 5;
 const DURABLE_ERROR_RECOVERY_BASE_COOLDOWN_MS = 30_000;
 const DURABLE_ERROR_RECOVERY_MAX_COOLDOWN_MS = 15 * 60_000;
@@ -3553,7 +3559,12 @@ export class SelfHealingManager {
       const staleMergingStatusMinAgeMs = this.options.staleMergingStatusMinAgeMs ?? DEFAULT_STALE_MERGING_STATUS_MIN_AGE_MS;
       const configuredFanoutMinAgeMs = this.options.staleMergingFanoutMinAgeMs ?? DEFAULT_STALE_MERGING_FANOUT_MIN_AGE_MS;
       const staleMergingFanoutMinAgeMs = Math.max(staleMergingStatusMinAgeMs, configuredFanoutMinAgeMs);
+      const unbackedMergingFanoutGraceMs = Math.min(
+        staleMergingStatusMinAgeMs,
+        Math.max(1, this.options.unbackedMergingFanoutGraceMs ?? DEFAULT_UNBACKED_MERGING_FANOUT_GRACE_MS),
+      );
       const activeMergeTaskId = this.options.getActiveMergeTaskId?.() ?? null;
+      const executingTaskIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
       const now = Date.now();
 
       const todoTasks = await this.store.listTasks({ column: "todo" });
@@ -3599,28 +3610,36 @@ export class SelfHealingManager {
 
           const blocker = taskById.get(blockerId);
           let reason: string | null = null;
+          let reasonCode: string | null = null;
 
           if (!blocker) {
+            reasonCode = "missing-blocker";
             reason = `blocker ${blockerId} missing`;
           } else if (blocker.column === "done") {
+            reasonCode = "blocker-done";
             reason = `blocker ${blockerId} is done`;
           } else if (blocker.column === "archived") {
+            reasonCode = "blocker-archived";
             reason = `blocker ${blockerId} is archived`;
           } else if (blocker.column === "todo") {
+            reasonCode = "blocker-moved-todo";
             reason = `blocker ${blockerId} moved to todo`;
           } else if (blocker.column === "in-review" && blocker.paused) {
+            reasonCode = "in-review-paused";
             reason = `blocker ${blockerId} in-review + paused`;
           } else if (
             blocker.column === "in-review" &&
             blocker.status === "failed" &&
             (blocker.mergeRetries ?? 0) >= MAX_AUTO_MERGE_RETRIES
           ) {
+            reasonCode = "failed-retry-exhausted";
             reason = `blocker ${blockerId} in-review + failed (mergeRetries ${blocker.mergeRetries ?? 0}/${MAX_AUTO_MERGE_RETRIES})`;
           } else if (
             blocker.column === "in-review" &&
             blocker.status === "failed" &&
             isMissingWorktreeSessionStartFailure(blocker.error)
           ) {
+            reasonCode = "missing-worktree-session-start";
             reason = `blocker ${blockerId} in-review + failed (missing-worktree session start)`;
           } else if (
             blocker.column === "in-review" &&
@@ -3630,12 +3649,21 @@ export class SelfHealingManager {
             const updatedAtMs = blocker.updatedAt ? Date.parse(blocker.updatedAt) : Number.NaN;
             if (Number.isFinite(updatedAtMs)) {
               const elapsedMs = now - updatedAtMs;
-              if (elapsedMs >= staleMergingFanoutMinAgeMs) {
-                const blockerStatus = blocker.status ?? "no-status";
+              const blockerStatus = blocker.status ?? "no-status";
+              if (
+                (blocker.status === "merging" || blocker.status === "merging-pr") &&
+                !executingTaskIds.has(blocker.id) &&
+                elapsedMs >= unbackedMergingFanoutGraceMs
+              ) {
+                reasonCode = "unbacked-merging";
+                reason = `blocker ${blockerId} in-review + ${blockerStatus} unbacked for ${elapsedMs}ms (grace ${unbackedMergingFanoutGraceMs}ms)`;
+              } else if (elapsedMs >= staleMergingFanoutMinAgeMs) {
+                reasonCode = "stale-merging-fanout";
                 reason = `blocker ${blockerId} in-review + ${blockerStatus} stale for ${elapsedMs}ms (threshold ${staleMergingFanoutMinAgeMs}ms)`;
               }
             }
           } else if (task.dependencies.length > 0 && !unresolvedDeps.includes(blockerId)) {
+            reasonCode = "not-unresolved-dependency";
             reason = `blocker ${blockerId} not among unresolved dependencies`;
           }
 
@@ -3648,13 +3676,13 @@ export class SelfHealingManager {
                     continue;
                   }
                   await this.store.updateTask(task.id, { blockedBy: nextBlocker, status: "queued" });
-                  await this.store.logEntry(task.id, `Auto-recovered: refreshed stale blockedBy — ${reason}; now blocked by ${nextBlocker}`);
+                  await this.store.logEntry(task.id, `Auto-recovered (FN-5488): refreshed stale blockedBy — blocker=${blockerId} blockerStatus=${blocker?.status ?? "none"} reason=${reasonCode ?? "unspecified"}; ${reason}; now blocked by ${nextBlocker}`);
                 } else if (hasActiveOverlapBlocker) {
                   await this.store.updateTask(task.id, { blockedBy: null, status: "queued" });
-                  await this.store.logEntry(task.id, `Auto-recovered: preserved queued status — still blocked by file scope overlap with ${task.overlapBlockedBy}`);
+                  await this.store.logEntry(task.id, `Auto-recovered (FN-5488): preserved queued status — blocker=${blockerId} blockerStatus=${blocker?.status ?? "none"} reason=${reasonCode ?? "unspecified"}; still blocked by file scope overlap with ${task.overlapBlockedBy}`);
                 } else {
                   await this.store.updateTask(task.id, { blockedBy: null, overlapBlockedBy: null, status: null });
-                  await this.store.logEntry(task.id, `Auto-recovered: cleared stale blockedBy — ${reason}`);
+                  await this.store.logEntry(task.id, `Auto-recovered (FN-5488): cleared stale blockedBy — blocker=${blockerId} blockerStatus=${blocker?.status ?? "none"} reason=${reasonCode ?? "unspecified"}; ${reason}`);
                 }
               } else {
                 await this.store.updateTask(task.id, { blockedBy: null });

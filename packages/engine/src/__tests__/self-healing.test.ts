@@ -616,7 +616,7 @@ describe("SelfHealingManager", () => {
       await manager.runStartupRecovery();
 
       expect(store.updateTask).toHaveBeenCalledWith("A", { blockedBy: null, overlapBlockedBy: null, status: null });
-      expect(store.logEntry).toHaveBeenCalledWith("A", expect.stringContaining("Auto-recovered: cleared stale blockedBy"));
+      expect(store.logEntry).toHaveBeenCalledWith("A", expect.stringContaining("Auto-recovered (FN-5488): cleared stale blockedBy"));
     });
 
     it("runStartupRecovery skips while enginePaused is active", async () => {
@@ -5950,8 +5950,8 @@ describe("clearStaleBlockedBy", () => {
 
     expect(recovered).toBe(1);
     expect(store.updateTask).toHaveBeenCalledWith("A", { blockedBy: null, overlapBlockedBy: null, status: null });
-    expect(store.logEntry).toHaveBeenCalledWith("A", expect.stringContaining(`blocker ${blockerId}`));
-    expect(store.logEntry).toHaveBeenCalledWith("A", expect.stringContaining("stale for"));
+    expect(store.logEntry).toHaveBeenCalledWith("A", expect.stringContaining(`blocker=${blockerId}`));
+    expect(store.logEntry).toHaveBeenCalledWith("A", expect.stringContaining("reason=unbacked-merging"));
     manager.stop();
     vi.useRealTimers();
   });
@@ -5964,7 +5964,7 @@ describe("clearStaleBlockedBy", () => {
       column: "in-review",
       paused: false,
       status: "merging",
-      updatedAt: "2026-01-01T00:00:01.000Z",
+      updatedAt: "2026-01-01T00:09:31.000Z",
     });
     mockSweepTasks(store, { todo: [taskA], inReview: [taskB], all: [taskA, taskB] });
 
