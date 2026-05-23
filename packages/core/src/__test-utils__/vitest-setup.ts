@@ -421,7 +421,12 @@ const originalChildProcess = {
 };
 
 const trackedSubprocesses = new Map<ChildProcess, TrackedSubprocess>();
-const completedSubprocessFailures: string[] = [];
+
+// Typed failure record so afterEach can attribute each timed-out subprocess
+// back to the test that spawned it rather than blindly throwing in whichever
+// test happens to run next (cascade false-positives).
+type CompletedSubprocessFailure = { ownerTestName: string | null; message: string };
+const completedSubprocessFailures: CompletedSubprocessFailure[] = [];
 
 function describeTestSubprocessCommand(command: string, args?: readonly string[]): string {
   return [command, ...(args ?? [])].join(" ").trim();
@@ -502,9 +507,10 @@ function registerTrackedSubprocess(proc: ChildProcess, commandLine: string): voi
 
   tracked.timeoutTimer = setTimeout(() => {
     tracked.timedOut = true;
-    completedSubprocessFailures.push(
-      `Timed out after ${DEFAULT_TEST_SUBPROCESS_TIMEOUT_MS}ms: ${tracked.commandLine}${tracked.testName ? ` (${tracked.testName})` : ""}`,
-    );
+    completedSubprocessFailures.push({
+      ownerTestName: tracked.testName,
+      message: `Timed out after ${DEFAULT_TEST_SUBPROCESS_TIMEOUT_MS}ms: ${tracked.commandLine}${tracked.testName ? ` (${tracked.testName})` : ""}`,
+    });
     try {
       proc.kill("SIGKILL");
     } catch {
@@ -638,8 +644,30 @@ function installChildProcessGuards(): void {
 installChildProcessGuards();
 
 afterEach(async () => {
-  const failures = [...completedSubprocessFailures];
+  // Drain the completed-subprocess failure queue. Only surface failures that
+  // belong to the currently-finishing test; failures from a *previous* test
+  // whose 30 s timer fired while this test was already running are left in
+  // place so the correct test's afterEach can pick them up — or, if that test
+  // has already finished, they are simply discarded here to avoid false-positive
+  // cascade failures on innocent successor tests.
+  const currentTest = currentTestName();
+  const owned: string[] = [];
+  const remaining: CompletedSubprocessFailure[] = [];
+  for (const failure of completedSubprocessFailures) {
+    if (failure.ownerTestName === currentTest) {
+      owned.push(failure.message);
+    } else {
+      // Keep failures that belong to other tests so they can be surfaced when
+      // that test's afterEach runs (concurrent-worker scenario). Failures whose
+      // owner test has already completed cannot be re-surfaced; they're dropped
+      // here silently — the subprocess guard already SIGKILL'd the process and
+      // the owning test presumably has its own failure path.
+      remaining.push(failure);
+    }
+  }
   completedSubprocessFailures.length = 0;
+  completedSubprocessFailures.push(...remaining);
+  const failures = owned;
 
   // Give SIGTERM'd processes a brief grace period to exit before declaring
   // them "left running" — tests like dev-server-process.cleanup() send SIGTERM
@@ -682,7 +710,6 @@ afterEach(async () => {
     }
   }
 
-  const currentTest = currentTestName();
   for (const [proc, tracked] of trackedSubprocesses) {
     const stillRunning = proc.exitCode === null && proc.signalCode === null;
     if (stillRunning) {
