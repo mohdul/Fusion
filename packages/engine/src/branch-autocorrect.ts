@@ -82,7 +82,17 @@ export async function attemptBranchAutocorrect({
     }
   }
 
-  const checkout = await runGit(`git checkout -B ${expectedArg}`, worktreePath);
+  // FN-5456: must NOT use `git checkout -B` with no start point — that would
+  // create (or reset) the expected branch at whatever HEAD currently is,
+  // capturing the previous occupant's tip (the "branch: Created from HEAD"
+  // contamination pattern). Plain `git checkout` only switches to an existing
+  // ref; if `expected` doesn't already exist the caller will surface a
+  // wrong-branch failure with proper base resolution upstream.
+  const verifyExpected = await runGit(`git rev-parse --verify --quiet ${expectedArg}`, worktreePath);
+  if (!verifyExpected.ok) {
+    return { status: "failed", reason: `expected branch ${expected} does not exist` };
+  }
+  const checkout = await runGit(`git checkout ${expectedArg}`, worktreePath);
   if (checkout.ok) {
     return { status: "checked-out" };
   }
