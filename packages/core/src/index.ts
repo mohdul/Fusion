@@ -223,7 +223,19 @@ export {
   DistributedTaskIdError,
 } from "./distributed-task-id.js";
 export type { DistributedTaskIdAllocator } from "./distributed-task-id.js";
-export { Database, createDatabase, toJson, toJsonNullable, fromJson } from "./db.js";
+export {
+  Database,
+  createDatabase,
+  toJson,
+  toJsonNullable,
+  fromJson,
+} from "./db.js";
+export {
+  ProjectIdentityConflictError,
+  ProjectIdentityMismatchError,
+  readProjectIdentity,
+  writeProjectIdentity,
+} from "./project-identity.js";
 export { ProcessSupervisor, superviseSpawn } from "./process-supervisor.js";
 export type {
   SuperviseSpawnOptions,
@@ -232,6 +244,8 @@ export type {
 } from "./process-supervisor.js";
 export { DatabaseSync } from "./sqlite-adapter.js";
 export type { Statement, VacuumResult } from "./db.js";
+export type { ProjectIdentity } from "./project-identity.js";
+export type { EnsureProjectForPathInput, EnsureProjectForPathResult } from "./central-core.js";
 export { ArchiveDatabase } from "./archive-db.js";
 export { detectLegacyData, migrateFromLegacy, getMigrationStatus } from "./db-migrate.js";
 export { GlobalSettingsStore, resolveGlobalDir } from "./global-settings.js";

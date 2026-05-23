@@ -21,6 +21,8 @@ import {
   COLUMNS,
   COLUMN_LABELS,
   type Column,
+  readProjectIdentity,
+  writeProjectIdentity,
 } from "@fusion/core";
 import { resolve, isAbsolute, relative, basename } from "node:path";
 import { existsSync, statSync } from "node:fs";
@@ -356,15 +358,26 @@ export async function runProjectAdd(
       process.exit(1);
     }
 
-    // Register the project
-    const project = await central.registerProject({
-      name: projectName,
+    const identity = existsSync(kbDbPath) ? readProjectIdentity(join(absolutePath, ".fusion")) : null;
+    const ensured = await central.ensureProjectForPath({
       path: absolutePath,
-      isolationMode,
+      identity: identity ?? undefined,
+      name: projectName,
     });
+
+    const project = ensured.project;
 
     // Activate the project (registration sets it to 'initializing')
     await central.updateProject(project.id, { status: "active" });
+
+    try {
+      writeProjectIdentity(join(absolutePath, ".fusion"), {
+        id: project.id,
+        createdAt: project.createdAt,
+      });
+    } catch (identityError) {
+      console.warn(`  ⚠ Warning: Could not persist project identity: ${identityError instanceof Error ? identityError.message : String(identityError)}`);
+    }
 
     // Bootstrap memory files (non-fatal if it fails)
     let memoryInitialized = false;

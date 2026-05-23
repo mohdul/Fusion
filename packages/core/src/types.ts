@@ -6075,6 +6075,8 @@ export interface DetectedProject {
   name: string;
   /** Whether the project has a valid fusion.db */
   hasDb: boolean;
+  /** Persisted project identity id if present */
+  identityId?: string;
 }
 
 /** Setup state for the first-run wizard UI */
@@ -6089,6 +6091,8 @@ export interface SetupState {
   registeredProjects: RegisteredProject[];
   /** Recommended action based on current state */
   recommendedAction: "auto-detect" | "create-new" | "manual-setup";
+  /** Local identities whose central rows are missing */
+  orphanIdentities?: Array<{ path: string; identityId: string }>;
 }
 
 /** Input for setting up a project via the wizard */
@@ -6099,6 +6103,8 @@ export interface ProjectSetupInput {
   name: string;
   /** Isolation mode preference */
   isolationMode?: "in-process" | "child-process";
+  /** Persisted local identity for central re-attachment */
+  identity?: { id: string; createdAt: string } | null;
 }
 
 /** Result of completing the first-run setup */

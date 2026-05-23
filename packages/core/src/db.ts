@@ -9,7 +9,7 @@
  */
 
 import { DatabaseSync } from "./sqlite-adapter.js";
-import { isAbsolute, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { mkdirSync, existsSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -28,6 +28,35 @@ export interface VacuumResult {
   beforeBytes: number;
   afterBytes: number;
   durationMs: number;
+}
+
+export interface ProjectIdentity {
+  id: string;
+  createdAt: string;
+  firstSeenPath: string;
+}
+
+export class ProjectIdentityConflictError extends Error {
+  readonly storedId: string;
+  readonly storedPath: string;
+  readonly incomingId: string;
+  readonly incomingPath: string;
+
+  constructor(input: {
+    storedId: string;
+    storedPath: string;
+    incomingId: string;
+    incomingPath: string;
+  }) {
+    super(
+      `Project identity conflict: stored id ${input.storedId} (${input.storedPath}) does not match incoming id ${input.incomingId} (${input.incomingPath})`,
+    );
+    this.name = "ProjectIdentityConflictError";
+    this.storedId = input.storedId;
+    this.storedPath = input.storedPath;
+    this.incomingId = input.incomingId;
+    this.incomingPath = input.incomingPath;
+  }
 }
 
 const DEFAULT_SQLITE_BUSY_TIMEOUT_MS = 5_000;
@@ -3896,6 +3925,41 @@ export class Database {
     this.db.prepare("INSERT OR REPLACE INTO __meta (key, value) VALUES (?, ?)").run(key, value);
   }
 
+  // IDENTITY KEY: Per-project durable identity used to recover central project rows.
+  private static readonly PROJECT_IDENTITY_META_KEY = "projectIdentity";
+
+  getProjectIdentity(): ProjectIdentity | undefined {
+    const value = this.getMetaValue(Database.PROJECT_IDENTITY_META_KEY);
+    return fromJson<ProjectIdentity>(value);
+  }
+
+  setProjectIdentity(identity: ProjectIdentity, options?: { force?: boolean }): void {
+    const stored = this.getProjectIdentity();
+    const force = options?.force === true;
+
+    if (stored) {
+      if (stored.id === identity.id) {
+        return;
+      }
+      if (!force) {
+        throw new ProjectIdentityConflictError({
+          storedId: stored.id,
+          storedPath: stored.firstSeenPath,
+          incomingId: identity.id,
+          incomingPath: identity.firstSeenPath,
+        });
+      }
+    }
+
+    this.setMetaValue(Database.PROJECT_IDENTITY_META_KEY, JSON.stringify(identity));
+  }
+
+  clearProjectIdentity(): void {
+    this.db
+      .prepare("DELETE FROM __meta WHERE key = ?")
+      .run(Database.PROJECT_IDENTITY_META_KEY);
+  }
+
   /**
    * Get the last modification timestamp (epoch ms).
    * Returns 0 if the value is not set.
@@ -3956,6 +4020,44 @@ export class Database {
  */
 export function createDatabase(fusionDir: string, options?: { inMemory?: boolean }): Database {
   return new Database(fusionDir, options);
+}
+
+function resolveFusionDirForProject(projectPath: string): string {
+  return basename(projectPath) === ".fusion" ? projectPath : join(projectPath, ".fusion");
+}
+
+export function readProjectIdentity(projectPath: string): ProjectIdentity | undefined {
+  const fusionDir = resolveFusionDirForProject(projectPath);
+  const dbPath = join(fusionDir, "fusion.db");
+  if (!existsSync(dbPath)) {
+    return undefined;
+  }
+
+  const db = new Database(fusionDir);
+  try {
+    db.init();
+    return db.getProjectIdentity();
+  } finally {
+    db.close();
+  }
+}
+
+export function writeProjectIdentity(
+  projectPath: string,
+  identity: ProjectIdentity,
+  options?: { force?: boolean },
+): void {
+  const fusionDir = resolveFusionDirForProject(projectPath);
+  if (!existsSync(fusionDir)) {
+    mkdirSync(fusionDir, { recursive: true });
+  }
+  const db = new Database(fusionDir);
+  try {
+    db.init();
+    db.setProjectIdentity(identity, options);
+  } finally {
+    db.close();
+  }
 }
 
 export { normalizeTaskComments };
