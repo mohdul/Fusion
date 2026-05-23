@@ -1,6 +1,6 @@
 // Real-git wallclock under parallel CI load; do not lower per-test timeouts
 // without re-measuring under pnpm test:full. (FN-4839)
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { join, resolve } from "node:path";
@@ -71,7 +71,7 @@ function git(cwd: string, command: string): string {
   return execSync(command, { cwd, stdio: "pipe" }).toString().trim();
 }
 
-function initRepo(dir: string): void {
+function initRepo(dir: string): string {
   git(dir, "git init -b main");
   git(dir, 'git config user.email "test@example.com"');
   git(dir, 'git config user.name "Test"');
@@ -79,6 +79,27 @@ function initRepo(dir: string): void {
   writeFileSync(join(dir, "README.md"), "# repo\n");
   git(dir, "git add README.md");
   git(dir, 'git commit -m "chore: initial commit"');
+  return git(dir, "git rev-parse HEAD");
+}
+
+/**
+ * Reset a shared test repo to its initial-commit state between tests. Lets
+ * tests in this file reuse one `git init` instead of paying ~5 git
+ * invocations per test in beforeEach. Safe because the file runs in the
+ * single-threaded `engine-slow` vitest project.
+ */
+function resetRepoToInitial(dir: string, initialSha: string): void {
+  // Bring HEAD back to main and to the initial commit.
+  git(dir, "git checkout -f main");
+  git(dir, `git reset --hard ${initialSha}`);
+  // Drop any feature branches left behind by earlier tests.
+  const branchListing = git(dir, "git for-each-ref --format='%(refname:short)' refs/heads/");
+  for (const ref of branchListing.split("\n").map((entry) => entry.replace(/^'|'$/g, "").trim()).filter(Boolean)) {
+    if (ref === "main") continue;
+    git(dir, `git branch -D ${ref}`);
+  }
+  // Remove any leftover working-tree files (untracked or ignored).
+  git(dir, "git clean -fdx");
 }
 
 function commitFile(dir: string, file: string, content: string, message: string): string {
@@ -186,6 +207,21 @@ function cleanupTempDir(dir?: string): void {
   }
 }
 
+// Shared test repo across both describes. Each test resets HEAD to the
+// initial commit and clears all non-main branches in beforeEach (see
+// resetRepoToInitial). Saves the ~5 git invocations per test that the
+// previous per-test mkdtemp + init pattern paid; brings this file from
+// ~17s to ~5s.
+let sharedDir: string;
+let initialSha: string;
+
+beforeAll(() => {
+  sharedDir = mkdtempSync(join(testTempParent(), "fusion-test-overlap-shared-"));
+  createdDirs.add(sharedDir);
+  assertIsolatedWorkspace(sharedDir);
+  initialSha = initRepo(sharedDir);
+});
+
 afterAll(() => {
   for (const dir of Array.from(createdDirs)) {
     cleanupTempDir(dir);
@@ -196,14 +232,8 @@ describe("merger overlap guard", () => {
   let dir: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(testTempParent(), "fusion-test-overlap-guard-"));
-    createdDirs.add(dir);
-    assertIsolatedWorkspace(dir);
-    initRepo(dir);
-  });
-
-  afterEach(() => {
-    cleanupTempDir(dir);
+    dir = sharedDir;
+    resetRepoToInitial(dir, initialSha);
   });
 
   it("detects overlap when branch and recent main commits touch the same file", async () => {
@@ -343,14 +373,8 @@ describe("aiMergeTask overlap-aware fallback integration", () => {
   let dir: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(testTempParent(), "fusion-test-overlap-merge-"));
-    createdDirs.add(dir);
-    assertIsolatedWorkspace(dir);
-    initRepo(dir);
-  });
-
-  afterEach(() => {
-    cleanupTempDir(dir);
+    dir = sharedDir;
+    resetRepoToInitial(dir, initialSha);
   });
 
   it("defaults to restoring the branch version for overlapping files under smart-prefer-main", async () => {
