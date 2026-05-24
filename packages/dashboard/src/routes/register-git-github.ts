@@ -586,6 +586,7 @@ async function collectRecentMergeAdvances(
     }) => RunAuditEvent[];
   },
   worktreePath: string,
+  headSha: string | undefined,
 ): Promise<ExtendedGitStatus["recentMergeAdvances"]> {
   if (typeof scopedStore.getRunAuditEvents !== "function") return [];
   const advances = scopedStore.getRunAuditEvents({
@@ -642,13 +643,34 @@ async function collectRecentMergeAdvances(
     const autoSyncOutcome =
       autoSyncByAdvance.get(pairKey(tid, md.toSha))
       ?? autoSyncByTaskFallback.get(tid);
+    // The worktree may already contain `toSha` — either because auto-sync
+    // succeeded, the operator manually ran "Sync working tree" / pulled, or
+    // they checked out a later commit by hand. In all those cases there's
+    // nothing left to do, regardless of what the original auto-sync audit
+    // event recorded. Treat reachability from HEAD as authoritative.
+    let alreadyInHead = false;
+    if (headSha) {
+      if (headSha === md.toSha) {
+        alreadyInHead = true;
+      } else {
+        try {
+          await runGitCommand(["merge-base", "--is-ancestor", md.toSha, headSha], worktreePath, 5_000);
+          alreadyInHead = true;
+        } catch {
+          alreadyInHead = false;
+        }
+      }
+    }
+    const needsAction = alreadyInHead
+      ? false
+      : (autoSyncOutcome === undefined || !successOutcomes.has(autoSyncOutcome));
     out.push({
       taskId: tid,
       fromSha: typeof md.fromSha === "string" ? md.fromSha : null,
       toSha: md.toSha,
       advancedAt: ev.timestamp,
       autoSyncOutcome,
-      needsAction: autoSyncOutcome === undefined || !successOutcomes.has(autoSyncOutcome),
+      needsAction,
     });
     if (out.length >= 5) break;
   }
@@ -731,6 +753,7 @@ export async function computeExtendedGitStatus(rootDir: string, scopedStore: Tas
         getRunAuditEvents?: (filters: { taskId?: string; domain?: "database" | "git" | "filesystem" | "sandbox"; mutationType?: string; limit?: number }) => RunAuditEvent[];
       },
       rootDir,
+      headSha,
     ),
   ]);
 
