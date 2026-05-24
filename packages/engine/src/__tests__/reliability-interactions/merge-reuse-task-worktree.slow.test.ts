@@ -122,7 +122,6 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
 
     try {
       const rootHeadBefore = git(rootDir, "git rev-parse HEAD");
-      const rootTrackedStatusBefore = git(rootDir, "git status --porcelain --untracked-files=no");
 
       const result = await aiMergeTask(store, rootDir, task.id);
       expect(result.merged).toBe(true);
@@ -141,9 +140,12 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
       const advanced = audits.find((event) => event.mutationType === "merge:integration-ref-advance");
       expect(advanced?.metadata).toMatchObject({ advanceMode: "update-ref", succeeded: true });
       expect(git(rootDir, "git rev-parse HEAD")).not.toBe(rootHeadBefore);
-      const rootTrackedStatusAfter = git(rootDir, "git status --porcelain --untracked-files=no");
-      expect(rootTrackedStatusAfter).not.toBe(rootTrackedStatusBefore);
-      expect(rootTrackedStatusAfter).toContain("fn-5279-ri-happy.ts");
+      // 4c31e885b (engine auto-sync) keeps the project root's working tree
+      // in step with the advanced ref, so the new file is a tracked, clean
+      // path at HEAD rather than appearing as a dirty/untracked entry. Verify
+      // landing via `git ls-files` (commit-reachable) instead of `git status`.
+      const rootLsFilesAfter = git(rootDir, "git ls-files");
+      expect(rootLsFilesAfter).toContain("packages/engine/src/fn-5279-ri-happy.ts");
     } finally {
       await fixture.cleanup();
     }
