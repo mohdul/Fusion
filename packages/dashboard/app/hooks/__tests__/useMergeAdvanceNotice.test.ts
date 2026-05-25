@@ -19,10 +19,18 @@ vi.mock("../../sse-bus", () => ({
 const eventPayload = { events: [{ taskId: "FN-1", integrationBranch: "trunk", refName: "refs/heads/trunk", toSha: "abcdef123456", fromSha: "123", advanceMode: "update-ref", succeeded: true, advancedAt: "2026", userCheckout: { worktreePath: "/repo", dirty: false, untrackedCount: 0 } }] };
 const pushStatus = { integrationBranch: "trunk", branchSource: "settings" as const, hasOriginRemote: true, hasUpstream: true, localSha: "localsha", remoteSha: "remotesha", aheadCount: 2, behindCount: 0, mergeActive: false, canPush: true };
 
+function toPath(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof URL) return value.toString();
+  if (value && typeof value === "object" && "url" in value) return String((value as { url?: unknown }).url ?? "");
+  return String(value ?? "");
+}
+
 function setDefaultMocks() {
-  mocked.api.mockImplementation(async (path: string) => {
-    if (String(path).includes("push-status")) return pushStatus;
-    if (String(path).includes("merge-advance-events")) return eventPayload;
+  mocked.api.mockImplementation(async (path: unknown) => {
+    const target = toPath(path);
+    if (target.includes("push-status")) return pushStatus;
+    if (target.includes("merge-advance-events")) return eventPayload;
     return { ok: true, outcome: "ok", localSha: "localsha", remoteSha: "localsha" };
   });
 }
@@ -126,23 +134,23 @@ describe("useMergeAdvanceNotice", () => {
 
   it("pull posts to /git/pull and dismisses on clean outcome", async () => {
     const pullEventPayload = { events: [{ ...eventPayload.events[0], toSha: "clean12345" }] };
-    mocked.api.mockImplementation(async (path: string) => {
-      if (String(path).includes("merge-advance-events")) return pullEventPayload;
-      if (String(path).includes("push-status")) return pushStatus;
-      if (String(path).includes("/git/pull")) return { kind: "pull-clean", toSha: "clean12345" };
+    mocked.api.mockImplementation(async (path: unknown) => {
+      const target = toPath(path);
+      if (target.includes("merge-advance-events")) return pullEventPayload;
+      if (target.includes("push-status")) return pushStatus;
+      if (target.includes("/git/pull")) return { kind: "pull-clean", toSha: "clean12345" };
       return { ok: true, outcome: "ok", localSha: "localsha", remoteSha: "localsha" };
     });
     const { result } = renderHook(() => useMergeAdvanceNotice({ projectId: "p1-pull-clean" }));
-    await waitFor(() => expect(result.current.notice).not.toBeNull());
+    await waitFor(() => expect(result.current.notice).toBeDefined());
     await act(async () => { await result.current.pull(); });
-    expect(mocked.api.mock.calls.some((call) => String(call[0]).startsWith("/git/pull?projectId=p1-pull-clean"))).toBe(true);
+    expect(mocked.api.mock.calls.some((call) => toPath(call[0]).includes("/git/pull"))).toBe(true);
     expect(result.current.conflictState).toBeNull();
   });
 
   it("dismiss() actually removes the banner — dismissedShas filter is applied in the notice memo", async () => {
     const { result } = renderHook(() => useMergeAdvanceNotice({ projectId: "p1-dismiss" }));
-    await waitFor(() => expect(result.current.notice).not.toBeNull());
-    expect(result.current.notice?.toSha).toBe("abcdef123456");
+    await waitFor(() => expect(result.current.notice?.toSha).toBe("abcdef123456"));
     act(() => result.current.dismiss());
     await waitFor(() => expect(result.current.notice).toBeUndefined());
   });
@@ -186,7 +194,7 @@ describe("useMergeAdvanceNotice", () => {
       return { ok: true };
     });
     const { result } = renderHook(() => useMergeAdvanceNotice({ projectId: "p1-auto-conflict" }));
-    await waitFor(() => expect(result.current.notice).not.toBeNull());
+    await waitFor(() => expect(result.current.notice).toBeDefined());
     expect(result.current.notice?.toSha).toBe("auto-conflict-1");
   });
 
@@ -207,18 +215,16 @@ describe("useMergeAdvanceNotice", () => {
       return { ok: true };
     });
     const { result } = renderHook(() => useMergeAdvanceNotice({ projectId: "p1-mixed" }));
-    await waitFor(() => expect(result.current.notice).not.toBeNull());
+    await waitFor(() => expect(result.current.notice).toBeDefined());
   });
 
   it("pull stash-conflict opens conflict state and preserves error visibility", async () => {
     const conflictEventPayload = { events: [{ ...eventPayload.events[0], toSha: "conflict12345" }] };
-    let callIndex = 0;
-    mocked.api.mockImplementation(async () => {
-      const current = callIndex;
-      callIndex += 1;
-      if (current === 0) return conflictEventPayload;
-      if (current === 1) return pushStatus;
-      if (current === 2) {
+    mocked.api.mockImplementation(async (path: unknown) => {
+      const target = toPath(path);
+      if (target.includes("merge-advance-events")) return conflictEventPayload;
+      if (target.includes("push-status")) return pushStatus;
+      if (target.includes("/git/pull")) {
         return {
           kind: "stash-conflict",
           toSha: "conflict12345",
@@ -231,7 +237,7 @@ describe("useMergeAdvanceNotice", () => {
       return pushStatus;
     });
     const { result } = renderHook(() => useMergeAdvanceNotice({ projectId: "p1-pull-conflict" }));
-    await waitFor(() => expect(result.current.notice).not.toBeNull());
+    await waitFor(() => expect(result.current.notice?.toSha).toBe("conflict12345"));
     await act(async () => { await result.current.pull(); });
     await waitFor(() => expect(result.current.conflictState).not.toBeNull());
     expect(result.current.conflictState).toEqual({

@@ -801,6 +801,7 @@ export class SelfHealingManager {
       { name: "recover-stale-heartbeat-runs", fn: () => this.recoverStaleHeartbeatRuns().then(() => undefined) },
       { name: "recover-running-on-inactive-tasks", fn: () => this.recoverAgentsRunningOnInactiveTasks().then(() => undefined) },
       { name: "recover-drifted-agent-task-links", fn: () => this.recoverDriftedAgentTaskLinks().then(() => undefined) },
+      { name: "reconcile-soft-delete-column-drift", fn: () => this.reconcileSoftDeletedColumnDrift().then(() => undefined) },
       { name: "clear-stale-blocked-by", fn: () => this.clearStaleBlockedBy().then(() => undefined) },
       { name: "reconcile-self-defeating-deps", fn: () => this.reconcileSelfDefeatingDependencies().then(() => undefined) },
       { name: "reconcile-dependency-cycles", fn: () => this.reconcileDependencyCycles().then(() => undefined) },
@@ -1458,6 +1459,7 @@ export class SelfHealingManager {
           { name: "recover-stale-heartbeat-runs", fn: () => this.recoverStaleHeartbeatRuns() },
           { name: "recover-running-on-inactive-tasks", fn: () => this.recoverAgentsRunningOnInactiveTasks() },
           { name: "recover-drifted-agent-task-links", fn: () => this.recoverDriftedAgentTaskLinks() },
+          { name: "reconcile-soft-delete-column-drift", fn: () => this.reconcileSoftDeletedColumnDrift() },
           { name: "clear-stale-blocked-by", fn: () => this.clearStaleBlockedBy() },
           { name: "auto-rebound-paused-scope-decay", fn: () => this.autoReboundPausedScopeDecay() },
           { name: "auto-archive-meta-resolved", fn: () => this.autoArchiveResolvedMetaTasks() },
@@ -2944,16 +2946,26 @@ export class SelfHealingManager {
         }
 
         const integrationBase = task.baseBranch || await resolveIntegrationBranch(this.options.rootDir, undefined);
-        const existingCandidatesByRef = new Map<string, { branch: string; aheadCount: number }>();
+        // Dedup by resolved SHA, not by lowercase name. On case-insensitive
+        // filesystems (macOS APFS default) two case-variant refs resolve to the
+        // same underlying ref → same SHA → collapse to canonical. On
+        // case-sensitive filesystems (Linux) two case-variants are physically
+        // distinct refs with distinct SHAs → keep both, so downstream detects
+        // the ambiguity rather than silently picking one.
+        const candidateByRefSha = new Map<string, { branch: string; aheadCount: number }>();
+        const normalizedCandidate = canonicalFusionBranchName(task.id);
         for (const branch of candidates) {
+          let branchSha: string;
           try {
-            await execAsync(`git show-ref --verify --quiet ${shellQuote(`refs/heads/${branch}`)}`, {
+            const { stdout } = await execAsync(`git rev-parse --verify ${shellQuote(`refs/heads/${branch}`)}`, {
               cwd: this.options.rootDir,
               timeout: 30_000,
             });
+            branchSha = stdout.trim();
           } catch {
             continue;
           }
+          if (!branchSha) continue;
 
           let comparisonBase = integrationBase;
           try {
@@ -2978,18 +2990,16 @@ export class SelfHealingManager {
             timeout: 30_000,
           });
           const aheadCount = Number.parseInt(aheadCountRaw.stdout.trim(), 10);
-          const normalizedBranchRef = branch.toLowerCase();
-          const existingCandidate = existingCandidatesByRef.get(normalizedBranchRef);
-          const normalizedCandidate = canonicalFusionBranchName(task.id);
-          if (!existingCandidate || branch === normalizedCandidate) {
-            existingCandidatesByRef.set(normalizedBranchRef, {
+          const existing = candidateByRefSha.get(branchSha);
+          if (!existing || branch === normalizedCandidate) {
+            candidateByRefSha.set(branchSha, {
               branch,
               aheadCount: Number.isFinite(aheadCount) ? aheadCount : 0,
             });
           }
         }
 
-        const existingCandidates = [...existingCandidatesByRef.values()];
+        const existingCandidates = [...candidateByRefSha.values()];
 
         if (existingCandidates.length === 0) {
           await this.emitBranchRebindAuditEvent({
@@ -3607,6 +3617,48 @@ export class SelfHealingManager {
     this.lastDbCorruptionNotifiedAt = now;
   }
 
+  async reconcileSoftDeletedColumnDrift(): Promise<{ reconciled: number }> {
+    try {
+      const settings = await this.store.getSettings();
+      if (settings.globalPause || settings.enginePaused) return { reconciled: 0 };
+
+      const db = this.store.getDatabase();
+      // FN-5147 invariant: only rows with deletedAt are eligible, so live
+      // in-review tasks (including autoMerge: false workflows) are never moved.
+      const candidates = db.prepare("SELECT id, \"column\" AS column FROM tasks WHERE deletedAt IS NOT NULL AND \"column\" != 'archived'").all() as Array<{ id: string; column: Task["column"] }>;
+      if (candidates.length === 0) return { reconciled: 0 };
+
+      let reconciled = 0;
+      const now = new Date().toISOString();
+      const auditor = createRunAuditor(this.store, {
+        runId: generateSyntheticRunId("fn5566-soft-delete-column", "global"),
+        agentId: "self-healing",
+        phase: "reconcile-soft-delete-column-drift",
+      });
+
+      for (const candidate of candidates) {
+        db.prepare("UPDATE tasks SET \"column\" = 'archived', updatedAt = ? WHERE id = ?").run(now, candidate.id);
+        await auditor.database({
+          type: "task:soft-delete-column-reconciled",
+          target: candidate.id,
+          metadata: { previousColumn: candidate.column },
+        });
+        log.log(`[self-heal] reconcile-soft-delete-column-drift: ${candidate.id} previous=${candidate.column} → archived`);
+        reconciled++;
+      }
+
+      if (reconciled > 0) {
+        db.bumpLastModified();
+      }
+
+      return { reconciled };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      log.warn(`reconcileSoftDeletedColumnDrift: failed: ${message}`);
+      return { reconciled: 0 };
+    }
+  }
+
   async clearStaleBlockedBy(): Promise<number> {
     try {
       const settings = await this.store.getSettings();
@@ -3888,6 +3940,7 @@ export class SelfHealingManager {
     const seenCycleSignatures = new Set<string>();
 
     for (const task of tasks) {
+      if (task.deletedAt) continue;
       if (!task.dependencies.length) continue;
 
       try {
@@ -3989,7 +4042,7 @@ export class SelfHealingManager {
     return recovered;
   }
 
-  private async recordIntegrityAudit(taskId: string, mutationType: "task:finalize-unproven-blocked" | "task:integrity-reconcile-modified-files" | "task:integrity-warning" | "task:auto-recover-stale-merger-status", metadata: Record<string, unknown>): Promise<void> {
+  private async recordIntegrityAudit(taskId: string, mutationType: "task:finalize-unproven-blocked" | "task:finalize-lost-work-blocked" | "task:integrity-reconcile-modified-files" | "task:integrity-warning" | "task:auto-recover-stale-merger-status", metadata: Record<string, unknown>): Promise<void> {
     const auditor = createRunAuditor(this.store, {
       runId: generateSyntheticRunId("self-healing-integrity", taskId),
       agentId: "self-healing",
@@ -4159,6 +4212,32 @@ export class SelfHealingManager {
           await this.store.updateTask(task.id, { mergeDetails });
           await this.store.logEntry(task.id, `Auto-finalized: recovered owned landed commit ${classification.commit.sha.slice(0, 8)}`);
         } else {
+          // FN-5490/FN-5517/FN-5526/FN-5540 guard: same lost-work check as
+          // merger.ts:aiMergeTask. The self-heal path was the historical
+          // primary site of the bug — it would clear `modifiedFiles: []`
+          // (line below) while moving the task to Done, silently destroying
+          // the audit trail of the lost work. Now we refuse to finalize and
+          // move the task back to todo with progress preserved so the next
+          // executor run can re-attempt.
+          if (task.modifiedFiles && task.modifiedFiles.length > 0) {
+            await this.store.logEntry(
+              task.id,
+              `Finalize blocked (lost-work guard): task claims ${task.modifiedFiles.length} modifiedFiles but classification would finalize as no-op — moving back to todo with progress preserved`,
+              JSON.stringify({
+                modifiedFilesSample: task.modifiedFiles.slice(0, 5),
+                classification: "proven-no-op",
+                baseRef: classification.baseRef,
+              }, null, 2),
+            );
+            await this.recordIntegrityAudit(task.id, "task:finalize-lost-work-blocked", {
+              modifiedFilesCount: task.modifiedFiles.length,
+              classification: "proven-no-op",
+              baseRef: classification.baseRef,
+            });
+            await this.store.moveTask(task.id, "todo", { preserveProgress: true, moveSource: "engine" });
+            recovered++;
+            continue;
+          }
           const noOpReason = `branch has zero commits ahead of ${classification.baseRef}`;
           const mergeDetails: MergeDetails = {
             ...(task.mergeDetails || {}),
@@ -5435,6 +5514,7 @@ export class SelfHealingManager {
 
       let recovered = 0;
       for (const task of candidates) {
+        if (task.deletedAt) continue;
         const blockedDependents = dependentsByBlocker.get(task.id) ?? [];
         const blockedTaskIds = blockedDependents.map((dep) => dep.id);
         try {

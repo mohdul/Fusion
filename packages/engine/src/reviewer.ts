@@ -1,3 +1,4 @@
+// port-4040-allowlist: this file embeds the "never kill port 4040" rule in the reviewer prompt.
 /**
  * Reviewer — spawns a separate pi agent to review a worker's plan or code.
  *

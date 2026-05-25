@@ -586,6 +586,7 @@ async function collectRecentMergeAdvances(
     }) => RunAuditEvent[];
   },
   worktreePath: string,
+  headSha: string | undefined,
 ): Promise<ExtendedGitStatus["recentMergeAdvances"]> {
   if (typeof scopedStore.getRunAuditEvents !== "function") return [];
   const advances = scopedStore.getRunAuditEvents({
@@ -642,13 +643,34 @@ async function collectRecentMergeAdvances(
     const autoSyncOutcome =
       autoSyncByAdvance.get(pairKey(tid, md.toSha))
       ?? autoSyncByTaskFallback.get(tid);
+    // The worktree may already contain `toSha` — either because auto-sync
+    // succeeded, the operator manually ran "Sync working tree" / pulled, or
+    // they checked out a later commit by hand. In all those cases there's
+    // nothing left to do, regardless of what the original auto-sync audit
+    // event recorded. Treat reachability from HEAD as authoritative.
+    let alreadyInHead = false;
+    if (headSha) {
+      if (headSha === md.toSha) {
+        alreadyInHead = true;
+      } else {
+        try {
+          await runGitCommand(["merge-base", "--is-ancestor", md.toSha, headSha], worktreePath, 5_000);
+          alreadyInHead = true;
+        } catch {
+          alreadyInHead = false;
+        }
+      }
+    }
+    const needsAction = alreadyInHead
+      ? false
+      : (autoSyncOutcome === undefined || !successOutcomes.has(autoSyncOutcome));
     out.push({
       taskId: tid,
       fromSha: typeof md.fromSha === "string" ? md.fromSha : null,
       toSha: md.toSha,
       advancedAt: ev.timestamp,
       autoSyncOutcome,
-      needsAction: autoSyncOutcome === undefined || !successOutcomes.has(autoSyncOutcome),
+      needsAction,
     });
     if (out.length >= 5) break;
   }
@@ -731,6 +753,7 @@ export async function computeExtendedGitStatus(rootDir: string, scopedStore: Tas
         getRunAuditEvents?: (filters: { taskId?: string; domain?: "database" | "git" | "filesystem" | "sandbox"; mutationType?: string; limit?: number }) => RunAuditEvent[];
       },
       rootDir,
+      headSha,
     ),
   ]);
 
@@ -1237,6 +1260,14 @@ export interface PullGitBranchOptions {
     store: TaskStore;
     settings: Settings;
     runId: string;
+    /**
+     * When true, skip the `tryFastForwardFromOrigin` step entirely. Use this
+     * for "the merger advanced local `refs/heads/<branch>` and my worktree is
+     * stale relative to it" recovery — there's no need to fetch or merge from
+     * origin, just hard-reset the worktree to the local ref. Avoids silently
+     * pulling in unrelated remote work the operator didn't ask for.
+     */
+    skipOriginFetch?: boolean;
   };
 }
 
@@ -1299,7 +1330,40 @@ export async function pullGitBranch(cwd?: string, options?: PullGitBranchOptions
     }
 
     const pullStart = performance.now();
-    await tryFastForwardFromOrigin(rootDir, taskId, integration.integrationBranch, integration.integrationRemote ?? "origin");
+    if (!integration.skipOriginFetch) {
+      await tryFastForwardFromOrigin(rootDir, taskId, integration.integrationBranch, integration.integrationRemote ?? "origin");
+    }
+
+    // Sync working tree + index to the local integration tip. The merger
+    // advances `refs/heads/<integrationBranch>` via `git update-ref` without
+    // touching any worktree. When HEAD here is symbolic to that branch
+    // (the normal case in the user's project-root checkout), HEAD already
+    // resolves to the new sha — but the working files and index don't
+    // follow until something forces it. `tryFastForwardFromOrigin` only
+    // updates the worktree when origin is ahead of local; when the local
+    // tip is ahead of origin (the post-merge, pre-push state), it returns
+    // a no-op and the user sees "Pull completed" with no visible change.
+    // Reset against the branch ref explicitly so the worktree advances to
+    // the local tip regardless of whether the origin FF ran. The autostash
+    // above protects user edits, so --hard is safe here.
+    const localIntegrationTip = (await runGitCommand(
+      ["rev-parse", "--verify", `refs/heads/${integration.integrationBranch}`],
+      rootDir,
+      5_000,
+    )).trim();
+    if (localIntegrationTip) {
+      await runGitCommand(["reset", "--hard", localIntegrationTip], rootDir, 10_000)
+        .catch((err) => {
+          // Log-and-continue: a failed worktree sync still leaves the ref
+          // advanced, so downstream stash-pop and audit emission proceed.
+          // The user's worktree just stays at its prior sha, matching today's
+          // behavior. Logged loudly so the failure is visible.
+          console.warn(
+            `[integration-pull] taskId=${taskId} worktree sync to ${localIntegrationTip.slice(0, 8)} failed (continuing): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+    }
+
     const durationMs = Math.round(performance.now() - pullStart);
     const toSha = (await runGitCommand(["rev-parse", "HEAD"], rootDir, 5_000)).trim();
 
@@ -2298,11 +2362,13 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
         reconcileScheduledStores.add(projectStore);
         setImmediate(() => {
           if (typeof (projectStore as Partial<TaskStore>).listTasks !== "function"
+            || typeof (projectStore as Partial<TaskStore>).listTasksForGithubTrackingReconcile !== "function"
             || typeof (projectStore as Partial<TaskStore>).getSettings !== "function"
             || typeof (projectStore as Partial<TaskStore>).logEntry !== "function") {
             return;
           }
           void githubTrackingReconciler.reconcile(projectStore).catch(() => {});
+          void githubTrackingReconciler.reconcileDeletedAndArchived(projectStore).catch(() => {});
         });
       }
     };
@@ -2935,12 +3001,15 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
         throw badRequest("Not a git repository");
       }
       const requestCache = new Map<string, string[]>();
-      const { rebase, worktreePath, integrationBranch, taskId } = req.body ?? {};
+      const { rebase, worktreePath, integrationBranch, taskId, skipOriginFetch } = req.body ?? {};
       if (rebase !== undefined && typeof rebase !== "boolean") {
         throw badRequest("rebase must be a boolean");
       }
       if (taskId !== undefined && typeof taskId !== "string") {
         throw badRequest("taskId must be a string");
+      }
+      if (skipOriginFetch !== undefined && typeof skipOriginFetch !== "boolean") {
+        throw badRequest("skipOriginFetch must be a boolean");
       }
 
       if (worktreePath !== undefined) {
@@ -2968,6 +3037,7 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
             store: scopedStore,
             settings,
             runId,
+            skipOriginFetch: skipOriginFetch === true,
           },
         });
         res.json(result);

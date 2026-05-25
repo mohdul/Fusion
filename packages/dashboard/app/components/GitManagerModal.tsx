@@ -23,6 +23,8 @@ import type {
   GitRemoteDetailed,
 } from "../api";
 import {
+  api,
+  fetchConfig,
   fetchGitStatus,
   fetchGitCommits,
   fetchCommitDiff,
@@ -86,11 +88,13 @@ import {
   XCircle,
   Send,
   Pencil,
+  Info,
 } from "lucide-react";
 
 // ── Types & Constants ─────────────────────────────────────────────
 
 type SectionId = "status" | "changes" | "commits" | "branches" | "worktrees" | "stashes" | "remotes";
+
 
 const SECTIONS: { id: SectionId; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
   { id: "status", label: "Status", icon: Radio },
@@ -215,6 +219,8 @@ export function GitManagerModal({ isOpen, onClose, tasks: _tasks, addToast, proj
 
   // ── Status state
   const [status, setStatus] = useState<GitStatus | null>(null);
+
+  const [rootDir, setRootDir] = useState<string | null>(null);
 
   // ── Changes state
   const [fileChanges, setFileChanges] = useState<GitFileChange[]>([]);
@@ -812,6 +818,45 @@ export function GitManagerModal({ isOpen, onClose, tasks: _tasks, addToast, proj
     }
   }, [addToast, projectId]);
 
+  // Fetch rootDir from config (used as worktreePath for the per-task sync
+  // button surfaced from RemotesPanel below).
+  useEffect(() => {
+    fetchConfig(projectId).then((cfg) => setRootDir(cfg.rootDir)).catch(() => setRootDir(null));
+  }, [projectId]);
+
+  const handleSyncIntegrationTip = useCallback(async () => {
+    if (!status?.integrationBranch || status.isOnIntegrationBranch === false) return;
+    const worktreePath = rootDir;
+    if (!worktreePath) {
+      addToast("Project root path not available", "error");
+      return;
+    }
+    setRemoteLoading("sync-integration");
+    try {
+      const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+      await api(`/git/pull${query}`, {
+        method: "POST",
+        body: JSON.stringify({
+          worktreePath,
+          integrationBranch: status.integrationBranch,
+          taskId: undefined,
+          // Pure-local catch-up: the merger advanced refs/heads/<integration>
+          // locally; the worktree just needs to hard-reset to that ref.
+          // No reason to fetch/merge from origin here — that would silently
+          // pull in unrelated remote work the operator didn't ask for.
+          skipOriginFetch: true,
+        }),
+      });
+      addToast("Synced worktree to local integration tip", "success");
+      const statusData = await fetchGitStatus(projectId, { extended: true });
+      setStatus(statusData);
+    } catch (err) {
+      addToast(getErrorMessage(err) || "Sync failed", "error");
+    } finally {
+      setRemoteLoading(null);
+    }
+  }, [addToast, projectId, rootDir, status?.integrationBranch, status?.isOnIntegrationBranch]);
+
   // ── Derived state ───────────────────────────────────────────────
 
   const stagedFiles = useMemo(() => fileChanges.filter((f) => f.staged), [fileChanges]);
@@ -887,7 +932,12 @@ export function GitManagerModal({ isOpen, onClose, tasks: _tasks, addToast, proj
 
             {/* ── Status Panel ── */}
             {activeSection === "status" && !loading && status && (
-              <StatusPanel status={status} copyToClipboard={copyToClipboard} />
+              <StatusPanel
+                status={status}
+                copyToClipboard={copyToClipboard}
+                onSyncWorkingTree={handleSyncIntegrationTip}
+                syncing={remoteLoading === "sync-integration"}
+              />
             )}
 
             {/* ── Changes Panel ── */}
@@ -989,6 +1039,12 @@ export function GitManagerModal({ isOpen, onClose, tasks: _tasks, addToast, proj
                 onFetch={handleFetch}
                 onPull={handlePull}
                 onPush={handlePush}
+                onSyncIntegrationTip={handleSyncIntegrationTip}
+                syncIntegrationDisabled={
+                  !status?.integrationBranch ||
+                  status?.isOnIntegrationBranch === false ||
+                  remoteLoading !== null
+                }
                 addToast={addToast}
                 projectId={projectId}
                 copyToClipboard={copyToClipboard}
@@ -1007,10 +1063,15 @@ export function GitManagerModal({ isOpen, onClose, tasks: _tasks, addToast, proj
 function StatusPanel({
   status,
   copyToClipboard,
+  onSyncWorkingTree,
+  syncing,
 }: {
   status: GitStatus;
   copyToClipboard: (text: string, label?: string) => void;
+  onSyncWorkingTree: () => void;
+  syncing: boolean;
 }) {
+  const [advancesHelpOpen, setAdvancesHelpOpen] = useState(false);
   return (
     <div className="gm-panel" data-testid="status-panel">
       <div className="gm-panel-header">
@@ -1264,11 +1325,60 @@ function StatusPanel({
       {(status.recentMergeAdvances ?? []).length > 0 && (
         <div className="gm-status-advances" data-testid="recent-merge-advances">
           <div className="gm-status-advances-header">
-            Recent integration-branch advances
-            <span className="gm-status-sub">
-              {" "}({(status.recentMergeAdvances ?? []).filter((a) => a.needsAction).length} need action)
+            <span>
+              Recent integration-branch advances
+              <span className="gm-status-sub">
+                {" "}({(status.recentMergeAdvances ?? []).filter((a) => a.needsAction).length} need action)
+              </span>
+              <button
+                type="button"
+                className="gm-icon-btn"
+                style={{ marginLeft: 6 }}
+                aria-expanded={advancesHelpOpen}
+                aria-label={advancesHelpOpen ? "Hide explanation" : "What does this mean?"}
+                onClick={() => setAdvancesHelpOpen((open) => !open)}
+                title="What does this mean?"
+              >
+                <Info size={13} />
+              </button>
             </span>
+            {(status.recentMergeAdvances ?? []).some((a) => a.needsAction) && (
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={onSyncWorkingTree}
+                disabled={syncing}
+                data-testid="sync-working-tree-btn"
+                title="Pull the integration branch into your working tree (auto-stashes uncommitted edits and restores them)"
+              >
+                {syncing ? "Syncing…" : "Sync working tree"}
+              </button>
+            )}
           </div>
+          {advancesHelpOpen && (
+            <div className="gm-status-advances-help" data-testid="recent-merge-advances-help">
+              <p>
+                Each entry is a Fusion task whose squash commit advanced the
+                integration branch ref (<code>{status.integrationBranch ?? "main"}</code>).
+                The <em>auto-sync outcome</em> says whether your working tree
+                was also fast-forwarded to that new tip.
+              </p>
+              <ul className="gm-status-advances-help-list">
+                <li><code>clean-sync</code> / <code>synced-with-edits-restored</code> — working tree is in sync; nothing to do.</li>
+                <li><code>off / not run</code> — auto-sync is disabled in Settings; the branch ref moved but your worktree didn&apos;t follow.</li>
+                <li><code>stash-failed</code> / <code>would-conflict</code> / similar — auto-sync tried but couldn&apos;t reconcile (usually local edits collide with the new commit).</li>
+              </ul>
+              <p>
+                <strong>Fix:</strong> click <em>Sync working tree</em> to catch
+                up now. Pure-local — it auto-stashes any uncommitted edits,
+                hard-resets the worktree to match the local integration tip
+                (the sha the merger advanced <code>refs/heads/{status.integrationBranch ?? "main"}</code> to),
+                and restores your stash. Origin is not touched, so no unrelated
+                remote work gets pulled in. To make this automatic going
+                forward, enable <code>mergeAdvanceAutoSync</code> in Settings.
+              </p>
+            </div>
+          )}
           <ul>
             {(status.recentMergeAdvances ?? []).map((advance) => (
               <li key={`${advance.taskId}-${advance.toSha}`} className={advance.needsAction ? "gm-advance-needs-action" : "gm-advance-handled"}>
@@ -2117,6 +2227,8 @@ function RemotesPanel({
   onFetch,
   onPull,
   onPush,
+  onSyncIntegrationTip,
+  syncIntegrationDisabled,
   addToast,
   projectId,
   copyToClipboard,
@@ -2127,6 +2239,8 @@ function RemotesPanel({
   onFetch: () => void;
   onPull: (options?: { rebase?: boolean }) => void;
   onPush: () => void;
+  onSyncIntegrationTip: () => void;
+  syncIntegrationDisabled: boolean;
   addToast: (message: string, type?: ToastType) => void;
   projectId?: string;
   copyToClipboard: (text: string, label?: string) => void;
@@ -2630,6 +2744,26 @@ function RemotesPanel({
                     )}
                     Push
                   </button>
+                  {status?.integrationBranch && (
+                    <button
+                      className="btn gm-sync-integration-btn"
+                      onClick={onSyncIntegrationTip}
+                      disabled={syncIntegrationDisabled}
+                      title={
+                        status.isOnIntegrationBranch === false
+                          ? `Not on integration branch (${status.integrationBranch})`
+                          : "Sync working tree to local integration tip (same as banner Pull)"
+                      }
+                      data-testid="remotes-sync-integration-tip-btn"
+                    >
+                      {remoteLoading === "sync-integration" ? (
+                        <Loader2 size={14} className="spin" />
+                      ) : (
+                        <GitMerge size={14} />
+                      )}
+                      Sync local tip
+                    </button>
+                  )}
                 </div>
               </div>
 

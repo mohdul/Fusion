@@ -567,8 +567,8 @@ async function syncDependenciesForMerge(
   }
 
   throwIfAborted(signal, taskId);
-  mergerLog.log(`${taskId}: syncing dependencies before merge build verification`);
-  await store.logEntry(taskId, `Syncing dependencies before merge build verification: ${installCommand}`);
+  mergerLog.log(`${taskId}: syncing dependencies before merge verification`);
+  await store.logEntry(taskId, `Syncing dependencies before merge verification: ${installCommand}`);
   try {
     await execAsync(installCommand, {
       cwd: rootDir,
@@ -621,8 +621,23 @@ export type OwnedLandedClassification =
     details: Record<string, unknown>;
   };
 
+function escapeRegexForOwnership(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Decide whether a git commit belongs to a given task. Line-anchored trailers
+ * and subject-anchored conventional commits only — prose mentions never count.
+ * Mirrors `commitOwnedByTask` in self-healing.ts (FN-5441/FN-5446 regression).
+ */
 function commitOwnedByTask(taskId: string, subject: string, body: string): boolean {
-  return body.includes(`${FUSION_TASK_ID_TRAILER_KEY}: ${taskId}`) || subject.includes(taskId);
+  if (new RegExp(`(?:^|\\n)${escapeRegexForOwnership(FUSION_TASK_ID_TRAILER_KEY)}: ${escapeRegexForOwnership(taskId)}\\s*(?:\\n|$)`).test(body)) {
+    return true;
+  }
+  const subjectAnchor = new RegExp(
+    `^(?:[A-Za-z]+(?:\\([^)]*\\b${escapeRegexForOwnership(taskId)}\\b[^)]*\\))?:|${escapeRegexForOwnership(taskId)}:)`,
+  );
+  return subjectAnchor.test(subject);
 }
 
 async function findOwnedLandedCommitForTask(rootDir: string, task: Task): Promise<OwnedLandedCommit | null> {
@@ -1029,7 +1044,7 @@ export function packageNamesForFiles(rootDir: string, files: string[]): string[]
  *
  * @internal Exported for testing only.
  */
-export function deriveScopedPnpmTestCommand(rootDir: string, baseBranch: string, _branch: string): string | null {
+export function deriveScopedPnpmTestCommand(rootDir: string, baseBranch: string, branch: string): string | null {
   // 1. Read and parse pnpm-workspace.yaml
   const workspacePath = join(rootDir, "pnpm-workspace.yaml");
   let workspaceContent: string;
@@ -1045,11 +1060,11 @@ export function deriveScopedPnpmTestCommand(rootDir: string, baseBranch: string,
   const packageRoots = resolveWorkspacePackageRoots(rootDir, globs);
   if (packageRoots.length === 0) return null;
 
-  // 3. Get the changed files between base and branch tip
+  // 3. Get the changed files between base and the branch tip passed by caller.
   let changedFilesOutput: string;
   try {
     changedFilesOutput = execSync(
-      `git diff --name-only ${quoteArg(baseBranch)}...HEAD`,
+      `git diff --name-only ${quoteArg(baseBranch)}...${quoteArg(branch)}`,
       { cwd: rootDir, stdio: "pipe", encoding: "utf-8" },
     ).toString();
   } catch {
@@ -7886,6 +7901,44 @@ export async function aiMergeTask(
     }
 
     if (classification.kind === "proven-no-op" || classification.kind === "no-changes-finalized") {
+      // FN-5490/FN-5517/FN-5526/FN-5540 guard: the classifier only sees git
+      // evidence, but the task itself can attest that work happened. When
+      // modifiedFiles is non-empty AND no commit landed, that's lost work
+      // (uncommitted in the worktree, or the squash committed the wrong tree)
+      // — NOT a legitimate no-op. Demote to the unproven-recovery path which
+      // moves the task back to todo with progress preserved instead of
+      // clearing modifiedFiles to [].
+      if (task.modifiedFiles && task.modifiedFiles.length > 0) {
+        const reason = `lost-work-detected: ${task.modifiedFiles.length} modifiedFiles claimed but no commit landed`;
+        await store.updateTask(taskId, { error: reason });
+        await store.logEntry(
+          taskId,
+          `Finalize blocked (lost-work guard): task claims ${task.modifiedFiles.length} modifiedFiles but classification would finalize as no-op — moving back to todo with progress preserved`,
+          JSON.stringify({
+            modifiedFilesSample: task.modifiedFiles.slice(0, 5),
+            classification: classification.kind,
+          }, null, 2),
+        );
+        await (store as any).recordRunAuditEvent?.({
+          domain: "database",
+          mutationType: "task:finalize-lost-work-blocked",
+          target: taskId,
+          metadata: {
+            modifiedFilesCount: task.modifiedFiles.length,
+            classification: classification.kind,
+          },
+        });
+        await store.moveTask(taskId, "todo", { preserveProgress: true, moveSource: "engine" } as any);
+        await releaseReuseHandoffEarly("lost-work-blocked");
+        return {
+          task,
+          branch,
+          merged: false,
+          worktreeRemoved: false,
+          branchDeleted: false,
+          error: reason,
+        };
+      }
       const noOpReason = classification.kind === "proven-no-op"
         ? `branch has zero commits ahead of ${classification.baseRef}`
         : "verification-only finalize: no branch and no owned commits";
@@ -8078,6 +8131,7 @@ export async function aiMergeTask(
     }
 
     if (classification.kind === "owned-commit") {
+      const mergedAt = new Date().toISOString();
       await store.updateTask(taskId, {
         mergeDetails: {
           commitSha: classification.commit.sha,
@@ -8085,16 +8139,27 @@ export async function aiMergeTask(
           insertions: classification.commit.insertions,
           deletions: classification.commit.deletions,
           mergeCommitMessage: classification.commit.subject,
-          mergedAt: new Date().toISOString(),
+          mergedAt,
           mergeConfirmed: true,
           prNumber: task.prInfo?.number,
           mergeTargetBranch: mergeTarget.branch,
           mergeTargetSource: mergeTarget.source,
         },
       });
+      result.merged = true;
+      result.mergeConfirmed = true;
+      result.commitSha = classification.commit.sha;
+      result.filesChanged = classification.commit.filesChanged;
+      result.insertions = classification.commit.insertions;
+      result.deletions = classification.commit.deletions;
+      result.mergeCommitMessage = classification.commit.subject;
+      result.mergedAt = mergedAt;
+      result.mergeTargetBranch = mergeTarget.branch;
+      result.mergeTargetSource = mergeTarget.source;
       mergerLog.log(`${taskId}: branch missing; recovered owned landed commit ${classification.commit.sha.slice(0, 8)}`);
     } else {
       const noOpReason = `branch has zero commits ahead of ${classification.baseRef}`;
+      const mergedAt = new Date().toISOString();
       await store.updateTask(taskId, {
         modifiedFiles: [],
         mergeDetails: {
@@ -8103,17 +8168,25 @@ export async function aiMergeTask(
           noOpMerge: true,
           noOpReason,
           landedFiles: [],
-          mergedAt: new Date().toISOString(),
+          mergedAt,
           prNumber: task.prInfo?.number,
           mergeTargetBranch: classification.baseRef,
           mergeTargetSource: mergeTarget.source,
         },
       });
+      result.merged = true;
+      result.mergeConfirmed = true;
+      result.noOp = true;
+      result.noOpMerge = true;
+      result.noOpReason = noOpReason;
+      result.mergedAt = mergedAt;
+      result.mergeTargetBranch = classification.baseRef;
+      result.mergeTargetSource = mergeTarget.source;
       await store.logEntry(taskId, `Auto-finalized no-op (proven): start point on ${classification.baseRef}; modifiedFiles cleared`);
     }
 
     // Audit trail: record merge completion (FN-1404)
-    await audit.database({ type: "task:move", target: taskId, metadata: { to: "done", merged: false } });
+    await audit.database({ type: "task:move", target: taskId, metadata: { to: "done", merged: true } });
     await completeTask(store, taskId, result);
     return result;
   }
@@ -9735,7 +9808,14 @@ export async function aiMergeTask(
           audit,
         });
         if (!advanceResult.advanced) {
-          if (advanceResult.reason === "concurrent-advance") {
+          // `non-fast-forward-advance` has the same root cause as
+          // `concurrent-advance` — integration moved during the merge window,
+          // here detected by ancestry rather than CAS old-value mismatch —
+          // so route it through the same rebind/retry path (FN-5576).
+          if (
+            advanceResult.reason === "concurrent-advance"
+            || advanceResult.reason === "non-fast-forward-advance"
+          ) {
             throw new IntegrationBranchConcurrentAdvanceError({
               integrationBranch,
               expectedCurrentSha,
@@ -10562,7 +10642,7 @@ export async function executeMergeAttempt(
       }
     }
 
-    if (buildCommand) {
+    if (testCommand || buildCommand) {
       throwIfAborted(options.signal, taskId);
       const stagedFiles = await getStagedFiles(rootDir);
       if (shouldSyncDependenciesForMerge(stagedFiles, hasInstallState(rootDir))) {
@@ -11517,7 +11597,7 @@ async function runPostMergeWorkflowSteps(
 
     try {
       const result = stepMode === "script"
-        ? await executePostMergeScriptStep(store, taskId, ws, cwd, settings, auditor)
+        ? await executePostMergeScriptStep(store, taskId, ws, cwd, settings, auditor, mergeOptions.signal)
         : await executePostMergePromptStep(store, taskId, ws, rootDir, cwd, settings, mergeOptions);
       const completedAt = new Date().toISOString();
 
@@ -11579,6 +11659,7 @@ async function executePostMergeScriptStep(
   cwd: string,
   settings: Settings,
   auditor?: RunAuditor,
+  signal?: AbortSignal,
 ): Promise<{ success: boolean; output?: string; error?: string }> {
   const scriptName = workflowStep.scriptName!.trim();
   const scripts = settings.scripts || {};
@@ -11594,6 +11675,7 @@ async function executePostMergeScriptStep(
     encoding: "utf-8",
     timeoutMs: 120_000,
     maxBuffer: 10 * 1024 * 1024,
+    ...(signal !== undefined && { signal }),
   });
 
   if (result.exitCode === 0 && !result.signal && !result.timedOut && !result.bufferExceeded && !result.spawnError) {
@@ -11621,8 +11703,9 @@ export async function __executePostMergeScriptStepForTests(
   cwd: string,
   settings: Settings,
   auditor?: RunAuditor,
+  signal?: AbortSignal,
 ): Promise<{ success: boolean; output?: string; error?: string }> {
-  return executePostMergeScriptStep(store, taskId, workflowStep, cwd, settings, auditor);
+  return executePostMergeScriptStep(store, taskId, workflowStep, cwd, settings, auditor, signal);
 }
 
 /** Execute a prompt-mode post-merge workflow step using an AI agent in the provided execution directory. */

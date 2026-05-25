@@ -111,6 +111,7 @@ export interface DeleteTaskOptions {
   removeDependencyReferences?: boolean;
   removeLineageReferences?: boolean;
   githubIssueAction?: GithubIssueAction;
+  allowResurrection?: boolean;
 }
 
 export interface ArchiveTaskOptions {
@@ -531,6 +532,10 @@ export function deleteTask(id: string, projectId?: string, options?: DeleteTaskO
   }
   if (options?.githubIssueAction) {
     search.set("githubIssueAction", options.githubIssueAction);
+  }
+  // FN-5233 route reads delete modifiers from query params, including allowResurrection.
+  if (options?.allowResurrection) {
+    search.set("allowResurrection", "true");
   }
 
   const suffix = search.size > 0 ? `?${search.toString()}` : "";
