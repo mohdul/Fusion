@@ -611,7 +611,7 @@ Subcommands: `status`.
 Mission hierarchy operations.
 
 ```bash
-fn mission create "Platform hardening" "Security and reliability initiative"
+fn mission create "Platform hardening" "Security and reliability initiative" --base-branch develop
 fn mission list
 fn mission show mission_123
 fn mission delete mission_123 --force
@@ -619,6 +619,8 @@ fn mission activate-slice slice_456
 ```
 
 Subcommands: `create`, `list|ls`, `show|info`, `delete`, `activate-slice`.
+
+`fn mission create` supports `--base-branch <branch>` to set a mission-level default integration branch used by mission feature/slice triage when no explicit branch override is provided.
 
 ---
 

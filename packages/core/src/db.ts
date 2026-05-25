@@ -149,7 +149,7 @@ export function probeFts5(db: DatabaseSync): boolean {
 
 // ── Schema Definition ────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 90;
+const SCHEMA_VERSION = 91;
 
 function normalizeTaskComments(
   steeringComments: SteeringComment[] | undefined,
@@ -755,6 +755,7 @@ CREATE TABLE IF NOT EXISTS missions (
   description TEXT,
   status TEXT NOT NULL,
   interviewState TEXT NOT NULL,
+  baseBranch TEXT,
   autoAdvance INTEGER DEFAULT 0,
   createdAt TEXT NOT NULL,
   updatedAt TEXT NOT NULL
@@ -3562,6 +3563,12 @@ export class Database {
     if (version < 90) {
       this.applyMigration(90, () => {
         this.addColumnIfMissing("tasks", "scopeAutoWiden", "TEXT DEFAULT '[]'");
+      });
+    }
+
+    if (version < 91) {
+      this.applyMigration(91, () => {
+        this.addColumnIfMissing("missions", "baseBranch", "TEXT");
       });
     }
 

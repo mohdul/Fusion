@@ -1502,6 +1502,7 @@ export default function kbExtension(pi: ExtensionAPI) {
           description: "Initial plan description (optional) — the AI will ask clarifying questions if not provided",
         })
       ),
+      baseBranch: Type.Optional(Type.String({ description: "Optional base branch for the task created from this planning session" })),
     }),
 
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
@@ -1526,7 +1527,7 @@ export default function kbExtension(pi: ExtensionAPI) {
 
       let taskId: string | undefined;
       try {
-        taskId = await runTaskPlan(params.description, true); // Use --yes flag for non-interactive
+        taskId = await runTaskPlan(params.description, true, undefined, params.baseBranch); // Use --yes flag for non-interactive
       } catch (err) {
         console.error = originalError;
         console.log = originalLog;
@@ -2258,6 +2259,7 @@ export default function kbExtension(pi: ExtensionAPI) {
       autoAdvance: Type.Optional(
         Type.Boolean({ description: "Automatically activate the next pending slice when the current slice completes" })
       ),
+      baseBranch: Type.Optional(Type.String({ description: "Optional integration base branch for tasks triaged from this mission" })),
     }),
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -2267,6 +2269,7 @@ export default function kbExtension(pi: ExtensionAPI) {
       const mission = missionStore.createMission({
         title: params.title.trim(),
         description: params.description?.trim(),
+        baseBranch: params.baseBranch?.trim() || undefined,
       });
 
       if (params.autoAdvance !== undefined) {

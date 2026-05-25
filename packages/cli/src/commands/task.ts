@@ -1815,7 +1815,12 @@ function wrapText(text: string, width: number): string[] {
 }
 
 /** Run the planning mode */
-export async function runTaskPlan(initialPlanArg?: string, yesFlag = false, projectName?: string): Promise<string | undefined> {
+export async function runTaskPlan(
+  initialPlanArg?: string,
+  yesFlag = false,
+  projectName?: string,
+  baseBranch?: string,
+): Promise<string | undefined> {
   let initialPlan = initialPlanArg;
 
   // If no initial plan, prompt interactively
@@ -1954,6 +1959,7 @@ export async function runTaskPlan(initialPlanArg?: string, yesFlag = false, proj
             description: result.data.description,
             column: "triage",
             dependencies: result.data.suggestedDependencies,
+            baseBranch: baseBranch?.trim() || undefined,
             source: { sourceType: "cli" },
           });
 

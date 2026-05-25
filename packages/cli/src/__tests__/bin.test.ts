@@ -511,6 +511,7 @@ describe("bin command routing and fallbacks", () => {
       "Test Mission",
       "Detailed mission description",
       "demo",
+      undefined,
     );
   });
 

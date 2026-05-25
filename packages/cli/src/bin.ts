@@ -1029,16 +1029,20 @@ async function main() {
           case "plan": {
             const planArgs = args.slice(2);
             const yesFlag = planArgs.includes("--yes");
+            let baseBranch: string | undefined;
             const descParts: string[] = [];
             for (let i = 0; i < planArgs.length; i++) {
               if (planArgs[i] === "--yes") {
                 continue; // skip flag
+              } else if (planArgs[i] === "--base-branch" && i + 1 < planArgs.length) {
+                baseBranch = planArgs[i + 1];
+                i++;
               } else {
                 descParts.push(planArgs[i]);
               }
             }
             const initialPlan = descParts.join(" ");
-            await runTaskPlan(initialPlan || undefined, yesFlag, projectName);
+            await runTaskPlan(initialPlan || undefined, yesFlag, projectName, baseBranch);
             break;
           }
           case "list":
@@ -1283,9 +1287,20 @@ async function main() {
         const subcommand = args[1];
         switch (subcommand) {
           case "create": {
-            const title = args[2];
-            const description = args.length > 3 ? args.slice(3).join(" ") : undefined;
-            await runMissionCreate(title, description, projectName);
+            const createArgs = args.slice(2);
+            let baseBranch: string | undefined;
+            const positional: string[] = [];
+            for (let i = 0; i < createArgs.length; i++) {
+              if (createArgs[i] === "--base-branch" && i + 1 < createArgs.length) {
+                baseBranch = createArgs[i + 1];
+                i++;
+              } else {
+                positional.push(createArgs[i]);
+              }
+            }
+            const title = positional[0];
+            const description = positional.length > 1 ? positional.slice(1).join(" ") : undefined;
+            await runMissionCreate(title, description, projectName, baseBranch);
             break;
           }
           case "list":
