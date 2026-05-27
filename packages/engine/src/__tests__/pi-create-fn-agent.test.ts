@@ -20,6 +20,10 @@ const settingsManagerInMemoryMock = vi.fn(() => ({ kind: "settings-manager" }));
 const setFallbackResolverMock = vi.fn();
 const reloadMock = vi.fn(async () => {});
 const execSyncMock = vi.fn((_cmd?: any, _opts?: any) => "");
+const execFileMock = vi.fn((_file?: any, _args?: any, _opts?: any, cb?: any) => {
+  const callback = typeof _opts === "function" ? _opts : cb;
+  if (typeof callback === "function") callback(null, "", "");
+});
 const existsSyncMock = vi.fn((_path: PathLike) => false);
 const readFileSyncMock = vi.fn((_path?: any) => "{}");
 const readCustomProvidersMock = vi.fn(() => []);
@@ -59,7 +63,7 @@ vi.mock("node:child_process", () => {
         }
       });
     });
-  return { execSync: execSyncFn, exec: execFn };
+  return { execSync: execSyncFn, exec: execFn, execFile: execFileMock };
 });
 
 vi.mock("node:fs", async () => {
@@ -132,6 +136,149 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
     inMemory: settingsManagerInMemoryMock,
   },
 }));
+
+describe("RTK bash rewrite wrapper", () => {
+  beforeEach(() => {
+    execFileMock.mockReset();
+    execFileMock.mockImplementation((_file?: any, _args?: any, _opts?: any, cb?: any) => {
+      const callback = typeof _opts === "function" ? _opts : cb;
+      if (typeof callback === "function") callback(null, "", "");
+    });
+  });
+
+  it("rewrites bash commands when rtk returns an accepted rewrite", async () => {
+    execFileMock.mockImplementation((_file: string, _args: string[], _opts: any, cb: any) => {
+      cb(null, "rtk git status\n", "");
+    });
+    const bashTool = {
+      name: "bash",
+      execute: vi.fn().mockResolvedValue({ ok: true }),
+    };
+
+    const { wrapToolsWithRtkRewrite } = await import("../pi.js");
+    const wrapped = wrapToolsWithRtkRewrite([bashTool as any], { mode: "rewrite", timeoutMs: 100 });
+
+    await (wrapped[0] as any).execute("call-1", { command: "git status", cwd: "/project" });
+
+    expect(execFileMock).toHaveBeenCalledWith("rtk", ["rewrite", "git status"], expect.objectContaining({ timeout: 100 }), expect.any(Function));
+    expect(bashTool.execute).toHaveBeenCalledWith("call-1", { command: "rtk git status", cwd: "/project" });
+  });
+
+  it("accepts rtk rewrite exit code 3", async () => {
+    execFileMock.mockImplementation((_file: string, _args: string[], _opts: any, cb: any) => {
+      const err = new Error("ask") as any;
+      err.code = 3;
+      cb(err, "rtk ls\n", "");
+    });
+    const bashTool = {
+      name: "bash",
+      execute: vi.fn().mockResolvedValue({ ok: true }),
+    };
+
+    const { wrapToolsWithRtkRewrite } = await import("../pi.js");
+    const wrapped = wrapToolsWithRtkRewrite([bashTool as any], { mode: "rewrite", timeoutMs: 100 });
+
+    await (wrapped[0] as any).execute("call-1", { command: "ls" });
+
+    expect(bashTool.execute).toHaveBeenCalledWith("call-1", { command: "rtk ls" });
+  });
+
+  it("fails open when rtk is unavailable or declines a rewrite", async () => {
+    execFileMock.mockImplementation((_file: string, _args: string[], _opts: any, cb: any) => {
+      const err = new Error("no equivalent") as any;
+      err.code = 1;
+      cb(err, "", "");
+    });
+    const bashTool = {
+      name: "bash",
+      execute: vi.fn().mockResolvedValue({ ok: true }),
+    };
+
+    const { wrapToolsWithRtkRewrite } = await import("../pi.js");
+    const wrapped = wrapToolsWithRtkRewrite([bashTool as any], { mode: "rewrite", timeoutMs: 100 });
+
+    await (wrapped[0] as any).execute("call-1", { command: "git status" });
+
+    expect(bashTool.execute).toHaveBeenCalledWith("call-1", { command: "git status" });
+  });
+
+  it("does not rewrite non-bash tools or when mode is off", async () => {
+    const readTool = {
+      name: "read",
+      execute: vi.fn().mockResolvedValue({ ok: true }),
+    };
+    const bashTool = {
+      name: "bash",
+      execute: vi.fn().mockResolvedValue({ ok: true }),
+    };
+
+    const { wrapToolsWithRtkRewrite } = await import("../pi.js");
+    const wrapped = wrapToolsWithRtkRewrite([readTool as any, bashTool as any], { mode: "off", timeoutMs: 100 });
+
+    await (wrapped[0] as any).execute("call-read", { command: "cat package.json" });
+    await (wrapped[1] as any).execute("call-bash", { command: "git status" });
+
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(readTool.execute).toHaveBeenCalledWith("call-read", { command: "cat package.json" });
+    expect(bashTool.execute).toHaveBeenCalledWith("call-bash", { command: "git status" });
+  });
+
+  it("passes the tool abort signal to the rtk subprocess", async () => {
+    execFileMock.mockImplementation((_file: string, _args: string[], _opts: any, cb: any) => {
+      cb(null, "rtk git status\n", "");
+    });
+    const signal = new AbortController().signal;
+    const bashTool = {
+      name: "bash",
+      execute: vi.fn().mockResolvedValue({ ok: true }),
+    };
+
+    const { wrapToolsWithRtkRewrite } = await import("../pi.js");
+    const wrapped = wrapToolsWithRtkRewrite([bashTool as any], { mode: "rewrite", timeoutMs: 100 });
+
+    await (wrapped[0] as any).execute("call-1", { command: "git status" }, signal);
+
+    expect(execFileMock).toHaveBeenCalledWith("rtk", ["rewrite", "git status"], expect.objectContaining({ signal }), expect.any(Function));
+  });
+
+  it("keeps action gating outside RTK rewriting so git policies see the original command", async () => {
+    execFileMock.mockImplementation((_file: string, _args: string[], _opts: any, cb: any) => {
+      cb(null, "rtk git push\n", "");
+    });
+    const bashTool = {
+      name: "bash",
+      execute: vi.fn().mockResolvedValue({ ok: true }),
+    };
+
+    const { wrapToolsWithActionGate, wrapToolsWithRtkRewrite } = await import("../pi.js");
+    const rtkWrapped = wrapToolsWithRtkRewrite([bashTool as any], { mode: "rewrite", timeoutMs: 100 });
+    const gated = wrapToolsWithActionGate(rtkWrapped, {
+      agentId: "agent-1",
+      agentName: "Agent",
+      isEphemeral: false,
+      taskId: "FN-1",
+      permissionPolicy: {
+        presetId: "custom",
+        rules: {
+          git_write: "block",
+          file_write_delete: "allow",
+          command_execution: "allow",
+          network_api: "allow",
+          task_agent_mutation: "allow",
+        },
+      },
+      createApprovalRequest: vi.fn(),
+      findApprovalByDedupeKey: vi.fn(),
+    });
+
+    const result = await (gated[0] as any).execute("call-1", { command: "git push" });
+
+    expect((result as any).isError).toBe(true);
+    expect((result as any).decision.category).toBe("git_write");
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(bashTool.execute).not.toHaveBeenCalled();
+  });
+});
 
 describe("worktree path boundary helpers", () => {
   // Test helper functions directly by importing them

@@ -7,7 +7,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { existsSync, readFileSync } from "node:fs";
-import { exec } from "node:child_process";
+import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import { basename, dirname, join, relative, isAbsolute, resolve } from "node:path";
@@ -58,6 +58,84 @@ import {
 import { resolvePermanentAgentToolDecision } from "./permanent-agent-gating.js";
 import type { SystemPromptLayers } from "./prompt-layers.js";
 import { READONLY_ALLOWLIST, filterCustomToolsForReadonly, isReadonlyAllowed } from "./workflow-step-tool-policy.js";
+
+const RTK_ACCEPTED_REWRITE_EXIT_CODES = new Set([0, 3]);
+const RTK_EXPECTED_PASSTHROUGH_EXIT_CODES = new Set([1, 2]);
+const RTK_EXPECTED_FAIL_OPEN_ERROR_CODES = new Set(["ABORT_ERR", "ENOENT", "ETIMEDOUT"]);
+const RTK_REWRITE_MAX_BUFFER_BYTES = 64 * 1024;
+
+export type RtkRewriteMode = "off" | "rewrite";
+
+export interface RtkRewriteOptions {
+  mode?: RtkRewriteMode;
+  timeoutMs?: number;
+}
+
+function normalizeRtkRewriteOptions(options?: RtkRewriteOptions): Required<RtkRewriteOptions> {
+  const modeEnv = process.env.FUSION_RTK_REWRITE?.toLowerCase();
+  const envMode: RtkRewriteMode = modeEnv === "1" || modeEnv === "true" || modeEnv === "rewrite" ? "rewrite" : "off";
+  const envTimeoutMs = Number.parseInt(process.env.FUSION_RTK_REWRITE_TIMEOUT_MS ?? "2000", 10);
+  const requestedTimeoutMs = options?.timeoutMs ?? envTimeoutMs;
+  return {
+    mode: options?.mode ?? envMode,
+    timeoutMs: Number.isFinite(requestedTimeoutMs) && requestedTimeoutMs > 0 ? requestedTimeoutMs : 2000,
+  };
+}
+
+function resolveRtkRewriteOptions(): Required<RtkRewriteOptions> {
+  return normalizeRtkRewriteOptions();
+}
+
+function getRtkErrorCode(error: Error | null): number | string | null {
+  if (!error) return 0;
+  const rawCode = (error as unknown as { code?: unknown }).code;
+  if (typeof rawCode === "number" || typeof rawCode === "string") return rawCode;
+  return null;
+}
+
+function shouldWarnForRtkFailure(code: number | string | null): boolean {
+  if (typeof code === "number") return !RTK_EXPECTED_PASSTHROUGH_EXIT_CODES.has(code);
+  if (typeof code === "string") return !RTK_EXPECTED_FAIL_OPEN_ERROR_CODES.has(code);
+  return true;
+}
+
+function rewriteCommandWithRtk(
+  command: string,
+  options: Required<RtkRewriteOptions>,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  if (signal?.aborted) {
+    return Promise.resolve(null);
+  }
+
+  return new Promise((resolve) => {
+    execFile(
+      "rtk",
+      ["rewrite", command],
+      {
+        timeout: options.timeoutMs,
+        maxBuffer: RTK_REWRITE_MAX_BUFFER_BYTES,
+        signal,
+        windowsHide: true,
+      },
+      (error, stdout, stderr) => {
+        const code = getRtkErrorCode(error);
+
+        if (typeof code !== "number" || !RTK_ACCEPTED_REWRITE_EXIT_CODES.has(code)) {
+          if (shouldWarnForRtkFailure(code)) {
+            const reason = stderr?.toString().trim() || (error instanceof Error ? error.message : `exit ${String(code)}`);
+            piLog.warn(`[pi] rtk rewrite failed open: ${reason}`);
+          }
+          resolve(null);
+          return;
+        }
+
+        const rewritten = stdout.toString().trim();
+        resolve(rewritten && rewritten !== command ? rewritten : null);
+      },
+    );
+  });
+}
 
 export interface AgentResult {
   session: AgentSession;
@@ -1493,6 +1571,45 @@ export function wrapToolsWithBoundary(
   });
 }
 
+export function wrapToolsWithRtkRewrite(
+  tools: ToolDefinition[],
+  options: RtkRewriteOptions = resolveRtkRewriteOptions(),
+): ToolDefinition[] {
+  const resolvedOptions = normalizeRtkRewriteOptions(options);
+
+  if (resolvedOptions.mode !== "rewrite") {
+    return tools;
+  }
+
+  return tools.map((tool) => {
+    if (tool.name !== "bash") {
+      return tool;
+    }
+
+    const originalExecute = tool.execute as any;
+    return {
+      ...tool,
+      execute: async (...args: any[]) => {
+        const params = args[1] as Record<string, unknown> | undefined;
+        const command = params?.command;
+        if (typeof command !== "string" || !command.trim()) {
+          return originalExecute(...args);
+        }
+
+        const signal = args[2] as AbortSignal | undefined;
+        const rewrittenCommand = await rewriteCommandWithRtk(command, resolvedOptions, signal);
+        if (!rewrittenCommand) {
+          return originalExecute(...args);
+        }
+
+        const rewrittenArgs = [...args];
+        rewrittenArgs[1] = { ...(params ?? {}), command: rewrittenCommand };
+        return originalExecute(...rewrittenArgs);
+      },
+    };
+  });
+}
+
 export function wrapToolsWithPermanentAgentGating(
   tools: ToolDefinition[],
   gating: PermanentAgentGatingContext | undefined,
@@ -1873,8 +1990,9 @@ export async function createFnAgent(options: AgentOptions): Promise<AgentResult>
       ...(tools as ToolDefinition[]),
       ...readonlyFilteredCustomTools.allowed,
     ];
+    const toolsWithRtkRewrite = wrapToolsWithRtkRewrite(toolChainStart);
     const toolsWithPermanentGating = wrapToolsWithPermanentAgentGating(
-      toolChainStart,
+      toolsWithRtkRewrite,
       options.permanentAgentGating,
     );
     const toolsWithActionGate = wrapToolsWithActionGate(
