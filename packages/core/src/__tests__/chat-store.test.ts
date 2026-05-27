@@ -671,6 +671,40 @@ describe("ChatStore", () => {
         const messages = store.getMessages("chat-nonexistent");
         expect(messages).toHaveLength(0);
       });
+
+      it("returns messages newest-first when order=desc", () => {
+        startFakeClock();
+        const session = createTestSession(store);
+        const m1 = store.addMessage(session.id, { role: "user", content: "First" });
+        advanceClock(5);
+        const m2 = store.addMessage(session.id, { role: "assistant", content: "Second" });
+        advanceClock(5);
+        const m3 = store.addMessage(session.id, { role: "user", content: "Third" });
+
+        const messages = store.getMessages(session.id, { order: "desc" });
+
+        expect(messages).toHaveLength(3);
+        expect(messages[0].id).toBe(m3.id);
+        expect(messages[1].id).toBe(m2.id);
+        expect(messages[2].id).toBe(m1.id);
+      });
+
+      it("combines before cursor with order=desc", () => {
+        startFakeClock();
+        const session = createTestSession(store);
+        const m1 = store.addMessage(session.id, { role: "user", content: "First" });
+        advanceClock(5);
+        const m2 = store.addMessage(session.id, { role: "assistant", content: "Second" });
+        advanceClock(5);
+        const m3 = store.addMessage(session.id, { role: "user", content: "Third" });
+
+        // before=m3.createdAt with desc → returns messages before m3, newest first
+        const messages = store.getMessages(session.id, { before: m3.createdAt, order: "desc" });
+
+        expect(messages).toHaveLength(2);
+        expect(messages[0].id).toBe(m2.id);
+        expect(messages[1].id).toBe(m1.id);
+      });
     });
 
     describe("getMessage", () => {

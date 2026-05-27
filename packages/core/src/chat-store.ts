@@ -580,7 +580,7 @@ export class ChatStore extends EventEmitter<ChatStoreEvents> {
    *
    * @param sessionId - Session ID
    * @param filter - Optional filter (limit, offset, before cursor)
-   * @returns Array of messages ordered by createdAt ASC
+   * @returns Array of messages ordered by createdAt ASC (default) or DESC
    */
   getMessages(sessionId: string, filter?: ChatMessagesFilter): ChatMessage[] {
     const whereClauses: string[] = ["sessionId = ?"];
@@ -595,11 +595,12 @@ export class ChatStore extends EventEmitter<ChatStoreEvents> {
     const whereSql = whereClauses.join(" AND ");
     const limit = filter?.limit ?? 100;
     const offset = filter?.offset ?? 0;
+    const order = filter?.order === "desc" ? "DESC" : "ASC";
 
     const rows = this.db.prepare(`
       SELECT * FROM chat_messages
       WHERE ${whereSql}
-      ORDER BY createdAt ASC
+      ORDER BY createdAt ${order}
       LIMIT ? OFFSET ?
     `).all(...params, limit, offset);
 

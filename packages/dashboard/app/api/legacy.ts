@@ -8735,13 +8735,14 @@ export function deleteChatSession(id: string, projectId?: string): Promise<{ suc
 /** Fetch messages for a chat session */
 export function fetchChatMessages(
   sessionId: string,
-  opts?: { limit?: number; offset?: number; before?: string },
+  opts?: { limit?: number; offset?: number; before?: string; order?: "asc" | "desc" },
   projectId?: string,
 ): Promise<ChatMessageListResponse> {
   const search = new URLSearchParams();
   if (opts?.limit !== undefined) search.set("limit", String(opts.limit));
   if (opts?.offset !== undefined) search.set("offset", String(opts.offset));
   if (opts?.before) search.set("before", opts.before);
+  if (opts?.order) search.set("order", opts.order);
   const qs = search.toString();
   return api<ChatMessageListResponse>(
     withProjectId(`/chat/sessions/${encodeURIComponent(sessionId)}/messages${qs ? `?${qs}` : ""}`, projectId),

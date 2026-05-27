@@ -320,7 +320,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
   /**
    * GET /api/chat/sessions/:id/messages
    * Get messages for a chat session with pagination.
-   * Query params: limit? (default 50, max 200), offset? (default 0), before? (ISO timestamp)
+   * Query params: limit? (default 50, max 200), offset? (default 0), before? (ISO timestamp), order? ('asc'|'desc')
    */
   router.get("/chat/sessions/:id/messages", async (req, res) => {
     try {
@@ -334,10 +334,11 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
         throw notFound(`Chat session ${sessionId} not found`);
       }
 
-      const { limit: limitStr, offset: offsetStr, before } = req.query as {
+      const { limit: limitStr, offset: offsetStr, before, order } = req.query as {
         limit?: string;
         offset?: string;
         before?: string;
+        order?: string;
       };
 
       // Validate pagination params
@@ -351,12 +352,17 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
         throw badRequest("offset must be a non-negative integer");
       }
 
+      if (order !== undefined && order !== "asc" && order !== "desc") {
+        throw badRequest('order must be "asc" or "desc"');
+      }
+
       const effectiveLimit = Math.min(limit, 200);
 
       const messages = chatStore.getMessages(sessionId, {
         limit: effectiveLimit,
         offset,
         ...(before && { before }),
+        ...(order === "desc" || order === "asc" ? { order } : {}),
       });
 
       res.json({ messages });

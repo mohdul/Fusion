@@ -99,6 +99,7 @@ describe("useChat", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    mockGetScopedItem.mockReturnValue(undefined);
     mockFetchChatSessions.mockResolvedValue({ sessions: [] });
     mockFetchChatSession.mockResolvedValue({
       session: makeSession({ id: "session-001", agentId: "agent-001" }),
@@ -559,7 +560,7 @@ describe("useChat", () => {
 
     const parsed = JSON.parse(localStorage.getItem(chatMessagesCacheKey(projectId, session.id)) ?? "null") as { data: ChatMessage[] };
     expect(parsed.data).toHaveLength(50);
-    expect(parsed.data[0]?.id).toBe("msg-1");
+    expect(parsed.data[0]?.id).toBe("msg-50");
   });
 
   it("selects a session and loads its messages", async () => {
@@ -583,7 +584,7 @@ describe("useChat", () => {
     });
 
     await waitFor(() => {
-      expect(mockFetchChatMessages).toHaveBeenCalledWith("session-001", { limit: 50 }, undefined);
+      expect(mockFetchChatMessages).toHaveBeenCalledWith("session-001", { limit: 50, order: "desc" }, undefined);
     });
 
     await waitFor(() => {
@@ -600,13 +601,13 @@ describe("useChat", () => {
     mockFetchChatSessions.mockResolvedValueOnce({ sessions: [session] });
 
     // Simulate a conversation with multiple user and assistant messages
-    // in backend chronological order (oldest first)
+    // API returns messages newest-first (order=desc); simulate that in the mock
     mockFetchChatMessages.mockResolvedValueOnce({
       messages: [
-        makeMessage({ id: "msg-001", sessionId: "session-001", role: "user", content: "First question" }),
-        makeMessage({ id: "msg-002", sessionId: "session-001", role: "assistant", content: "First answer" }),
-        makeMessage({ id: "msg-003", sessionId: "session-001", role: "user", content: "Second question" }),
         makeMessage({ id: "msg-004", sessionId: "session-001", role: "assistant", content: "Second answer" }),
+        makeMessage({ id: "msg-003", sessionId: "session-001", role: "user", content: "Second question" }),
+        makeMessage({ id: "msg-002", sessionId: "session-001", role: "assistant", content: "First answer" }),
+        makeMessage({ id: "msg-001", sessionId: "session-001", role: "user", content: "First question" }),
       ],
     });
 
@@ -1083,7 +1084,7 @@ describe("useChat", () => {
     await waitFor(() => {
       expect(result.current.isStreaming).toBe(false);
       expect(addToast).not.toHaveBeenCalledWith("Load failed", "error");
-      expect(mockFetchChatMessages).toHaveBeenCalledWith("session-001", { limit: 50 }, undefined);
+      expect(mockFetchChatMessages).toHaveBeenCalledWith("session-001", { limit: 50, order: "desc" }, undefined);
     });
   });
 
@@ -2112,7 +2113,7 @@ describe("useChat", () => {
     const secondCall = mockFetchChatMessages.mock.calls[1];
     expect(secondCall[0]).toBe("session-001");
     expect(secondCall[1]).toHaveProperty("limit");
-    expect(secondCall[1]).toHaveProperty("offset");
+    expect(secondCall[1]).toHaveProperty("before");
 
     await waitFor(() => {
       expect(result.current.messages).toHaveLength(51);
@@ -2138,6 +2139,52 @@ describe("useChat", () => {
       expect(result.current.messages).toHaveLength(1);
       expect(result.current.hasMoreMessages).toBe(false);
     });
+  });
+
+  it("loadMoreMessages callback is stable when messages array changes (no re-create on streaming)", async () => {
+    const session = makeSession({ id: "session-001", agentId: "agent-001" });
+    mockFetchChatSessions.mockResolvedValueOnce({ sessions: [session] });
+
+    // 50 messages so hasMoreMessages=true
+    const make50 = () =>
+      Array.from({ length: 50 }, (_, i) =>
+        makeMessage({ id: `msg-${i}`, sessionId: "session-001", role: "user", content: `m${i}`, createdAt: `2026-04-08T00:00:${String(i).padStart(2, "0")}.000Z` })
+      );
+    mockFetchChatMessages.mockResolvedValueOnce({ messages: make50() });
+
+    // Minimal streaming mock — returns immediately so sendMessage won't hang
+    mockStreamChatResponse.mockImplementation(() => ({ close: vi.fn(), isConnected: () => false }));
+
+    const { result } = renderHook(() => useChat());
+
+    await waitFor(() => {
+      expect(result.current.sessions).toHaveLength(1);
+    });
+
+    act(() => {
+      result.current.selectSession("session-001");
+    });
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(50);
+      expect(result.current.hasMoreMessages).toBe(true);
+    });
+
+    // Capture callback identity before messages change
+    const loadMoreBefore = result.current.loadMoreMessages;
+
+    // sendMessage adds an optimistic user message → new messages array reference
+    act(() => {
+      void result.current.sendMessage("hello");
+    });
+
+    await waitFor(() => {
+      // Optimistic user message was appended
+      expect(result.current.messages.length).toBeGreaterThan(50);
+    });
+
+    // loadMoreMessages must NOT have been recreated despite messages array changing
+    expect(result.current.loadMoreMessages).toBe(loadMoreBefore);
   });
 
   it("filters sessions by search query", async () => {
@@ -2665,7 +2712,7 @@ describe("useChat", () => {
 
       // Verify messages were loaded
       await waitFor(() => {
-        expect(mockFetchChatMessages).toHaveBeenCalledWith("session-001", { limit: 50 }, undefined);
+        expect(mockFetchChatMessages).toHaveBeenCalledWith("session-001", { limit: 50, order: "desc" }, undefined);
       });
     });
 

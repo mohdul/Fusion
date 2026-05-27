@@ -191,6 +191,8 @@ export interface ChatMessagesFilter {
    * Used for loading older messages in a conversation.
    */
   before?: string;
+  /** Sort order: 'asc' (oldest first, default) or 'desc' (newest first) */
+  order?: "asc" | "desc";
 }
 
 // ── Room Chat Types ──────────────────────────────────────────────────

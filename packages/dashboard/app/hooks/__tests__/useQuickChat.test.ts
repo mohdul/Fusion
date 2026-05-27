@@ -347,7 +347,7 @@ describe("useQuickChat", () => {
 
     await waitFor(() => {
       expect(mockCreateChatSession).not.toHaveBeenCalled();
-      expect(mockFetchChatMessages).toHaveBeenCalledWith("session-existing", { limit: 50 }, "proj-123");
+      expect(mockFetchChatMessages).toHaveBeenCalledWith("session-existing", { limit: 50, order: "desc" }, "proj-123");
     });
   });
 
@@ -378,7 +378,7 @@ describe("useQuickChat", () => {
 
     await waitFor(() => {
       expect(result.current.isStreaming).toBe(true);
-      expect(mockFetchChatMessages).toHaveBeenCalledWith("session-existing", { limit: 50 }, "proj-123");
+      expect(mockFetchChatMessages).toHaveBeenCalledWith("session-existing", { limit: 50, order: "desc" }, "proj-123");
     });
   });
 
@@ -492,7 +492,7 @@ describe("useQuickChat", () => {
         "proj-123",
       );
       expect(result.current.activeSession?.id).toBe("session-fresh");
-      expect(mockFetchChatMessages).toHaveBeenCalledWith("session-fresh", { limit: 50 }, "proj-123");
+      expect(mockFetchChatMessages).toHaveBeenCalledWith("session-fresh", { limit: 50, order: "desc" }, "proj-123");
     });
   });
 
@@ -923,7 +923,7 @@ describe("useQuickChat", () => {
 
     await waitFor(() => {
       expect(mockFetchChatMessages.mock.calls.length).toBeGreaterThanOrEqual(2);
-      expect(mockFetchChatMessages).toHaveBeenCalledWith("session-existing", { limit: 50 }, "proj-123");
+      expect(mockFetchChatMessages).toHaveBeenCalledWith("session-existing", { limit: 50, order: "desc" }, "proj-123");
     });
   });
 
@@ -1597,4 +1597,25 @@ describe("useQuickChat", () => {
       });
     });
   });
+
+  it("initial load uses order=desc to fetch latest messages first", async () => {
+    const session = makeSession({ id: "session-001", agentId: "agent-001" });
+    mockFetchResumeChatSession.mockResolvedValue({ session });
+    mockFetchChatMessages.mockResolvedValue({ messages: [] });
+
+    const { result } = renderHook(() => useQuickChat("proj-123"));
+
+    await act(async () => {
+      await result.current.switchSession("agent-001");
+    });
+
+    await waitFor(() => {
+      expect(mockFetchChatMessages).toHaveBeenCalledWith(
+        "session-001",
+        expect.objectContaining({ order: "desc" }),
+        "proj-123",
+      );
+    });
+  });
+
 });

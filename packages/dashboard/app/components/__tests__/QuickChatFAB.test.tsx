@@ -286,7 +286,7 @@ describe("QuickChatFAB session-first UX", () => {
     fireEvent.click(trigger);
     fireEvent.click(screen.getByTestId("quick-chat-session-option-session-model"));
     await waitFor(() => {
-      expect(mockFetchChatMessages).toHaveBeenCalledWith("session-model", { limit: 50 }, "proj-1");
+      expect(mockFetchChatMessages).toHaveBeenCalledWith("session-model", { limit: 50, order: "desc" }, "proj-1");
     });
   });
 
@@ -897,7 +897,7 @@ describe("QuickChatFAB session-first UX", () => {
     fireEvent.click(screen.getByTestId("quick-chat-session-option-session-agent"));
 
     await waitFor(() => {
-      expect(mockFetchChatMessages).toHaveBeenCalledWith("session-agent", { limit: 50 }, "proj-1");
+      expect(mockFetchChatMessages).toHaveBeenCalledWith("session-agent", { limit: 50, order: "desc" }, "proj-1");
     });
     expect(mockCreateChatSession).not.toHaveBeenCalled();
   });

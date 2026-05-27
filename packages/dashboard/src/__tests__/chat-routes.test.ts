@@ -920,6 +920,35 @@ describe("Chat API Routes", () => {
 
       expect(response.status).toBe(404);
     });
+
+    it("passes order=desc to getMessages when query param is provided", async () => {
+      mockGetSession.mockReturnValue(sampleSession);
+      mockGetMessages.mockReturnValue([sampleMessage]);
+
+      const response = await request(
+        app,
+        "GET",
+        "/api/chat/sessions/chat-abc123/messages?order=desc",
+      );
+
+      expect(response.status).toBe(200);
+      expect(mockGetMessages).toHaveBeenCalledWith("chat-abc123", expect.objectContaining({
+        order: "desc",
+      }));
+    });
+
+    it("returns 400 for invalid order value", async () => {
+      mockGetSession.mockReturnValue(sampleSession);
+
+      const response = await request(
+        app,
+        "GET",
+        "/api/chat/sessions/chat-abc123/messages?order=invalid",
+      );
+
+      expect(response.status).toBe(400);
+      expect((response.body as any).error).toMatch(/order/i);
+    });
   });
 
   describe("POST /api/chat/sessions/:id/cancel", () => {

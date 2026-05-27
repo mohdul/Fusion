@@ -330,8 +330,8 @@ export function useQuickChat(
         isStreamingRef.current = false;
         streamRef.current = null;
         lastAttachedGenerationRef.current = null;
-        void fetchChatMessages(sessionId, { limit: 50 }, projectId).then((data) => {
-          if (activeSessionRef.current?.id === sessionId) setMessages(data.messages.map(mapChatMessageToInfo));
+        void fetchChatMessages(sessionId, { limit: 50, order: "desc" }, projectId).then((data) => {
+          if (activeSessionRef.current?.id === sessionId) setMessages(data.messages.slice().reverse().map(mapChatMessageToInfo));
         }).catch(() => {});
         flushPendingMessage();
       },
@@ -347,8 +347,8 @@ export function useQuickChat(
         if (!options?.silent) {
           addToast?.(errorMessage, "error");
         }
-        void fetchChatMessages(sessionId, { limit: 50 }, projectId).then((data) => {
-          if (activeSessionRef.current?.id === sessionId) setMessages(data.messages.map(mapChatMessageToInfo));
+        void fetchChatMessages(sessionId, { limit: 50, order: "desc" }, projectId).then((data) => {
+          if (activeSessionRef.current?.id === sessionId) setMessages(data.messages.slice().reverse().map(mapChatMessageToInfo));
         }).catch(() => {});
         flushPendingMessage();
       },
@@ -428,8 +428,8 @@ export function useQuickChat(
     setMessagesLoading(true);
     try {
       const sessionId = activeSession.id;
-      const data = await fetchChatMessages(sessionId, { limit: 50 }, projectId);
-      if (activeSessionRef.current?.id === sessionId) setMessages(data.messages.map(mapChatMessageToInfo));
+      const data = await fetchChatMessages(sessionId, { limit: 50, order: "desc" }, projectId);
+      if (activeSessionRef.current?.id === sessionId) setMessages(data.messages.slice().reverse().map(mapChatMessageToInfo));
     } catch (err) {
       console.error("[useQuickChat] Failed to load messages:", err);
     } finally {
@@ -473,8 +473,8 @@ export function useQuickChat(
           clearInterval(interval);
           // Reload messages to pick up the completed assistant message
           const sessionId = activeSession.id;
-          const data = await fetchChatMessages(sessionId, { limit: 50 }, projectId);
-          if (activeSessionRef.current?.id === sessionId) setMessages(data.messages.map(mapChatMessageToInfo));
+          const data = await fetchChatMessages(sessionId, { limit: 50, order: "desc" }, projectId);
+          if (activeSessionRef.current?.id === sessionId) setMessages(data.messages.slice().reverse().map(mapChatMessageToInfo));
           setStreamingText("");
           setStreamingThinking("");
           setStreamingToolCalls([]);
@@ -496,8 +496,8 @@ export function useQuickChat(
     setMessagesLoading(true);
     try {
       const sessionId = activeSession.id;
-      const data = await fetchChatMessages(sessionId, { limit: 50 }, projectId);
-      if (activeSessionRef.current?.id === sessionId) setMessages(data.messages.map(mapChatMessageToInfo));
+      const data = await fetchChatMessages(sessionId, { limit: 50, order: "desc" }, projectId);
+      if (activeSessionRef.current?.id === sessionId) setMessages(data.messages.slice().reverse().map(mapChatMessageToInfo));
     } catch (err) {
       console.error("[useQuickChat] Failed to reload messages:", err);
     } finally {

@@ -1238,7 +1238,7 @@ export function ChatView({ projectId, addToast, experimentalFeatures }: ChatView
 
   useEffect(() => {
     const sentinel = loadMoreSentinelRef.current;
-    if (!sentinel || !hasMoreMessages) return;
+    if (!sentinel || !hasMoreMessages || messagesLoading) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -1250,7 +1250,7 @@ export function ChatView({ projectId, addToast, experimentalFeatures }: ChatView
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMoreMessages, loadMoreMessages]);
+  }, [hasMoreMessages, messagesLoading, loadMoreMessages]);
 
   const getActiveThreadId = useCallback(() => {
     return roomThreadActive ? (rooms.activeRoom?.id ?? null) : (activeSession?.id ?? null);
@@ -1379,6 +1379,9 @@ export function ChatView({ projectId, addToast, experimentalFeatures }: ChatView
     logScrollDebug(cause);
     const messagesContainer = messagesContainerRef.current;
     if (!messagesContainer) return;
+    // Cancel any pending scroll restoration so it doesn't override the explicit jump-to-bottom.
+    scrollRestoreSnapshotRef.current = null;
+    isUserScrollingRef.current = false;
     anchorToBottom(messagesContainer);
   }, [anchorToBottom, logScrollDebug]);
 
