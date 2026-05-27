@@ -742,13 +742,16 @@ export function useChat(
   );
 
   // Load more messages (pagination — use before cursor for oldest displayed message)
+  // messagesRef is assigned on every render; reading from the ref here avoids
+  // closing over `messages` and prevents this callback from being recreated on
+  // every streamed token (which would cause the IntersectionObserver to churn).
   const loadMoreMessages = useCallback(async () => {
     if (!activeSession || !hasMoreMessages) return;
-    // messages[0] is the oldest visible message; fetch older ones using its createdAt as cursor
-    const cursor = messages[0]?.createdAt;
+    // messagesRef.current[0] is the oldest visible message; fetch older ones using its createdAt
+    const cursor = messagesRef.current[0]?.createdAt;
     if (!cursor) return;
     await loadMessages(activeSession.id, { before: cursor });
-  }, [activeSession, hasMoreMessages, loadMessages, messages]);
+  }, [activeSession, hasMoreMessages, loadMessages]);
 
   const stopStreaming = useCallback(() => {
     if (!activeSession) return;

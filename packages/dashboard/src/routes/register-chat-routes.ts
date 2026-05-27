@@ -352,6 +352,10 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
         throw badRequest("offset must be a non-negative integer");
       }
 
+      if (order !== undefined && order !== "asc" && order !== "desc") {
+        throw badRequest('order must be "asc" or "desc"');
+      }
+
       const effectiveLimit = Math.min(limit, 200);
 
       const messages = chatStore.getMessages(sessionId, {

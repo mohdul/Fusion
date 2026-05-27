@@ -936,6 +936,19 @@ describe("Chat API Routes", () => {
         order: "desc",
       }));
     });
+
+    it("returns 400 for invalid order value", async () => {
+      mockGetSession.mockReturnValue(sampleSession);
+
+      const response = await request(
+        app,
+        "GET",
+        "/api/chat/sessions/chat-abc123/messages?order=invalid",
+      );
+
+      expect(response.status).toBe(400);
+      expect((response.body as any).error).toMatch(/order/i);
+    });
   });
 
   describe("POST /api/chat/sessions/:id/cancel", () => {

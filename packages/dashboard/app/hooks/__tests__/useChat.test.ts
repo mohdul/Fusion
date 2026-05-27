@@ -2141,6 +2141,52 @@ describe("useChat", () => {
     });
   });
 
+  it("loadMoreMessages callback is stable when messages array changes (no re-create on streaming)", async () => {
+    const session = makeSession({ id: "session-001", agentId: "agent-001" });
+    mockFetchChatSessions.mockResolvedValueOnce({ sessions: [session] });
+
+    // 50 messages so hasMoreMessages=true
+    const make50 = () =>
+      Array.from({ length: 50 }, (_, i) =>
+        makeMessage({ id: `msg-${i}`, sessionId: "session-001", role: "user", content: `m${i}`, createdAt: `2026-04-08T00:00:${String(i).padStart(2, "0")}.000Z` })
+      );
+    mockFetchChatMessages.mockResolvedValueOnce({ messages: make50() });
+
+    // Minimal streaming mock — returns immediately so sendMessage won't hang
+    mockStreamChatResponse.mockImplementation(() => ({ close: vi.fn(), isConnected: () => false }));
+
+    const { result } = renderHook(() => useChat());
+
+    await waitFor(() => {
+      expect(result.current.sessions).toHaveLength(1);
+    });
+
+    act(() => {
+      result.current.selectSession("session-001");
+    });
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(50);
+      expect(result.current.hasMoreMessages).toBe(true);
+    });
+
+    // Capture callback identity before messages change
+    const loadMoreBefore = result.current.loadMoreMessages;
+
+    // sendMessage adds an optimistic user message → new messages array reference
+    act(() => {
+      void result.current.sendMessage("hello");
+    });
+
+    await waitFor(() => {
+      // Optimistic user message was appended
+      expect(result.current.messages.length).toBeGreaterThan(50);
+    });
+
+    // loadMoreMessages must NOT have been recreated despite messages array changing
+    expect(result.current.loadMoreMessages).toBe(loadMoreBefore);
+  });
+
   it("filters sessions by search query", async () => {
     mockFetchChatSessions.mockResolvedValueOnce({
       sessions: [
