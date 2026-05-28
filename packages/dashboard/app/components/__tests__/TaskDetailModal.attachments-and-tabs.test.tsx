@@ -331,6 +331,12 @@ describe("TaskDetailModal", () => {
     const css = readDashboardStylesSource();
     expectBaseRule(css, ".detail-pr-tab", "gap: var(--space-lg);");
     expectBaseRule(css, ".detail-pr-tab .detail-section,\n.detail-pr-section", "margin-top: 0;");
+    expectBaseRule(css, ".pr-hint--warning", "padding: var(--space-md);");
+    expectBaseRule(css, ".pr-hint--conflict", "padding: var(--space-md);");
+    expectBaseRule(css, ".pr-hint--success", "padding: var(--space-md);");
+    expectBaseRule(css, ".pr-conflict-section", "padding: var(--space-md);");
+    expectBaseRule(css, ".pr-merge-error", "padding: var(--space-md);");
+    expectBaseRule(css, ".pr-error", "padding: var(--space-md);");
   });
 
   it("activity list does not have nested scroll constraints", () => {
