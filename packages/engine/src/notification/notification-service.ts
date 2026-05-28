@@ -12,6 +12,7 @@ import type {
 import { NotificationDispatcher } from "@fusion/core";
 import { DEFAULT_NTFY_EVENTS } from "../notifier.js";
 import { schedulerLog } from "../logger.js";
+import { classifyTransientMergeError } from "../transient-merge-error-classifier.js";
 import { NtfyNotificationProvider } from "./ntfy-provider.js";
 import { WebhookNotificationProvider } from "./webhook-provider.js";
 
@@ -168,6 +169,24 @@ export class NotificationService {
     }
 
     if (task.status === "failed") {
+      // FN-5627: Suppress notifications entirely for transient merge failure
+      // classes recognized by `classifyTransientMergeError`. These are
+      // recovered automatically by `SelfHealingManager.recoverTransientMergeFailures`
+      // and the per-tick auto-recovery in `project-engine.ts` fast-path; the
+      // task either lands cleanly on a retry or stays in in-review for the
+      // bounded recovery budget to handle. Without this guard, every flap
+      // cycle (typically every ~5 min when the merger keeps hitting the same
+      // transient class) fires another ntfy alarm even though the task is
+      // never genuinely stuck — producing user-facing alarm spam with no
+      // actionable information.
+      const transientClass = classifyTransientMergeError(task.error);
+      if (transientClass) {
+        this.failureNotificationSuppressedCount += 1;
+        schedulerLog.log(
+          `[notify] ${task.id} transient merge failure (${transientClass}) — suppressed notification (self-heal in flight)`,
+        );
+        return;
+      }
       if (this.failureNotificationMode === "all") {
         this.maybeNotify(task.id, "failed", this.createTaskPayload(task, "failed"));
       } else {
@@ -561,6 +580,20 @@ export class NotificationService {
     if (task.status !== "failed") {
       this.failureNotificationSuppressedCount += 1;
       schedulerLog.log(`[notify] ${taskId} no longer failed at dispatch time — suppressed notification`);
+      return;
+    }
+
+    // FN-5627 defense-in-depth: even when a failure notification was scheduled
+    // (e.g., the failure happened slightly before the transient classifier
+    // suppression landed on a newer cycle), re-check at dispatch time. Self-
+    // healing may have flipped the error to a transient class via FN-5627
+    // auto-recovery, in which case ntfy stays silent.
+    const transientClassAtDispatch = classifyTransientMergeError(task.error);
+    if (transientClassAtDispatch) {
+      this.failureNotificationSuppressedCount += 1;
+      schedulerLog.log(
+        `[notify] ${taskId} transient merge failure (${transientClassAtDispatch}) at dispatch time — suppressed notification (self-heal in flight)`,
+      );
       return;
     }
 

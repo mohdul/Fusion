@@ -98,6 +98,52 @@ describe("NotificationService deferred failure notifications", () => {
     await service.stop();
   });
 
+  it("FN-5627: suppresses notification for transient lease-handoff-target-not-queued failures", async () => {
+    const { store, service, sendNotification } = await setup();
+    store.setTask(task({
+      id: "FN-5628",
+      status: "failed",
+      error: "Merge handoff refused (lease-handoff-failed): target-not-queued",
+    }));
+    store.emit("task:updated", task({
+      id: "FN-5628",
+      status: "failed",
+      error: "Merge handoff refused (lease-handoff-failed): target-not-queued",
+    }));
+
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(sendNotification).not.toHaveBeenCalled();
+    expect(service.getMetrics().failureNotificationSuppressedCount).toBe(1);
+    await service.stop();
+  });
+
+  it("FN-5627: suppresses notification for transient same-SHA spurious-concurrent-advance failures", async () => {
+    const { store, service, sendNotification } = await setup();
+    const transientError = "Integration branch main advanced concurrently (expected 694970b2f186fac31c1819d55ef30a2ad207b5c3, observed 694970b2f186fac31c1819d55ef30a2ad207b5c3) while applying b26f8fe1ee2d3dc36acf3571d42507b24bd8066b for FN-5626";
+    store.setTask(task({ id: "FN-5626", status: "failed", error: transientError }));
+    store.emit("task:updated", task({ id: "FN-5626", status: "failed", error: transientError }));
+
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(sendNotification).not.toHaveBeenCalled();
+    expect(service.getMetrics().failureNotificationSuppressedCount).toBe(1);
+    await service.stop();
+  });
+
+  it("FN-5627: still dispatches notification for genuine concurrent-advance failures (different SHAs)", async () => {
+    const { store, service, sendNotification } = await setup();
+    const genuineError = "Integration branch main advanced concurrently (expected aaa1111aaa1111aaa1111aaa1111aaa1111aaaa, observed bbb2222bbb2222bbb2222bbb2222bbb2222bbbb) while applying ccc3333ccc3333ccc3333ccc3333ccc3333cccc for FN-genuine";
+    store.setTask(task({ id: "FN-genuine", status: "failed", error: genuineError }));
+    store.emit("task:updated", task({ id: "FN-genuine", status: "failed", error: genuineError }));
+
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(sendNotification).toHaveBeenCalledTimes(1);
+    expect(sendNotification).toHaveBeenCalledWith("failed", expect.objectContaining({ taskId: "FN-genuine" }));
+    await service.stop();
+  });
+
   it("Transient failure with Auto-recovered status clear is suppressed", async () => {
     const { store, service, sendNotification } = await setup();
     store.setTask(task({ id: "FN-1", status: "failed" }));

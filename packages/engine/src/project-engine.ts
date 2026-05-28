@@ -1544,9 +1544,12 @@ export class ProjectEngine {
                 runtimeLog.warn(
                   `Auto-merge: ${taskId} fast-path REFUSED — auto-recovering (attempt ${nextRetries}/${ProjectEngine.MAX_AUTO_MERGE_RETRIES}): ${reachability.reason}: ${reachability.diagnostic}`,
                 );
+                // Prefix MUST be "Auto-recovered:" so NotificationService's
+                // maybeSuppressTransientFailedNotification cancels the pending
+                // ntfy fired off the underlying task:failed event.
                 await store.logEntry(
                   taskId,
-                  `[FN-5627] Auto-merge fast-path refused — cleared poisoned mergeDetails (commit ${shortSha} not reachable from ${integrationBranchForGate}, ${reachability.reason}). Re-enqueueing for fresh merge attempt ${nextRetries}/${ProjectEngine.MAX_AUTO_MERGE_RETRIES}.`,
+                  `Auto-recovered: fast-path refused — cleared poisoned mergeDetails (commit ${shortSha} not reachable from ${integrationBranchForGate}, ${reachability.reason}). Re-enqueueing for fresh merge attempt ${nextRetries}/${ProjectEngine.MAX_AUTO_MERGE_RETRIES} [FN-5627].`,
                 );
                 await store.updateTask(taskId, {
                   mergeDetails: cleanedMergeDetails,
