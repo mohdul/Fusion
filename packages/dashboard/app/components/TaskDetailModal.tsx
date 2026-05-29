@@ -19,7 +19,7 @@ import {
   resolveTaskPlanningModel,
   resolveTaskValidatorModel,
 } from "@fusion/core";
-import { uploadAttachment, deleteAttachment, updateTask, pauseTask, unpauseTask, fetchTaskDetail, fetchSettings, fetchGlobalSettings, requestSpecRevision, rebuildTaskSpec, approvePlan, rejectPlan, refineTask, fetchWorkflowResults, assignTask, fetchAgents, fetchAgent, recoverBranchBinding } from "../api";
+import { uploadAttachment, deleteAttachment, updateTask, pauseTask, unpauseTask, fetchTaskDetail, fetchSettings, fetchGlobalSettings, requestSpecRevision, rebuildTaskSpec, approvePlan, rejectPlan, refineTask, fetchWorkflowResults, assignTask, fetchAgents, fetchAgent, recoverBranchBinding, refreshPrStatus } from "../api";
 import type { RecoverBranchBindingOutcome } from "../api";
 import type { ToastType } from "../hooks/useToast";
 import { useAgentLogs } from "../hooks/useAgentLogs";
@@ -649,6 +649,7 @@ export function TaskDetailContent({
   const [githubRepoOverrideError, setGithubRepoOverrideError] = useState<string | null>(null);
   const [isSavingGithubTracking, setIsSavingGithubTracking] = useState(false);
   const [isRecoveringBranchBinding, setIsRecoveringBranchBinding] = useState(false);
+  const [isCheckingPrStatus, setIsCheckingPrStatus] = useState(false);
   const [recoverBranchBindingOutcome, setRecoverBranchBindingOutcome] = useState<RecoverBranchBindingOutcome | null>(null);
   const moveMenuRef = useRef<HTMLDivElement>(null);
   const activityListRef = useRef<HTMLDivElement>(null);
@@ -1797,6 +1798,25 @@ export function TaskDetailContent({
     closeMenus();
     void handleMerge();
   }, [closeMenus, handleMerge]);
+
+  const handleCheckPrStatus = useCallback(async () => {
+    if (isCheckingPrStatus) return;
+    closeMenus();
+    setIsCheckingPrStatus(true);
+    try {
+      const result = await refreshPrStatus(task.id, projectId);
+      addToast("PR status refreshed", "success");
+      onTaskUpdated?.({
+        ...task,
+        prInfo: result.prInfo,
+        prInfos: result.all?.map((entry) => entry.prInfo) ?? task.prInfos,
+      });
+    } catch (err) {
+      addToast(getErrorMessage(err), "error");
+    } finally {
+      setIsCheckingPrStatus(false);
+    }
+  }, [addToast, closeMenus, isCheckingPrStatus, onTaskUpdated, projectId, task]);
 
   const handleCloseRefineModal = useCallback(() => {
     setShowRefineModal(false);
@@ -3826,7 +3846,11 @@ export function TaskDetailContent({
                         {prAutomationLabel}
                       </button>
                     ) : (
-                      <button className="btn btn-primary btn-sm" onClick={handleMergeMenuItemClick}>
+                      <button
+                        className="btn btn-primary btn-sm"
+                        onClick={manualReviewActionLabel === "Check PR Status" ? handleCheckPrStatus : handleMergeMenuItemClick}
+                        disabled={manualReviewActionLabel === "Check PR Status" && isCheckingPrStatus}
+                      >
                         {manualReviewActionLabel}
                       </button>
                     )}

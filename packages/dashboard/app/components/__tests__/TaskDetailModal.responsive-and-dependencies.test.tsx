@@ -572,6 +572,114 @@ describe("TaskDetailModal", () => {
       });
     });
 
+    it("refreshes PR status for Check PR Status without merge prompt", async () => {
+      const { fetchSettings, refreshPrStatus } = await import("../../api");
+      const addToast = vi.fn();
+      const onMergeTask = vi.fn(async () => ({ merged: false } as MergeResult));
+      const onTaskUpdated = vi.fn();
+
+      vi.mocked(fetchSettings).mockResolvedValueOnce({
+        modelPresets: [],
+        autoSelectModelPreset: false,
+        defaultPresetBySize: {},
+        mergeStrategy: "pull-request",
+        autoMerge: false,
+      });
+      vi.mocked(refreshPrStatus).mockResolvedValueOnce({
+        prInfo: {
+          url: "https://github.com/owner/repo/pull/42",
+          number: 42,
+          status: "open",
+          title: "Task",
+          headBranch: "fusion/fn-099",
+          baseBranch: "main",
+          commentCount: 1,
+        },
+        all: [],
+      });
+
+      render(
+        <TaskDetailModal
+          task={makeTask({
+            column: "in-review" as Column,
+            prInfo: {
+              url: "https://github.com/owner/repo/pull/42",
+              number: 42,
+              status: "open",
+              title: "Task",
+              headBranch: "fusion/fn-099",
+              baseBranch: "main",
+              commentCount: 0,
+            },
+          })}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={onMergeTask}
+          onOpenDetail={noopOpenDetail}
+          onTaskUpdated={onTaskUpdated}
+          addToast={addToast}
+          projectId="project-1"
+        />,
+      );
+
+      fireEvent.click(await screen.findByRole("button", { name: "Check PR Status" }));
+
+      await waitFor(() => {
+        expect(refreshPrStatus).toHaveBeenCalledWith("FN-099", "project-1");
+      });
+      expect(onMergeTask).not.toHaveBeenCalled();
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(addToast).toHaveBeenCalledWith("PR status refreshed", "success");
+    });
+
+    it("shows error toast when Check PR Status refresh fails", async () => {
+      const { fetchSettings, refreshPrStatus } = await import("../../api");
+      const addToast = vi.fn();
+      const onMergeTask = vi.fn(async () => ({ merged: false } as MergeResult));
+
+      vi.mocked(fetchSettings).mockResolvedValueOnce({
+        modelPresets: [],
+        autoSelectModelPreset: false,
+        defaultPresetBySize: {},
+        mergeStrategy: "pull-request",
+        autoMerge: false,
+      });
+      vi.mocked(refreshPrStatus).mockRejectedValueOnce(new Error("refresh failed"));
+
+      render(
+        <TaskDetailModal
+          task={makeTask({
+            column: "in-review" as Column,
+            prInfo: {
+              url: "https://github.com/owner/repo/pull/42",
+              number: 42,
+              status: "open",
+              title: "Task",
+              headBranch: "fusion/fn-099",
+              baseBranch: "main",
+              commentCount: 0,
+            },
+          })}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={onMergeTask}
+          onOpenDetail={noopOpenDetail}
+          addToast={addToast}
+        />,
+      );
+
+      fireEvent.click(await screen.findByRole("button", { name: "Check PR Status" }));
+
+      await waitFor(() => {
+        expect(refreshPrStatus).toHaveBeenCalledWith("FN-099", undefined);
+      });
+      expect(onMergeTask).not.toHaveBeenCalled();
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(addToast).toHaveBeenCalledWith("refresh failed", "error");
+    });
+
     it.each([
       [{ status: "open" as const }, "Check PR Status"],
       [{ status: "merged" as const }, "Finish & Close"],
