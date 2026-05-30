@@ -102,6 +102,53 @@ describe("useQuickChat", () => {
     await expect(firstSend).resolves.toBeUndefined();
   });
 
+  it("flushes queued first send even when sendMessage closure sees stale null session", async () => {
+    const session = makeSession({ id: "session-001", agentId: "agent-001" });
+    mockFetchResumeChatSession.mockResolvedValue({ session });
+    mockFetchChatMessages.mockResolvedValue({ messages: [] });
+
+    const { result } = renderHook(() => useQuickChat("proj-123"));
+
+    const staleSendMessage = result.current.sendMessage;
+
+    await act(async () => {
+      await result.current.switchSession("agent-001");
+    });
+
+    await waitFor(() => {
+      expect(result.current.activeSession?.id).toBe("session-001");
+    });
+
+    let onDone: ((data: { messageId: string }) => void) | undefined;
+    mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+      onDone = handlers.onDone as typeof onDone;
+      return { close: vi.fn(), isConnected: () => true };
+    });
+
+    let firstSend!: Promise<void>;
+    await act(async () => {
+      firstSend = staleSendMessage("Hello from stale sender");
+    });
+
+    await waitFor(() => {
+      expect(mockStreamChatResponse).toHaveBeenCalledTimes(1);
+      expect(mockStreamChatResponse.mock.calls[0]?.[1]).toBe("Hello from stale sender");
+      expect(result.current.isStreaming).toBe(true);
+    });
+
+    act(() => {
+      onDone?.({ messageId: "msg-001" });
+    });
+
+    await expect(firstSend).resolves.toBeUndefined();
+    await waitFor(() => {
+      expect(result.current.messages.at(-1)).toEqual(expect.objectContaining({
+        role: "assistant",
+      }));
+      expect(result.current.isStreaming).toBe(false);
+    });
+  });
+
   it("sendMessage returns a promise that resolves on stream completion", async () => {
     const session = makeSession({ id: "session-001", agentId: "agent-001" });
     mockFetchResumeChatSession.mockResolvedValue({ session });

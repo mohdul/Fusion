@@ -743,6 +743,18 @@ export function useQuickChat(
           queuedPreSessionCompletionRef.current = { resolve, reject };
           pendingMessageRef.current = content;
           setPendingMessage(content);
+
+          // FN-5710: stale sendMessage closures can still observe null
+          // activeSession immediately after session init completed. In that
+          // case, queueing alone can strand the first send because the
+          // activeSession-triggered flush effect has already fired.
+          if (activeSessionRef.current && !isStreamingRef.current && !streamRef.current) {
+            queueMicrotask(() => {
+              if (!isStreamingRef.current && !streamRef.current) {
+                flushPendingMessage();
+              }
+            });
+          }
         });
       }
 
