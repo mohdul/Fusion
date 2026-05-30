@@ -126,6 +126,47 @@ export interface QueuedOverlapCandidate {
   scope: string[];
 }
 
+const COORDINATION_SAFE_SCOPE_EXACT = new Set([
+  // Literal glob scope entries from PROMPT.md are kept here; concrete
+  // `.changeset/<name>.md` files are covered by COORDINATION_SAFE_SCOPE_PREFIXES.
+  ".changeset/*.md",
+  "scripts/test-all-packages.sh",
+]);
+
+const COORDINATION_SAFE_SCOPE_PREFIXES = [
+  "docs/",
+  ".fusion/tasks/",
+  ".changeset/",
+];
+
+function isCoordinationSafeScopeEntry(entry: string): boolean {
+  const normalized = normalizeOverlapPath(entry).toLowerCase();
+  if (!normalized) return false;
+  if (COORDINATION_SAFE_SCOPE_EXACT.has(normalized)) return true;
+  return COORDINATION_SAFE_SCOPE_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+function isCoordinationSafeScope(scope: string[]): boolean {
+  return scope.length === 0 || scope.every((entry) => isCoordinationSafeScopeEntry(entry));
+}
+
+function readBooleanMetadataValue(task: Task, key: string): boolean | undefined {
+  const metadata = task.sourceMetadata as Record<string, unknown> | undefined;
+  const value = metadata?.[key];
+  return typeof value === "boolean" ? value : undefined;
+}
+
+export function isCoordinationOnlyTask(task: Task, scope: string[]): boolean {
+  const explicitNoCommitSignal = task.noCommitsExpected
+    ?? readBooleanMetadataValue(task, "noCommitsExpected")
+    ?? readBooleanMetadataValue(task, "decisionOnly");
+  if (explicitNoCommitSignal !== true) {
+    return false;
+  }
+
+  return isCoordinationSafeScope(scope);
+}
+
 export function getUnmetSchedulingDependencies(task: Task, tasks: Task[]): string[] {
   return task.dependencies.filter((depId) => {
     const dep = tasks.find((candidate) => candidate.id === depId);
@@ -1147,6 +1188,7 @@ export class Scheduler {
         // In-progress tasks
         for (const t of inProgress) {
           const filteredScope = await getFilteredFileScope(t.id);
+          if (isCoordinationOnlyTask(t, filteredScope)) continue;
           if (filteredScope.length > 0) setActiveScopeLease(t.id, filteredScope, "in-progress");
         }
         // Only live in-review tasks with a worktree belong in activeScopes.
@@ -1163,11 +1205,13 @@ export class Scheduler {
         );
         for (const t of inReviewWithWorktree) {
           const filteredScope = await getFilteredFileScope(t.id);
+          if (isCoordinationOnlyTask(t, filteredScope)) continue;
           if (filteredScope.length > 0) setActiveScopeLease(t.id, filteredScope, "in-review");
         }
 
         for (const t of todo) {
           const filteredScope = await getFilteredFileScope(t.id);
+          if (isCoordinationOnlyTask(t, filteredScope)) continue;
           if (filteredScope.length === 0) continue;
           if (!isRunnableQueuedOverlapCandidate(t, tasks, now, activeScopes, filteredScope)) continue;
           queuedHigherPriorityScopes.push({
@@ -1251,7 +1295,8 @@ export class Scheduler {
         // Check file scope overlap when enabled
         if (settings.groupOverlappingFiles) {
           const taskScope = await getFilteredFileScope(task.id);
-          if (taskScope.length > 0) {
+          const coordinationOnlyTask = isCoordinationOnlyTask(task, taskScope);
+          if (taskScope.length > 0 && !coordinationOnlyTask) {
             const activeScopeEntries = Array.from(activeScopes.entries()).sort(([aId], [bId]) => aId.localeCompare(bId));
             const overlapBlockerId = task.overlapBlockedBy || task.blockedBy;
             const currentBlockerScope = overlapBlockerId ? activeScopes.get(overlapBlockerId) : undefined;
@@ -1368,6 +1413,12 @@ export class Scheduler {
             if (task.overlapBlockedBy) {
               await this.store.updateTask(task.id, { overlapBlockedBy: null });
             }
+          } else if (coordinationOnlyTask && task.overlapBlockedBy) {
+            await this.store.updateTask(task.id, { overlapBlockedBy: null });
+            await this.store.logEntry(
+              task.id,
+              "coordination/no-commit task bypassed non-implementation overlap lease",
+            );
           }
         }
 
@@ -1636,7 +1687,7 @@ export class Scheduler {
         // Track newly started task's file scope for overlap with remaining todo tasks
         if (settings.groupOverlappingFiles) {
           const scope = await getFilteredFileScope(task.id);
-          if (scope.length > 0) setActiveScopeLease(task.id, scope, "in-progress");
+          if (scope.length > 0 && !isCoordinationOnlyTask(task, scope)) setActiveScopeLease(task.id, scope, "in-progress");
         }
       }
 

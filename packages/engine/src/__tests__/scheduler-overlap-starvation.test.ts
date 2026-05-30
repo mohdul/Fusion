@@ -203,6 +203,40 @@ describe("scheduler overlap starvation regression (FN-057)", () => {
     );
   });
 
+  it("allows FN-158-style coordination backlog audit to run while implementation lease is active", async () => {
+    const tasks = [
+      makeTask({ id: "FN-118", column: "in-progress", priority: "normal", title: "Implement local skill loading" }),
+      makeTask({
+        id: "FN-158",
+        column: "todo",
+        status: "queued",
+        overlapBlockedBy: "FN-118",
+        priority: "normal",
+        title: "Backlog flow audit and next-task recommendations",
+        description: "Audit backlog routing and document recommendations; no code delivery expected",
+        noCommitsExpected: true,
+      }),
+    ];
+    const store = createStore(tasks, {
+      "FN-118": ["packages/engine/src/scheduler.ts", ".fusion/tasks/FN-158/task.json"],
+      "FN-158": ["docs/task-management.md", ".changeset/*.md", ".fusion/tasks/FN-158/task.json"],
+    });
+
+    const scheduler = new Scheduler(store);
+    (scheduler as any).running = true;
+    await scheduler.schedule();
+
+    expect(store.moveTask).toHaveBeenCalledWith("FN-158", "in-progress", expect.anything());
+    expect(store.updateTask).toHaveBeenCalledWith("FN-158", { overlapBlockedBy: null });
+    expect(store.logEntry).toHaveBeenCalledWith(
+      "FN-158",
+      "coordination/no-commit task bypassed non-implementation overlap lease",
+    );
+    expect(store.updateTask).not.toHaveBeenCalledWith(
+      "FN-158",
+      expect.objectContaining({ overlapBlockedBy: "FN-118" }),
+    );
+  });
 
   it("does not use queued candidates that become non-runnable after earlier dispatch in the same pass", async () => {
     const tasks = [
