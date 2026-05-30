@@ -304,7 +304,9 @@ jobs:
         run: |
           shopt -s nullglob
           arm64_appimages=(packages/desktop/dist-electron/Fusion-*-linux-arm64.AppImage)
-          x64_appimages=(packages/desktop/dist-electron/Fusion-*-linux-x64.AppImage)
+          # electron-builder names the x64 AppImage with the x86_64 arch suffix
+          # (deb uses amd64, tar.gz uses x64) — match the actual output name.
+          x64_appimages=(packages/desktop/dist-electron/Fusion-*-linux-x86_64.AppImage)
           if [ ${#arm64_appimages[@]} -eq 0 ]; then
             echo "No Fusion Linux arm64 AppImage artifacts produced" >&2
             exit 1
