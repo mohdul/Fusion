@@ -2,6 +2,109 @@
 
 User-facing release notes aggregated across all packages. This file is auto-synced from each `packages/*/CHANGELOG.md` by `scripts/release.mjs` — do not edit by hand.
 
+## 0.38.0
+
+### @fusion/dashboard
+
+#### Patch Changes
+
+- Updated dependencies [9112b7d]
+  - @fusion/engine@0.38.0
+  - @fusion-plugin-examples/cli-printing-press@0.1.15
+  - @fusion-plugin-examples/dependency-graph@0.1.29
+  - @fusion-plugin-examples/roadmap@0.1.17
+  - @fusion/core@0.38.0
+  - @fusion-plugin-examples/cursor-runtime@0.1.17
+  - @fusion-plugin-examples/droid-runtime@0.1.24
+  - @fusion-plugin-examples/hermes-runtime@0.2.48
+  - @fusion-plugin-examples/openclaw-runtime@0.2.48
+  - @fusion-plugin-examples/paperclip-runtime@0.2.48
+
+### @fusion/desktop
+
+#### Patch Changes
+
+- @fusion/dashboard@0.38.0
+- @fusion/core@0.38.0
+
+### @fusion/engine
+
+#### Patch Changes
+
+- 9112b7d: Fix scheduler overlap deferral starvation by considering only runnable queued todo tasks as higher-priority overlap competitors. Dependency-blocked queued tasks now keep their unmet-dependency queue state without reserving overlapping files from ready work, while active in-progress and eligible in-review tasks continue to hold explicit file-scope leases. Dispatch logs now distinguish unmet dependencies, active file-scope lease blocking, and higher-priority runnable queued-task deferral.
+  - @fusion/core@0.38.0
+  - @fusion/pi-claude-cli@0.38.0
+
+### @fusion/plugin-sdk
+
+#### Patch Changes
+
+- @fusion/core@0.38.0
+
+### @runfusion/fusion
+
+#### Minor Changes
+
+- afc3b47: Adds goal-anchoring run-audit observability for Slice 2 hybrid anchoring with three `database` mutation types: `goal:injection-applied`, `goal:injection-skipped`, and `goal:retrieval-invoked`.
+
+  Events carry count-only metadata contracts (`count`, plus `lane` for injection and `toolName` for retrieval, with optional `truncated`/`reason`/`notFound`) and avoid prompt bodies or goal title/description payloads. These events are available through the existing `GET /api/agents/:id/runs/:runId/audit` timeline route with standard date-range filtering via `startTime`/`endTime`.
+
+- 71e2aec: Add a goal-citation audit trail to support Slice 2 anchoring success-signal measurement.
+
+  - Introduce a persisted `goal_citations` table (schema v93) with deduplication on `(goalId, surface, sourceRef)`.
+  - Record citations from `agent_log` and `task_document` write seams.
+  - Extract goal IDs using `GOAL_ID_PATTERN` (`/\bG-[0-9A-Z]+(?:-[0-9A-Z]+)*\b/g`) and store bounded snippets (max 200 chars).
+  - Add `fn goals citations` with filters: `--goal`, `--agent`, `--surface`, `--since`, `--until`, `--limit`, and `--json`.
+
+- 4fee2c1: Add a branch-strategy dropdown to the New Task dialog with project-default, auto-new, existing, and custom-new modes.
+
+  New tasks now submit `branchSelection`, and `auto-new` derives a persisted branch name using `fusion/{task-id}-{short-name}`.
+
+- 0605d13: Add mission-level branch strategy defaults so missions can persist whether triaged tasks should use project default branching, a shared existing/custom branch, or per-task derived branches.
+
+  Mission create/edit flows now save both `baseBranch` and `branchStrategy`, and mission triage handlers apply that stored strategy by default (including autopilot triage when no explicit branch options are supplied).
+
+  Also fix planning breakdown task creation to forward the selected branch options so multi-task planning respects the same branch selection used by single-task planning.
+
+- 7221413: Add per-mission/planning branch-group data-model foundations in `@fusion/core`.
+
+  - Introduce durable `branch_groups` storage with source linkage (`mission`/`planning`), branch metadata, PR state, status, and auto-merge override.
+  - Add `TaskStore` branch-group APIs: create/get/getBySource/list/update/setTaskBranchGroup.
+  - Persist `Task.autoMerge` and `Mission.autoMerge` as optional overrides.
+  - Reuse `Task.branchContext.groupId` for task↔group linkage (no separate `branchGroupId` column).
+  - Bump project schema version to `94` with migration coverage and schema assertions.
+
+#### Patch Changes
+
+- 53d97e2: Clarify no-task heartbeat prompts when eligible Todo tasks exist but role policy filters them out of auto-claim candidates.
+- dbb0804: Fix per-task diff view incorrectly including a task's base commit when a done task lands as a no-op or its resolved merge SHA equals `baseCommitSha`.
+- 668e3a5: Mission creation now always returns a stopped mission. `POST /api/missions` and the mission store ignore create-time `autopilotEnabled` input, forcing new missions to `status: "planning"` with autopilot disabled and inactive.
+
+  Autopilot remains a post-creation action via explicit mission start/update flows.
+
+- a014c6d: Auto-merge now treats transient provider/network failures during merge (for example "This operation was aborted", "socket hang up", and provider `server_error` payloads) as bounded retryable errors instead of immediate terminal failures. The engine re-enqueues affected in-review merges with exponential backoff for both direct and pull-request merge strategies, then parks the task as failed with explicit transient-retry exhaustion logs once the retry cap is reached.
+- d5b3336: Dashboard: OAuth re-login banner now clears a provider immediately after successful OAuth re-authentication, instead of waiting for the next auth-status polling interval.
+- 0044c23: Fix dashboard OAuth login for `github-copilot` when upstream auth storage invokes device-code callbacks. The `/api/auth/login` route now provides the expected callback wiring and preserves `deviceCode: { userCode, verificationUri }` in responses so Copilot login no longer crashes with `options.onDeviceCode is not a function`.
+- 4a60c2a: Backfill done-task "N files changed" chips when mergeDetails enrichment arrives after the initial done websocket snapshot. Task cards now pass a done-mode merge enrichment signature into diff-stats invalidation so `/api/tasks/:id/diff` is re-fetched and authoritative lineage stats render without requiring a manual refresh.
+
+### runfusion.ai
+
+#### Patch Changes
+
+- Updated dependencies [53d97e2]
+- Updated dependencies [afc3b47]
+- Updated dependencies [71e2aec]
+- Updated dependencies [dbb0804]
+- Updated dependencies [4fee2c1]
+- Updated dependencies [0605d13]
+- Updated dependencies [668e3a5]
+- Updated dependencies [a014c6d]
+- Updated dependencies [d5b3336]
+- Updated dependencies [0044c23]
+- Updated dependencies [4a60c2a]
+- Updated dependencies [7221413]
+  - @runfusion/fusion@0.38.0
+
 ## 0.37.0
 
 ### @fusion/dashboard
@@ -7469,6 +7572,14 @@ for reference.
 - Updated dependencies [25d44e1]
 - Updated dependencies [a2ed6d0]
   - @runfusion/fusion@0.1.0
+
+## 0.11.24
+
+### @fusion/droid-cli
+
+#### Patch Changes
+
+- @fusion-plugin-examples/droid-runtime@0.1.24
 
 ## 0.11.23
 

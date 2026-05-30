@@ -1,5 +1,13 @@
 # @fusion/engine
 
+## 0.38.0
+
+### Patch Changes
+
+- 9112b7d: Fix scheduler overlap deferral starvation by considering only runnable queued todo tasks as higher-priority overlap competitors. Dependency-blocked queued tasks now keep their unmet-dependency queue state without reserving overlapping files from ready work, while active in-progress and eligible in-review tasks continue to hold explicit file-scope leases. Dispatch logs now distinguish unmet dependencies, active file-scope lease blocking, and higher-priority runnable queued-task deferral.
+  - @fusion/core@0.38.0
+  - @fusion/pi-claude-cli@0.38.0
+
 ## 0.37.0
 
 ### Patch Changes
