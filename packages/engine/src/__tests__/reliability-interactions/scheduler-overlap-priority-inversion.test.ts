@@ -112,6 +112,23 @@ describe("reliability interactions: FN-5325 scheduler overlap priority inversion
     expect(updateTask).toHaveBeenCalledWith("FN-11", expect.objectContaining({ status: "queued", overlapBlockedBy: "FN-10" }));
   });
 
+  it("does not treat implementation task as coordination-only when scope includes source files", async () => {
+    const tasks = [
+      makeTask({ id: "FN-1", column: "in-progress", priority: "normal", createdAt: "2026-01-01T00:00:00.000Z" }),
+      makeTask({ id: "FN-2", column: "todo", status: "queued", priority: "normal", createdAt: "2026-01-01T00:01:00.000Z" }),
+    ];
+    const { store, updateTask } = createStore(tasks, {
+      "FN-1": ["packages/engine/src/scheduler.ts"],
+      "FN-2": ["docs/task-management.md", "packages/engine/src/scheduler.ts"],
+    });
+
+    const scheduler = new Scheduler(store);
+    (scheduler as any).running = true;
+    await scheduler.schedule();
+
+    expect(updateTask).toHaveBeenCalledWith("FN-2", expect.objectContaining({ overlapBlockedBy: "FN-1" }));
+  });
+
   it("emits one inversion audit event per pass for running lower-priority blocker", async () => {
     const tasks = [
       makeTask({ id: "FN-1", column: "in-progress", priority: "normal", createdAt: "2026-01-01T00:01:00.000Z" }),

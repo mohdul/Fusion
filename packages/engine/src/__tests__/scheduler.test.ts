@@ -6,6 +6,8 @@ import {
   filterPathsByIgnoreList,
   formatConcurrencyLimitMemoKey,
   findHigherPriorityQueuedOverlap,
+  isCoordinationOnlyTask,
+  isRunnableQueuedOverlapCandidate,
 } from "../scheduler.js";
 import { AgentSemaphore } from "../concurrency.js";
 import type { TaskStore, Task, TaskDetail } from "@fusion/core";
@@ -228,6 +230,145 @@ describe("findHigherPriorityQueuedOverlap", () => {
         overlap,
       ),
     ).toBeNull();
+  });
+});
+
+describe("isCoordinationOnlyTask", () => {
+  it("treats explicit no-commit tasks with safe scopes as coordination-only", () => {
+    const task = createMockTask({ noCommitsExpected: true, description: "Analyze backlog docs" });
+    expect(isCoordinationOnlyTask(task, ["docs/task-management.md", ".changeset/*.md"])).toBe(true);
+  });
+
+  it("does not let explicit no-commit metadata bypass implementation file scopes", () => {
+    const task = createMockTask({ noCommitsExpected: true, description: "Analyze src change" });
+    expect(isCoordinationOnlyTask(task, ["packages/engine/src/scheduler.ts"])).toBe(false);
+  });
+
+  it("does not infer coordination-only behavior from writable-looking scope prefixes", () => {
+    const task = createMockTask({
+      title: "Backlog flow audit",
+      description: "Audit backlog overlap and recommend next actions",
+    });
+    expect(isCoordinationOnlyTask(task, ["docs/task-management.md", ".changeset/*.md", ".fusion/tasks/FN-158/task.json"])).toBe(false);
+  });
+
+  it("treats source metadata no-commit flag as explicit coordination signal", () => {
+    const task = createMockTask({
+      noCommitsExpected: undefined,
+      sourceMetadata: { noCommitsExpected: true },
+    });
+    expect(isCoordinationOnlyTask(task, ["docs/task-management.md"])).toBe(true);
+  });
+
+  it("treats source metadata decision-only flag as explicit coordination signal", () => {
+    const task = createMockTask({
+      noCommitsExpected: undefined,
+      sourceMetadata: { decisionOnly: true },
+    });
+    expect(isCoordinationOnlyTask(task, [".fusion/tasks/FN-158/task.json"])).toBe(true);
+  });
+
+  it("treats direct and source metadata no-commit flags equivalently", () => {
+    const direct = createMockTask({ noCommitsExpected: true });
+    const fromMetadata = createMockTask({ noCommitsExpected: undefined, sourceMetadata: { noCommitsExpected: true } });
+
+    expect(isCoordinationOnlyTask(direct, ["docs/task-management.md"])).toBe(true);
+    expect(isCoordinationOnlyTask(fromMetadata, ["docs/task-management.md"])).toBe(true);
+  });
+
+  it("allows explicit no-commit tasks with empty scopes because there is no file lease to bypass", () => {
+    const task = createMockTask({
+      title: "Backlog flow audit",
+      description: "Audit and recommend next actions",
+      noCommitsExpected: true,
+    });
+    expect(isCoordinationOnlyTask(task, [])).toBe(true);
+  });
+
+  it("does not classify empty inferred scope as coordination-only", () => {
+    const task = createMockTask({
+      title: "Backlog flow audit",
+      description: "Audit and recommend next actions",
+    });
+    expect(isCoordinationOnlyTask(task, [])).toBe(false);
+  });
+
+  it("does not use legacy scope fallback when explicit no-commit metadata is false", () => {
+    const task = createMockTask({
+      noCommitsExpected: undefined,
+      sourceMetadata: { noCommitsExpected: false },
+    });
+    expect(isCoordinationOnlyTask(task, ["docs/task-management.md", ".changeset/*.md"])).toBe(false);
+  });
+
+  it("does not classify implementation scope as coordination-only", () => {
+    const task = createMockTask({
+      title: "Investigate and fix scheduler starvation",
+      description: "Investigate and fix if needed",
+      noCommitsExpected: false,
+    });
+    expect(isCoordinationOnlyTask(task, ["packages/engine/src/scheduler.ts"])).toBe(false);
+  });
+
+  it("does not infer test-file scopes as coordination-only without explicit metadata", () => {
+    const task = createMockTask({
+      title: "Fix scheduler tests",
+      description: "Update test implementation",
+    });
+    expect(isCoordinationOnlyTask(task, ["tests/integration/scheduler.test.ts"])).toBe(false);
+  });
+
+  it("does not classify mixed coordination and implementation scope as coordination-only", () => {
+    const task = createMockTask({
+      title: "Backlog flow audit",
+      description: "Audit and apply scheduler fix",
+      noCommitsExpected: true,
+    });
+    expect(isCoordinationOnlyTask(task, ["docs/task-management.md", "packages/engine/src/scheduler.ts"])).toBe(false);
+  });
+});
+
+describe("isRunnableQueuedOverlapCandidate", () => {
+  const now = new Date("2026-01-01T00:00:00.000Z").getTime();
+
+  it("accepts queued todo tasks whose dependencies are complete or review-ready", () => {
+    const runnable = createMockTask({ id: "FN-R", status: "queued", dependencies: ["FN-DONE", "FN-REVIEW", "FN-ARCH"] });
+    const tasks = [
+      runnable,
+      createMockTask({ id: "FN-DONE", column: "done" }),
+      createMockTask({ id: "FN-REVIEW", column: "in-review" }),
+      createMockTask({ id: "FN-ARCH", column: "archived" }),
+    ];
+
+    expect(isRunnableQueuedOverlapCandidate(runnable, tasks, now)).toBe(true);
+  });
+
+  it("rejects queued todo overlap candidates that cannot dispatch statically", () => {
+    const unresolved = createMockTask({ id: "FN-BLOCKED", status: "queued", dependencies: ["FN-ACTIVE"] });
+    const activeDep = createMockTask({ id: "FN-ACTIVE", column: "in-progress" });
+    const futureBackoff = new Date(now + 60_000).toISOString();
+
+    expect(isRunnableQueuedOverlapCandidate(unresolved, [unresolved, activeDep], now)).toBe(false);
+    expect(isRunnableQueuedOverlapCandidate(createMockTask({ id: "FN-PAUSED", status: "queued", paused: true }), [], now)).toBe(false);
+    expect(isRunnableQueuedOverlapCandidate(createMockTask({ id: "FN-USER", status: "queued", userPaused: true }), [], now)).toBe(false);
+    expect(isRunnableQueuedOverlapCandidate(createMockTask({ id: "FN-BACKOFF", status: "queued", nextRecoveryAt: futureBackoff }), [], now)).toBe(false);
+    expect(isRunnableQueuedOverlapCandidate(createMockTask({ id: "FN-FRESH", status: "pending" }), [], now)).toBe(false);
+  });
+
+  it("rejects queued overlap candidates blocked by active file-scope leases", () => {
+    const activeScopes = new Map<string, string[]>([["FN-039", ["packages/engine/src/scheduler.ts"]]]);
+    const blocked = createMockTask({ id: "FN-028", status: "queued" });
+    const runnable = createMockTask({ id: "FN-030", status: "queued" });
+
+    expect(isRunnableQueuedOverlapCandidate(blocked, [blocked], now, activeScopes, ["packages/engine/src/scheduler.ts"])).toBe(false);
+    expect(isRunnableQueuedOverlapCandidate(runnable, [runnable], now, activeScopes, ["packages/core/src/store.ts"])).toBe(true);
+  });
+
+  it("accepts queued overlap candidates when no active scopes exist", () => {
+    const candidate = createMockTask({ id: "FN-050", status: "queued" });
+
+    expect(isRunnableQueuedOverlapCandidate(candidate, [candidate], now, undefined, ["packages/engine/src/scheduler.ts"])).toBe(true);
+    expect(isRunnableQueuedOverlapCandidate(candidate, [candidate], now, new Map(), ["packages/engine/src/scheduler.ts"])).toBe(true);
   });
 });
 
