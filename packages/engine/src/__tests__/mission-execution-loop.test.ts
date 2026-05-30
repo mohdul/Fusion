@@ -523,13 +523,36 @@ describe("MissionExecutionLoop", () => {
         "warning",
         expect.stringContaining("auto-passed"),
         expect.objectContaining({
-          code: "feature_auto_passed_no_assertions",
+          code: "validation_auto_passed_no_assertions",
           featureId: "F-001",
-          reason: "no_assertions_linked",
+          reason: "No assertions linked",
           taskId: "FN-001",
         }),
       );
       expectNoValidationBoardTaskMutation(taskStore);
+    });
+
+    it("emits no-assertions auto-pass event exactly once across re-entry", async () => {
+      const feature = createMockFeature({ loopState: "implementing", taskId: "FN-001" });
+      missionStore._setFeature(feature);
+      taskStore._setTask({ id: "FN-001", title: "Test", description: "Test task", log: [] });
+      missionStore.getFeatureByTaskId = vi.fn().mockReturnValue(feature);
+      missionStore.listAssertionsForFeature = vi.fn().mockReturnValue([]);
+
+      loop = new MissionExecutionLoop({
+        taskStore: taskStore as any,
+        missionStore: missionStore as any,
+        rootDir: "/tmp",
+      });
+      loop.start();
+
+      await loop.processTaskOutcome("FN-001");
+      await loop.processTaskOutcome("FN-001");
+
+      const noAssertionEvents = missionStore.logMissionEvent.mock.calls.filter(
+        ([, , , payload]) => payload?.code === "validation_auto_passed_no_assertions",
+      );
+      expect(noAssertionEvents).toHaveLength(1);
     });
 
     it("uses validator path for later-added feature with managed assertion", async () => {

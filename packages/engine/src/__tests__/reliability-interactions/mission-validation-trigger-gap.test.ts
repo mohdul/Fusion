@@ -65,7 +65,7 @@ describe("FN-5715 reliability: mission validation trigger gap", () => {
     expect(missionStore.updateFeatureStatus).not.toHaveBeenCalledWith("F-001", "done");
   });
 
-  it("keeps no-assertion completion path unchanged", async () => {
+  it("keeps assertion-linked completion path unchanged", async () => {
     const feature = makeFeature();
     const missionStore = {
       getFeatureByTaskId: vi.fn(() => feature),
@@ -99,6 +99,7 @@ describe("FN-5715 reliability: mission validation trigger gap", () => {
         milestones: [{ status: "active", slices: [{ status: "active", features: [feature] }] }],
       })),
       listAssertionsForFeature: vi.fn(() => [{ id: "CA-1" }]),
+      getFeature: vi.fn(() => feature),
       transitionLoopState: vi.fn(),
     };
     const taskStore = {
@@ -129,6 +130,7 @@ describe("FN-5715 reliability: mission validation trigger gap", () => {
         milestones: [{ status: "active", slices: [{ status: "active", features: [feature] }] }],
       })),
       listAssertionsForFeature: vi.fn(() => [{ id: "CA-1" }]),
+      getFeature: vi.fn(() => feature),
       transitionLoopState: vi.fn(),
     };
     const taskStore = {
@@ -151,6 +153,7 @@ describe("FN-5715 reliability: mission validation trigger gap", () => {
 
   it("recovery replays implementing done tasks with zero assertions and advances loop state", async () => {
     const feature = makeFeature({ status: "done", lastValidatorStatus: undefined, loopState: "implementing" });
+    const currentFeature = { ...feature };
     const missionStore = {
       listMissions: vi.fn(() => [{ id: "M-001", status: "active" }]),
       getMissionWithHierarchy: vi.fn(() => ({
@@ -158,10 +161,13 @@ describe("FN-5715 reliability: mission validation trigger gap", () => {
         status: "active",
         milestones: [{ status: "active", slices: [{ status: "active", features: [feature] }] }],
       })),
-      getFeatureByTaskId: vi.fn(() => feature),
-      getFeature: vi.fn(() => feature),
-      updateFeatureStatus: vi.fn(),
-      updateFeature: vi.fn(),
+      getFeatureByTaskId: vi.fn(() => currentFeature),
+      getFeature: vi.fn(() => currentFeature),
+      updateFeatureStatus: vi.fn((featureId: string, status: "done") => ({ ...currentFeature, id: featureId, status })),
+      updateFeature: vi.fn((_featureId: string, patch: Partial<MissionFeature>) => {
+        Object.assign(currentFeature, patch);
+        return { ...currentFeature };
+      }),
       listAssertionsForFeature: vi.fn(() => []),
       getSlice: vi.fn(() => ({ id: "SL-001", milestoneId: "MS-001", status: "active" })),
       getMilestone: vi.fn(() => ({ id: "MS-001", missionId: "M-001" })),
@@ -182,11 +188,17 @@ describe("FN-5715 reliability: mission validation trigger gap", () => {
     loop.start();
 
     await loop.recoverActiveMissions();
+    await loop.recoverActiveMissions();
 
+    expect(missionStore.updateFeature).toHaveBeenCalledTimes(1);
     expect(missionStore.updateFeature).toHaveBeenCalledWith(
       "F-001",
       expect.objectContaining({ loopState: "passed", lastValidatorStatus: "passed" }),
     );
+    const noAssertionEvents = missionStore.logMissionEvent.mock.calls.filter(
+      ([, type, , payload]) => type === "warning" && payload?.code === "validation_auto_passed_no_assertions",
+    );
+    expect(noAssertionEvents).toHaveLength(1);
     loop.stop();
   });
 });

@@ -210,11 +210,16 @@ export class MissionExecutionLoop extends EventEmitter {
 
               // Features that remained implementing while their linked task already finished
               // can be stranded after restart; recover by re-triggering task outcome.
-              if (
-                feature.loopState === "implementing"
-                && feature.taskId
-                && feature.lastValidatorStatus !== "passed"
-              ) {
+              if (feature.loopState === "implementing" && feature.taskId) {
+                const currentFeature = this.missionStore.getFeature(feature.id) ?? feature;
+                if (
+                  this.activeValidations.has(feature.id)
+                  || currentFeature.loopState === "passed"
+                  || currentFeature.lastValidatorStatus === "passed"
+                ) {
+                  continue;
+                }
+
                 try {
                   const linkedTask = await this.taskStore.getTask(feature.taskId).catch(() => null);
                   if (linkedTask && (linkedTask.column === "done" || linkedTask.column === "archived")) {
@@ -803,23 +808,30 @@ ${taskContext ? `\n\nImplementation context:\n${taskContext}` : ""}`;
       }
 
       if (!runId && feature) {
-        // Auto-pass path has no validator run, so we must advance the loop state directly.
-        if (feature.loopState !== "passed" || feature.lastValidatorStatus !== "passed") {
-          this.missionStore.updateFeature(featureId, {
-            loopState: "passed",
-            lastValidatorStatus: "passed",
-          });
+        const alreadyAutoPassed =
+          feature.status === "done" &&
+          feature.loopState === "passed" &&
+          feature.lastValidatorStatus === "passed";
+
+        if (!alreadyAutoPassed) {
+          // Auto-pass path has no validator run, so we must advance loop bookkeeping here.
+          if (feature.loopState !== "passed" || feature.lastValidatorStatus !== "passed") {
+            this.missionStore.updateFeature(featureId, {
+              loopState: "passed",
+              lastValidatorStatus: "passed",
+            });
+          }
+
+          this.logFeatureWarningEvent(
+            featureId,
+            "validation_auto_passed_no_assertions",
+            `Feature ${featureId} auto-passed because no assertions were linked.`,
+            {
+              taskId: feature.taskId,
+              reason: "No assertions linked",
+            },
+          );
         }
-        this.logFeatureMissionEvent(
-          featureId,
-          "warning",
-          "feature_auto_passed_no_assertions",
-          `Feature ${featureId} auto-passed because no assertions were linked.`,
-          {
-            taskId: feature.taskId,
-            reason: "no_assertions_linked",
-          },
-        );
       }
 
       loopLog.log(`Feature ${featureId} passed validation`);

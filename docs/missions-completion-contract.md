@@ -127,7 +127,7 @@ Target surface: `packages/dashboard/app/components/MissionManager.tsx`
 ## Engineering Acceptance Criteria (follow-on implementation)
 
 ✅ Implemented in FN-5733:
-- Auto-pass path now advances `loopState` to `passed` and emits mission event code `feature_auto_passed_no_assertions` while preserving the `validation:passed` emit contract (`"No assertions linked"` summary).
+- Auto-pass path now advances `loopState` to `passed` and emits mission event code `validation_auto_passed_no_assertions` while preserving the `validation:passed` emit contract (`"No assertions linked"` summary).
 - Milestone rollup/store guard now exposes `hasProseButNoAssertions` and emits warning mission event code `milestone_missing_structured_assertions` (debounced on transition into condition).
 - MissionManager UI now distinguishes enforced assertion gate vs informational feature acceptance criteria.
 
