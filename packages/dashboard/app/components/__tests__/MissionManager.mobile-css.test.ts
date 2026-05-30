@@ -51,6 +51,19 @@ describe("MissionManager mobile styles", () => {
     expect(section).toContain("-webkit-line-clamp: 2;");
   });
 
+  it("stacks stacked-body mission cards and actions on mobile", () => {
+    const css = loadAllAppCss();
+    const section = getMissionMobileSection(css);
+
+    expect(section).toContain(".mission-manager__body--stacked .mission-list__item {");
+    expect(section).toContain("flex-direction: column;");
+    expect(section).toContain("align-items: stretch;");
+    expect(section).toContain(".mission-manager__body--stacked .mission-list__item-actions {");
+    expect(section).toContain("width: 100%;");
+    expect(section).toContain("flex-wrap: wrap;");
+    expect(section).toContain(".mission-manager__body--stacked .mission-list__item-run-controls {");
+  });
+
   it("keeps mission detail mobile bottom padding content-only (no shared nav duplication)", () => {
     const css = loadAllAppCss();
     const section = getMissionMobileSection(css);

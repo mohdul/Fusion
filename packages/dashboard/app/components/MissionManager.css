@@ -2546,6 +2546,22 @@
     padding: var(--space-md);
   }
 
+  .mission-manager__body--stacked .mission-list__item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-sm);
+  }
+
+  .mission-manager__body--stacked .mission-list__item-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .mission-manager__body--stacked .mission-list__item-run-controls {
+    width: 100%;
+  }
+
   .mission-manager__body--stacked .mission-list__item-description,
   .mission-manager__body--stacked .mission-list__item-description .markdown-body {
     display: -webkit-box;
