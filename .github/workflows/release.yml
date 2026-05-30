@@ -360,10 +360,12 @@ jobs:
   github-release:
     name: Create GitHub Release
     needs: [build-binaries, build-desktop-windows, build-desktop-macos, build-desktop-linux]
-    # Run as long as the workflow wasn't cancelled, even if some build legs failed.
-    # Without this, a single failing matrix leg skips the release entirely and no
-    # binaries are published — including the ones that built successfully.
-    if: ${{ !cancelled() }}
+    # Run as long as the workflow wasn't cancelled, even if some build legs failed,
+    # so a single failing matrix leg doesn't suppress publishing the ones that did
+    # build. Gated to tag pushes only: a workflow_dispatch run on a branch is a
+    # build-only validation (artifacts are still uploaded), and would otherwise try
+    # to create a release tagged with the branch name.
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
