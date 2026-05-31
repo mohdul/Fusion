@@ -28,6 +28,33 @@ Out of scope for v1:
 - Execution history/runtime traces
 - Migration tooling for future schema versions (future versions should use explicit `schemaVersion` migrations)
 
+### Workflow Graph Executor (interpreter scaffold)
+
+FN-5766 adds a **flagged-off** interpreter scaffold in `@fusion/engine` (`WorkflowGraphExecutor`) plus a built-in coding lifecycle IR in `@fusion/core` (`BUILTIN_CODING_WORKFLOW_IR`).
+
+- Feature flag key: `experimentalFeatures.workflowGraphExecutor`
+- Default: **OFF**
+- OFF behavior is strict no-op (no task mutations, no session/git side effects), so the legacy imperative pipeline remains authoritative.
+
+Built-in coding IR currently encodes the legacy lifecycle path as graph stages:
+
+- `triage` → `execute` → `review` → `merge` → `end`
+
+#### Interpreter-parity gating criterion
+
+Interpreter authority is gated on parity: interpreter-driven coding runs must match legacy behavior for observable task transitions and reliability invariants (file-scope guards including `FileScopeViolationError`, squash/merge contract, self-healing expectations, `autoMerge:false` terminal-until-merged, and `moveTask(in-progress→todo)` hard-cancel semantics).
+
+#### IR-gap reconciliation (v1)
+
+The workflow redesign brief references `agent-call` nodes and typed edges (`success|failure|conditional|fan-out-join`), but shipped v1 IR only supports node kinds `start|prompt|script|gate|end` plus optional string edge `condition`.
+
+Current reconciliation in v1:
+
+- `agent-call` semantics are represented using existing `prompt` nodes with `config` fields (for example stage/role metadata).
+- Typed-edge semantics are represented using `condition` token conventions.
+
+Potential first-class schema support for `agent-call`/typed edges is deferred to a follow-up IR extension task (v1.1 candidate), not part of v1 contract changes.
+
 ## What They Are
 
 A workflow step is a reusable check (AI prompt or script) that can be enabled on tasks.

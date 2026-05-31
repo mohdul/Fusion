@@ -16,6 +16,10 @@ export {
   WorkflowIrError,
   BUILTIN_WORKFLOW_IR_FIXTURE,
 } from "./workflow-ir.js";
+export {
+  BUILTIN_CODING_WORKFLOW_IR,
+  buildBuiltinCodingWorkflowIr,
+} from "./builtin-coding-workflow-ir.js";
 export { customProviderRegistryKey } from "./custom-provider-key.js";
 export { MOCK_PROVIDER_ID } from "./mock-provider-constants.js";
 export type { MockProviderId, MockSessionPurpose } from "./mock-provider-constants.js";

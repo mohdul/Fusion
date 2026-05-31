@@ -18,6 +18,13 @@ export { TriageProcessor, type TriageProcessorOptions } from "./triage.js";
 export { TaskExecutor, type TaskExecutorOptions } from "./executor.js";
 export { collectTaskEvaluationEvidence } from "./evaluator-evidence.js";
 export { Scheduler, type SchedulerOptions } from "./scheduler.js";
+export {
+  WorkflowGraphExecutor,
+  WORKFLOW_GRAPH_EXECUTOR_FLAG,
+  type WorkflowGraphExecutorDependencies,
+  type WorkflowGraphExecutorRunInput,
+  type WorkflowGraphExecutorRunResult,
+} from "./workflow-graph-executor.js";
 export { MeshLeaseManager, type MeshLeaseManagerOptions, type LeaseRecoveryContext } from "./mesh-lease-manager.js";
 export { MissionAutopilot, type MissionAutopilotOptions } from "./mission-autopilot.js";
 export { MissionExecutionLoop, type MissionExecutionLoopOptions, type ValidationResult, loopLog } from "./mission-execution-loop.js";
