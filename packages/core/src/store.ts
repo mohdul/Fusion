@@ -4210,6 +4210,17 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
           const removed = extractTaskIdTokens(`Refinement: ${sourceLabel}`).filter((token) => token !== newId.toUpperCase());
           storeLog.log(`[title-id-drift] normalized title for ${newId}: removed=[${removed.join(",")}]`);
         }
+        const sourceGithubLinked = sourceTask.githubTracking?.enabled === true || Boolean(sourceTask.githubTracking?.issue);
+        // FN-5780: refinement should inherit source linking intent so unlinked tasks stay opted out from auto-create defaults.
+        const refinementGithubTracking = sourceGithubLinked
+          ? {
+            enabled: true,
+            ...(sourceTask.githubTracking?.repoOverride
+              ? { repoOverride: sourceTask.githubTracking.repoOverride }
+              : {}),
+          }
+          : { enabled: false };
+
         const newTask: Task = {
           id: newId,
           lineageId: generateTaskLineageId(),
@@ -4220,6 +4231,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
           dependencies: [id],
           sourceType: "task_refine",
           sourceParentTaskId: id,
+          githubTracking: refinementGithubTracking,
           steps: [],
           currentStep: 0,
           log: [{ timestamp: now, action: `Created as refinement of ${id}` }],

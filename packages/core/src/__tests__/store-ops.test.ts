@@ -511,6 +511,77 @@ describe("TaskStore", () => {
       expect(refined.status).toBeUndefined();
     });
 
+    it("opts out github tracking when source has no githubTracking", async () => {
+      const task = await store.createTask({ description: "Original task" });
+      await store.moveTask(task.id, "todo");
+      await store.moveTask(task.id, "in-progress");
+      await store.moveTask(task.id, "in-review");
+      await store.moveTask(task.id, "done");
+
+      const refined = await store.refineTask(task.id, "Need improvements");
+
+      expect(refined.githubTracking?.enabled).toBe(false);
+    });
+
+    it("keeps github tracking disabled when source is explicitly disabled", async () => {
+      const task = await store.createTask({ description: "Original task" });
+      await store.updateGithubTracking(task.id, { enabled: false });
+      await store.moveTask(task.id, "todo");
+      await store.moveTask(task.id, "in-progress");
+      await store.moveTask(task.id, "in-review");
+      await store.moveTask(task.id, "done");
+
+      const refined = await store.refineTask(task.id, "Need improvements");
+
+      expect(refined.githubTracking?.enabled).toBe(false);
+    });
+
+    it("inherits enabled and repoOverride without copying linked issue", async () => {
+      const task = await store.createTask({ description: "Original task" });
+      await store.updateGithubTracking(task.id, {
+        enabled: true,
+        repoOverride: "owner/repo",
+        issue: {
+          number: 12,
+          url: "https://github.com/owner/repo/issues/12",
+          title: "Tracked",
+          state: "open",
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      await store.moveTask(task.id, "todo");
+      await store.moveTask(task.id, "in-progress");
+      await store.moveTask(task.id, "in-review");
+      await store.moveTask(task.id, "done");
+
+      const refined = await store.refineTask(task.id, "Need improvements");
+
+      expect(refined.githubTracking).toEqual({ enabled: true, repoOverride: "owner/repo" });
+      expect(refined.githubTracking?.issue).toBeUndefined();
+    });
+
+    it("treats linked issue without enabled flag as linked for refinement", async () => {
+      const task = await store.createTask({ description: "Original task" });
+      await store.updateGithubTracking(task.id, {
+        issue: {
+          number: 99,
+          url: "https://github.com/owner/repo/issues/99",
+          title: "Tracked",
+          state: "open",
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      await store.moveTask(task.id, "todo");
+      await store.moveTask(task.id, "in-progress");
+      await store.moveTask(task.id, "in-review");
+      await store.moveTask(task.id, "done");
+
+      const refined = await store.refineTask(task.id, "Need improvements");
+
+      expect(refined.githubTracking?.enabled).toBe(true);
+      expect(refined.githubTracking?.issue).toBeUndefined();
+    });
+
     it("creates PROMPT.md for the refinement", async () => {
       const task = await store.createTask({ description: "Original task" });
       await store.moveTask(task.id, "todo");

@@ -600,6 +600,7 @@ Behavior:
 - New title format: `Refinement: <source label>`
 - New task depends on source task
 - Created in `planning`
+- Refinement tasks inherit the source task's GitHub tracking state (unlinked sources opt out; linked sources inherit `enabled` and optional `repoOverride`, but never copy the source issue link)
 
 ## Archive and Restore
 
