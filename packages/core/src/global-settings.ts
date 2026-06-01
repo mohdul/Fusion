@@ -39,6 +39,38 @@ export function defaultGlobalDir(): string {
   return join(getHomeDir(), ".fusion");
 }
 
+/** Resolve the active global directory for an explicit home directory. */
+export function resolveGlobalDirForHome(homeDir: string): string {
+  const preferredDir = join(homeDir, ".fusion");
+  if (existsSync(preferredDir)) {
+    return preferredDir;
+  }
+
+  const legacyDir = join(homeDir, ".pi", "fusion");
+  if (existsSync(legacyDir)) {
+    try {
+      mkdirSync(dirname(preferredDir), { recursive: true });
+      renameSync(legacyDir, preferredDir);
+      return preferredDir;
+    } catch {
+      return legacyDir;
+    }
+  }
+
+  const legacyDirOriginal = join(homeDir, ".pi", "kb");
+  if (existsSync(legacyDirOriginal)) {
+    try {
+      mkdirSync(dirname(preferredDir), { recursive: true });
+      renameSync(legacyDirOriginal, preferredDir);
+      return preferredDir;
+    } catch {
+      return legacyDirOriginal;
+    }
+  }
+
+  return preferredDir;
+}
+
 /**
  * Resolve the active global directory.
  *
@@ -59,39 +91,7 @@ export function resolveGlobalDir(dir?: string): string {
 
   if (hasExplicitDir) return dir;
 
-  const preferredDir = defaultGlobalDir();
-
-  // Case 1: New directory already exists
-  if (existsSync(preferredDir)) {
-    return preferredDir;
-  }
-
-  // Case 2: Check for legacy ~/.pi/fusion directory
-  const legacyDir = legacyGlobalDir();
-  if (existsSync(legacyDir)) {
-    try {
-      mkdirSync(dirname(preferredDir), { recursive: true });
-      renameSync(legacyDir, preferredDir);
-      return preferredDir;
-    } catch {
-      return legacyDir;
-    }
-  }
-
-  // Case 3: Check for original legacy ~/.pi/kb directory
-  const legacyDirOriginal = legacyGlobalDirOriginal();
-  if (existsSync(legacyDirOriginal)) {
-    try {
-      mkdirSync(dirname(preferredDir), { recursive: true });
-      renameSync(legacyDirOriginal, preferredDir);
-      return preferredDir;
-    } catch {
-      return legacyDirOriginal;
-    }
-  }
-
-  // Case 4: Return the preferred directory (will be created on first use)
-  return preferredDir;
+  return resolveGlobalDirForHome(getHomeDir());
 }
 
 export class GlobalSettingsStore {

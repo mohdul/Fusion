@@ -979,6 +979,16 @@ export interface AgentOptions {
   permanentAgentGating?: PermanentAgentGatingContext;
 }
 
+function resolveCustomProviderApiType(apiType: string): "anthropic" | "openai-responses" | "openai-completions" {
+  if (apiType === "anthropic-compatible") {
+    return "anthropic";
+  }
+  if (apiType === "openai-responses") {
+    return "openai-responses";
+  }
+  return "openai-completions";
+}
+
 function resolveConfiguredModel(
   modelRegistry: ModelRegistry,
   kind: "primary" | "fallback",
@@ -1006,8 +1016,9 @@ function resolveConfiguredModel(
   }
 
   throw new Error(
-    `Configured ${kind} model ${provider}/${modelId} was not found in the pi model registry. ` +
-    "Open Settings and choose a model from /api/models, or update your pi model configuration.",
+    `Configured model ${provider}/${modelId} (${kind} selection) was not found in the pi model registry. `
+    + "If this model comes from a custom provider, verify Settings → Custom Providers (stored in ~/.fusion/settings.json) includes this provider/model, "
+    + "or choose an available model from /api/models.",
   );
 }
 
@@ -1807,9 +1818,7 @@ export async function createFnAgent(options: AgentOptions): Promise<AgentResult>
       const registryKey = customProviderRegistryKey(provider, customProviders);
       modelRegistry.registerProvider(registryKey, {
         baseUrl: provider.baseUrl,
-        api: provider.apiType === "anthropic-compatible" ? "anthropic"
-          : provider.apiType === "openai-responses" ? "openai-responses"
-          : "openai-completions",
+        api: resolveCustomProviderApiType(provider.apiType),
         apiKey: provider.apiKey,
         models: (provider.models ?? []).map((model) => ({
           id: model.id,
@@ -1830,7 +1839,7 @@ export async function createFnAgent(options: AgentOptions): Promise<AgentResult>
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const registryKey = customProviderRegistryKey(provider, customProviders);
-      piLog.warn(`Failed to register custom provider "${provider.name}" (key=${registryKey}, id=${provider.id}): ${message}`);
+      piLog.warn(`Failed to register custom provider "${provider.name}" (key=${registryKey}, id=${provider.id}, apiType=${provider.apiType}, baseUrl=${provider.baseUrl}): ${message}`);
     }
   }
   modelRegistry.refresh();

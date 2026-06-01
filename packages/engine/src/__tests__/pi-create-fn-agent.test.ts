@@ -1342,7 +1342,14 @@ describe("createFnAgent", () => {
       tools: "readonly",
       defaultProvider: "zai",
       defaultModelId: "glm-5.1",
-    })).rejects.toThrow("Configured primary model zai/glm-5.1 was not found");
+    })).rejects.toThrow("Configured model zai/glm-5.1 (primary selection) was not found in the pi model registry");
+    await expect(createFnAgent({
+      cwd: "/tmp",
+      systemPrompt: "test",
+      tools: "readonly",
+      defaultProvider: "zai",
+      defaultModelId: "glm-5.1",
+    })).rejects.toThrow("Settings → Custom Providers");
 
     expect(createAgentSessionMock).not.toHaveBeenCalled();
   });
@@ -1386,7 +1393,7 @@ describe("createFnAgent", () => {
       defaultModelId: "gpt-5.4",
       fallbackProvider: "openai-codex",
       fallbackModelId: "missing-model",
-    })).rejects.toThrow("Configured fallback model openai-codex/missing-model was not found");
+    })).rejects.toThrow("Configured model openai-codex/missing-model (fallback selection) was not found in the pi model registry");
 
     expect(createAgentSessionMock).not.toHaveBeenCalled();
   });
