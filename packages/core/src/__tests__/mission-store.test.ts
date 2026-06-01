@@ -2435,6 +2435,10 @@ describe("MissionStore", () => {
       expect(firstTask?.branch).not.toBe(secondTask?.branch);
       expect(firstTask?.branchContext?.groupId).toBe(`mission:${mission.id}`);
       expect(secondTask?.branchContext?.groupId).toBe(`mission:${mission.id}`);
+      expect(firstTask?.branchContext?.assignmentMode).toBe("shared");
+      expect(secondTask?.branchContext?.assignmentMode).toBe("shared");
+      expect(firstTask?.branchContext?.source).toBe("mission");
+      expect(secondTask?.branchContext?.source).toBe("mission");
 
       const branchGroup = ts.getBranchGroupBySource("mission", mission.id);
       expect(branchGroup?.branchName).toBe("feature/shared");

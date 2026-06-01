@@ -47,6 +47,16 @@ Supported modes:
 
 The Mission Manager create/edit form exposes this as **Branch strategy** plus a conditional **Branch name** field for `existing` and `custom-new`.
 
+### Shared branch-group invariant across entry points
+
+Across all branch entry points (planning/subtask creation, mission triage, and New Task `shared-group` creation), Fusion enforces one rule:
+
+- Persist a **per-task working branch** on each task (the checkout branch used for execution).
+- Persist the shared branch only as the **group merge target** via `branchContext.groupId` → `branch_groups.branchName`.
+- Never persist the shared branch itself as a task working/checkout branch.
+
+This keeps member execution isolated per task while still routing member landings into a single shared integration branch.
+
 ### Dashboard
 
 Use the Mission Manager UI to create missions and build hierarchy interactively.

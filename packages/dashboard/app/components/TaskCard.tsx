@@ -1894,26 +1894,30 @@ function TaskCardComponent({
               <span className="card-branch-value">{branchMetadata.baseBranch}</span>
             </span>
           )}
-          {task.branchContext != null && task.branchContext.groupId != null && (() => {
-            const groupId = task.branchContext.groupId;
-            const isSharedAssignment = task.branchContext.assignmentMode === "shared";
+          {task.branchContext?.groupId && (() => {
+            const { branchContext } = task;
+            if (!branchContext?.groupId) return null;
             return (
               <span
                 className="card-branch-chip"
                 title={
-                  isSharedAssignment && branchMetadata.branch
-                    ? `${groupId} · ${branchMetadata.branch}`
-                    : groupId
+                  branchContext.assignmentMode === "shared" && branchMetadata.branch
+                    ? `${branchContext.groupId} · ${branchMetadata.branch}`
+                    : branchContext.groupId
                 }
                 onClick={(event) => {
                   if (!onOpenGroupModal) return;
                   event.stopPropagation();
-                  onOpenGroupModal(groupId);
+                  onOpenGroupModal(branchContext.groupId);
                 }}
               >
-                <span className="card-branch-label">{isSharedAssignment ? "Shared" : "Group"}</span>
+                <span className="card-branch-label">
+                  {branchContext.assignmentMode === "shared" ? "Shared" : "Group"}
+                </span>
                 <span className="card-branch-value">
-                  {isSharedAssignment && branchMetadata.branch ? branchMetadata.branch : groupId}
+                  {branchContext.assignmentMode === "shared" && branchMetadata.branch
+                    ? branchMetadata.branch
+                    : branchContext.groupId}
                 </span>
               </span>
             );
