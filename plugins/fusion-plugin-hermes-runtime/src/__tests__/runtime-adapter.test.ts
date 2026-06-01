@@ -137,6 +137,15 @@ describe("HermesRuntimeAdapter — describeModel", () => {
     expect(adapter.describeModel(session)).toBe("hermes/MiniMax-M2.7");
   });
 
+  it("passes MiniMax-M3 through unchanged", async () => {
+    const adapter = new HermesRuntimeAdapter({ model: "MiniMax-M3" });
+    const { session } = await adapter.createSession({
+      cwd: "/repo",
+      systemPrompt: "sys",
+    });
+    expect(adapter.describeModel(session)).toBe("hermes/MiniMax-M3");
+  });
+
   it("returns plain 'hermes' when neither set", async () => {
     const adapter = new HermesRuntimeAdapter({});
     const { session } = await adapter.createSession({

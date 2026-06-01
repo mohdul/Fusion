@@ -92,7 +92,7 @@ const EM_DASH = "—";
  * ```
  *  Profile          Model                        Gateway      Alias
  *  ───────────────  ─────────────────────────    ───────────  ────────────
- *  ◆default         MiniMax-M2.7                 stopped      —
+ *  ◆default         MiniMax-M3                   stopped      —
  * ```
  *
  * Columns are whitespace-aligned (variable-width). The function splits on runs

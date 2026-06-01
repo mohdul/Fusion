@@ -314,7 +314,7 @@ export function HermesRuntimeCard() {
         <input
           id="hermes-model"
           type="text"
-          placeholder="e.g. claude-sonnet-4-5, MiniMax-M2.7"
+          placeholder="e.g. claude-sonnet-4-5, MiniMax-M3"
           value={settings.model}
           disabled={!!settings.profile}
           onChange={(e) => setSettings((s) => ({ ...s, model: e.target.value }))}

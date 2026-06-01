@@ -60,7 +60,7 @@ Because we drive the CLI's `chat -q` mode:
 | Key | Env var | Default | Notes |
 |---|---|---|---|
 | `binaryPath` | `HERMES_BIN` | `hermes` | Path to the `hermes` binary. Falls back to PATH lookup. |
-| `model` | `HERMES_MODEL_ID` | (Hermes default) | `-m <model>` (e.g. `claude-sonnet-4-5`, `MiniMax-M2.7`). |
+| `model` | `HERMES_MODEL_ID` | (Hermes default) | `-m <model>` (e.g. `claude-sonnet-4-5`, `MiniMax-M3`). |
 | `provider` | `HERMES_PROVIDER` | (Hermes default) | `--provider <provider>` — one of `auto`, `anthropic`, `openrouter`, `gemini`, `openai-codex`, `copilot`, `copilot-acp`, `huggingface`, `zai`, `kimi-coding`, `minimax`, `minimax-cn`, `kilocode`, `xiaomi`, `nous`. |
 | `maxTurns` | `HERMES_MAX_TURNS` | `12` | `--max-turns N`. Hermes's own default is 90; we cap lower. |
 | `yolo` | `HERMES_YOLO` | `false` | `--yolo` — skip interactive approval. Required for non-interactive sessions that use shell-style tools. |

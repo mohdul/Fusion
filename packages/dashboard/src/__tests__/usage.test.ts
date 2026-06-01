@@ -2536,7 +2536,7 @@ describe("usage", () => {
       const mockResponse = {
         model_remains: [
           {
-            model_name: "MiniMax-M*",
+            model_name: "MiniMax-M3",
             current_interval_total_count: 4500,
             // Note: current_interval_usage_count is actually REMAINING, not used
             current_interval_usage_count: 4000,
@@ -2596,7 +2596,7 @@ describe("usage", () => {
       expect(minimax.status).toBe("ok");
       expect(minimax.windows).toHaveLength(2);
 
-      const textWindow = minimax.windows.find((w) => w.label === "MiniMax-M*")!;
+      const textWindow = minimax.windows.find((w) => w.label === "MiniMax-M3")!;
       expect(textWindow).toBeDefined();
       // total=4500, remaining=4000, used=500 → 500/4500*100 ≈ 11.1%
       expect(textWindow.percentUsed).toBeCloseTo(11.1, 0);

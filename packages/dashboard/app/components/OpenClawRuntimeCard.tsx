@@ -277,7 +277,7 @@ export function OpenClawRuntimeCard() {
         <input
           id="openclaw-model"
           type="text"
-          placeholder="e.g. anthropic/claude-haiku-4-5, minimax/MiniMax-M2.7"
+          placeholder="e.g. anthropic/claude-haiku-4-5, minimax/MiniMax-M3"
           value={settings.model}
           onChange={(e) => setSettings((s) => ({ ...s, model: e.target.value }))}
         />
