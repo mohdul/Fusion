@@ -261,6 +261,12 @@ How to react:
 - Click **Pull** to run Smart Pull (`POST /api/git/smart-pull`), including the stash-conflict flow in `StashConflictModal` when needed
 - Use the dismiss close button to hide the notice
 - Treat dirty/untracked warnings as a hint that local changes may be auto-stashed during pull
+- In Git Manager's "Recent integration-branch advances" panel, entries are classified as `pending`, `reachable`, `subsumed`, or `orphaned`:
+  - `pending`: actionable (not reflected in HEAD; Sync can help)
+  - `reachable`: commit already reachable from HEAD
+  - `subsumed`: equivalent patch content already landed under a different SHA (history rewrite/re-squash)
+  - `orphaned`: recorded SHA no longer exists locally after history rewrite
+- **Sync working tree** is shown only when there is at least one `pending` entry and HEAD is not already aligned with the integration tip; handled entries can be dismissed from the panel.
 
 Push follow-up (when shown):
 - If the integration branch is ahead of `origin`, the banner can show push controls with ahead count

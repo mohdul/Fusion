@@ -1072,6 +1072,12 @@ function StatusPanel({
   syncing: boolean;
 }) {
   const [advancesHelpOpen, setAdvancesHelpOpen] = useState(false);
+  const [dismissedAdvanceShas, setDismissedAdvanceShas] = useState<Set<string>>(new Set());
+  const visibleAdvances = (status.recentMergeAdvances ?? []).filter((advance) => !dismissedAdvanceShas.has(advance.toSha));
+  const actionableAdvances = visibleAdvances.filter((advance) => advance.resolution === "pending");
+  const hasActionableAdvances = actionableAdvances.length > 0;
+  const isHeadAlignedWithIntegration = status.aheadOfIntegration === 0 && status.behindIntegration === 0;
+  const showSyncWorkingTree = hasActionableAdvances && !isHeadAlignedWithIntegration;
   return (
     <div className="gm-panel" data-testid="status-panel">
       <div className="gm-panel-header">
@@ -1322,13 +1328,13 @@ function StatusPanel({
           </div>
         </div>
       )}
-      {(status.recentMergeAdvances ?? []).length > 0 && (
+      {visibleAdvances.length > 0 && (
         <div className="gm-status-advances" data-testid="recent-merge-advances">
           <div className="gm-status-advances-header">
             <span>
               Recent integration-branch advances
               <span className="gm-status-sub">
-                {" "}({(status.recentMergeAdvances ?? []).filter((a) => a.needsAction).length} need action)
+                {" "}({actionableAdvances.length} need action)
               </span>
               <button
                 type="button"
@@ -1342,7 +1348,7 @@ function StatusPanel({
                 <Info size={13} />
               </button>
             </span>
-            {(status.recentMergeAdvances ?? []).some((a) => a.needsAction) && (
+            {showSyncWorkingTree && (
               <button
                 type="button"
                 className="btn btn-sm"
@@ -1365,22 +1371,17 @@ function StatusPanel({
               </p>
               <ul className="gm-status-advances-help-list">
                 <li><code>clean-sync</code> / <code>synced-with-edits-restored</code> — working tree is in sync; nothing to do.</li>
-                <li><code>off / not run</code> — auto-sync is disabled in Settings; the branch ref moved but your worktree didn&apos;t follow.</li>
-                <li><code>stash-failed</code> / <code>would-conflict</code> / similar — auto-sync tried but couldn&apos;t reconcile (usually local edits collide with the new commit).</li>
+                <li><code>reachable</code> / <code>subsumed</code> / <code>orphaned</code> — already handled (including history rewrites where equivalent content already landed or original SHAs disappeared).</li>
+                <li><code>pending</code> + <code>off / not run</code> — auto-sync is disabled in Settings; the branch ref moved but your worktree didn&apos;t follow.</li>
+                <li><code>pending</code> + <code>stash-failed</code> / <code>would-conflict</code> / similar — auto-sync tried but couldn&apos;t reconcile (usually local edits collide with the new commit).</li>
               </ul>
               <p>
-                <strong>Fix:</strong> click <em>Sync working tree</em> to catch
-                up now. Pure-local — it auto-stashes any uncommitted edits,
-                hard-resets the worktree to match the local integration tip
-                (the sha the merger advanced <code>refs/heads/{status.integrationBranch ?? "main"}</code> to),
-                and restores your stash. Origin is not touched, so no unrelated
-                remote work gets pulled in. To make this automatic going
-                forward, enable <code>mergeAdvanceAutoSync</code> in Settings.
+                <strong>Fix:</strong> Fusion only shows <em>Sync working tree</em> when at least one advance is genuinely <code>pending</code> and HEAD is not aligned with the integration tip. If entries are already handled (subsumed/orphaned/reachable), no sync action is offered.
               </p>
             </div>
           )}
           <ul>
-            {(status.recentMergeAdvances ?? []).map((advance) => (
+            {visibleAdvances.map((advance) => (
               <li key={`${advance.taskId}-${advance.toSha}`} className={advance.needsAction ? "gm-advance-needs-action" : "gm-advance-handled"}>
                 <code className="gm-hash">{advance.toSha.slice(0, 8)}</code>
                 {" "}
@@ -1395,8 +1396,24 @@ function StatusPanel({
                   </span>
                 )}
                 <span className="gm-status-sub">
-                  {" "}· {new Date(advance.advancedAt).toLocaleTimeString()}
+                  {" "}· {new Date(advance.advancedAt).toLocaleTimeString()} · {advance.resolution}
                 </span>
+                {(advance.resolution === "orphaned" || advance.resolution === "subsumed") && (
+                  <button
+                    type="button"
+                    className="btn btn-xs"
+                    onClick={() => {
+                      setDismissedAdvanceShas((prev) => {
+                        const next = new Set(prev);
+                        next.add(advance.toSha);
+                        return next;
+                      });
+                    }}
+                    data-testid={`dismiss-advance-${advance.toSha}`}
+                  >
+                    Dismiss
+                  </button>
+                )}
               </li>
             ))}
           </ul>

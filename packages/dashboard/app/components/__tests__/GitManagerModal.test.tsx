@@ -3039,6 +3039,69 @@ describe("GitManagerModal", () => {
   });
 
 
+  describe("recent merge advances panel", () => {
+    it("hides sync CTA when advances are handled and head is aligned", async () => {
+      (fetchGitStatus as any).mockResolvedValue({
+        branch: "main",
+        commit: "abc1234",
+        isDirty: false,
+        ahead: 0,
+        behind: 0,
+        integrationBranch: "main",
+        aheadOfIntegration: 0,
+        behindIntegration: 0,
+        recentMergeAdvances: [
+          { taskId: "FN-1", fromSha: null, toSha: "a".repeat(40), advancedAt: new Date().toISOString(), needsAction: false, resolution: "orphaned" },
+          { taskId: "FN-2", fromSha: null, toSha: "b".repeat(40), advancedAt: new Date().toISOString(), needsAction: false, resolution: "subsumed" },
+        ],
+      });
+      render(<GitManagerModal isOpen={true} onClose={vi.fn()} tasks={mockTasks} addToast={mockAddToast} />);
+      await waitFor(() => expect(screen.getByTestId("recent-merge-advances")).toBeInTheDocument());
+      expect(screen.getByText(/\(0 need action\)/i)).toBeInTheDocument();
+      expect(screen.queryByTestId("sync-working-tree-btn")).not.toBeInTheDocument();
+    });
+
+    it("shows sync CTA when pending advance exists", async () => {
+      (fetchGitStatus as any).mockResolvedValue({
+        branch: "main",
+        commit: "abc1234",
+        isDirty: false,
+        ahead: 0,
+        behind: 0,
+        integrationBranch: "main",
+        aheadOfIntegration: 1,
+        behindIntegration: 0,
+        recentMergeAdvances: [
+          { taskId: "FN-3", fromSha: null, toSha: "c".repeat(40), advancedAt: new Date().toISOString(), needsAction: true, resolution: "pending" },
+        ],
+      });
+      render(<GitManagerModal isOpen={true} onClose={vi.fn()} tasks={mockTasks} addToast={mockAddToast} />);
+      await waitFor(() => expect(screen.getByTestId("sync-working-tree-btn")).toBeInTheDocument());
+      await userEvent.click(screen.getByTestId("sync-working-tree-btn"));
+    });
+
+    it("dismisses orphaned/subsumed entries", async () => {
+      const toSha = "d".repeat(40);
+      (fetchGitStatus as any).mockResolvedValue({
+        branch: "main",
+        commit: "abc1234",
+        isDirty: false,
+        ahead: 0,
+        behind: 0,
+        integrationBranch: "main",
+        aheadOfIntegration: 0,
+        behindIntegration: 0,
+        recentMergeAdvances: [
+          { taskId: "FN-4", fromSha: null, toSha, advancedAt: new Date().toISOString(), needsAction: false, resolution: "orphaned" },
+        ],
+      });
+      render(<GitManagerModal isOpen={true} onClose={vi.fn()} tasks={mockTasks} addToast={mockAddToast} />);
+      await waitFor(() => expect(screen.getByText("FN-4")).toBeInTheDocument());
+      await userEvent.click(screen.getByTestId(`dismiss-advance-${toSha}`));
+      expect(screen.queryByText("FN-4")).not.toBeInTheDocument();
+    });
+  });
+
   describe("CSS regression coverage", () => {
     it("includes remotes layout selectors and mobile rules", () => {
       const css = loadAllAppCss();

@@ -22,7 +22,7 @@ import type { TaskStore, TaskAttachment, Routine, RoutineCreateInput, RoutineUpd
 import type { TaskDetail } from "@fusion/core";
 import type { AuthStorageLike, ModelRegistryLike } from "../routes.js";
 import { __resetBatchImportRateLimiter, __setCreateFnAgentForRefine } from "../routes.js";
-import { pullGitBranch } from "../routes/register-git-github.js";
+import { collectRecentMergeAdvances, pullGitBranch } from "../routes/register-git-github.js";
 import * as agentGenerationModule from "../agent-generation.js";
 import { __resetPlanningState, __setCreateFnAgent, planningStreamManager } from "../planning.js";
 import * as planningModule from "../planning.js";
@@ -1709,6 +1709,101 @@ describe("Workspace File Routes", () => {
       // Should NOT be 400 about content validation
       if (res.status === 400) {
         expect(res.body.error).not.toContain("content is required");
+      }
+    });
+  });
+
+  describe("collectRecentMergeAdvances", () => {
+    function git(cwd: string, args: string[]): string {
+      return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf-8", stdio: "pipe" }).trim();
+    }
+
+    function initRepo() {
+      const repoDir = mkdtempSync(join(tmpdir(), "kb-advances-"));
+      execFileSync("git", ["init", "--initial-branch=main", repoDir], { stdio: "pipe" });
+      execFileSync("git", ["-C", repoDir, "config", "user.email", "kb-tests@example.com"], { stdio: "pipe" });
+      execFileSync("git", ["-C", repoDir, "config", "user.name", "KB Tests"], { stdio: "pipe" });
+      return repoDir;
+    }
+
+    function commitFile(repoDir: string, file: string, content: string, message: string): string {
+      writeFileSync(join(repoDir, file), content, "utf-8");
+      execFileSync("git", ["-C", repoDir, "add", file], { stdio: "pipe" });
+      execFileSync("git", ["-C", repoDir, "commit", "-m", message], { stdio: "pipe" });
+      return git(repoDir, ["rev-parse", "HEAD"]);
+    }
+
+    async function runWithAdvance(repoDir: string, toSha: string) {
+      const headSha = git(repoDir, ["rev-parse", "HEAD"]);
+      const fakeStore = {
+        getRunAuditEvents: ({ mutationType }: { mutationType?: string }) => {
+          if (mutationType === "merge:integration-ref-advance") {
+            return [{ taskId: "FN-123", timestamp: new Date().toISOString(), metadata: { toSha, fromSha: null, succeeded: true } }];
+          }
+          return [];
+        },
+      } as unknown as TaskStore;
+      return collectRecentMergeAdvances(fakeStore, repoDir, headSha);
+    }
+
+    it("marks orphaned SHAs as handled", async () => {
+      const repoDir = initRepo();
+      try {
+        const orphanSha = commitFile(repoDir, "a.txt", "one\n", "one");
+        execFileSync("git", ["-C", repoDir, "checkout", "--orphan", "rewritten"], { stdio: "pipe" });
+        execFileSync("git", ["-C", repoDir, "rm", "-rf", "."], { stdio: "pipe" });
+        commitFile(repoDir, "a.txt", "two\n", "two");
+        execFileSync("git", ["-C", repoDir, "branch", "-M", "main"], { stdio: "pipe" });
+        execFileSync("git", ["-C", repoDir, "reflog", "expire", "--expire=now", "--all"], { stdio: "pipe" });
+        execFileSync("git", ["-C", repoDir, "gc", "--prune=now"], { stdio: "pipe" });
+        const result = await runWithAdvance(repoDir, orphanSha);
+        expect(result?.[0]?.resolution).toBe("orphaned");
+        expect(result?.[0]?.needsAction).toBe(false);
+      } finally {
+        rmSync(repoDir, { recursive: true, force: true });
+      }
+    });
+
+    it("marks subsumed equivalent content as handled", async () => {
+      const repoDir = initRepo();
+      try {
+        const baseSha = commitFile(repoDir, "a.txt", "base\n", "base");
+        const toSha = commitFile(repoDir, "a.txt", "base\nnew\n", "advance");
+        execFileSync("git", ["-C", repoDir, "reset", "--hard", baseSha], { stdio: "pipe" });
+        commitFile(repoDir, "a.txt", "base\nnew\n", "equivalent");
+        const result = await runWithAdvance(repoDir, toSha);
+        expect(result?.[0]?.resolution).toBe("subsumed");
+        expect(result?.[0]?.needsAction).toBe(false);
+      } finally {
+        rmSync(repoDir, { recursive: true, force: true });
+      }
+    });
+
+    it("keeps unresolved advances as pending", async () => {
+      const repoDir = initRepo();
+      try {
+        const baseSha = commitFile(repoDir, "a.txt", "base\n", "base");
+        const toSha = commitFile(repoDir, "a.txt", "base\nnew\n", "advance");
+        execFileSync("git", ["-C", repoDir, "reset", "--hard", baseSha], { stdio: "pipe" });
+        commitFile(repoDir, "a.txt", "base\nother\n", "different");
+        const result = await runWithAdvance(repoDir, toSha);
+        expect(result?.[0]?.resolution).toBe("pending");
+        expect(result?.[0]?.needsAction).toBe(true);
+      } finally {
+        rmSync(repoDir, { recursive: true, force: true });
+      }
+    });
+
+    it("marks reachable ancestor as handled", async () => {
+      const repoDir = initRepo();
+      try {
+        const toSha = commitFile(repoDir, "a.txt", "base\n", "base");
+        commitFile(repoDir, "b.txt", "next\n", "next");
+        const result = await runWithAdvance(repoDir, toSha);
+        expect(result?.[0]?.resolution).toBe("reachable");
+        expect(result?.[0]?.needsAction).toBe(false);
+      } finally {
+        rmSync(repoDir, { recursive: true, force: true });
       }
     });
   });

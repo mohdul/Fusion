@@ -443,6 +443,7 @@ export interface ExtendedGitStatus {
     advancedAt: string;
     autoSyncOutcome?: string;
     needsAction: boolean;
+    resolution: "reachable" | "orphaned" | "subsumed" | "pending";
   }>;
 }
 
@@ -578,7 +579,21 @@ function canonicalForCompare(p: string): string {
   }
 }
 
-async function collectRecentMergeAdvances(
+async function getPatchFingerprint(cwd: string, sha: string): Promise<string | null> {
+  try {
+    const out = await runGitCommand(["show", sha, "--pretty=format:", "--patch", "--no-color"], cwd, 5_000);
+    const normalized = out
+      .split("\n")
+      .filter((line) => !line.startsWith("index ") && !line.startsWith("@@ "))
+      .join("\n")
+      .trim();
+    return normalized || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function collectRecentMergeAdvances(
   scopedStore: TaskStore & {
     getRunAuditEvents?: (filters: {
       taskId?: string;
@@ -596,13 +611,6 @@ async function collectRecentMergeAdvances(
     mutationType: "merge:integration-ref-advance",
     limit: 10,
   });
-  // Auto-sync events come in two flavors:
-  //  - per-advance: emit with `worktreePath` + `newSha`; pair by (taskId, newSha)
-  //  - early-failure (`outcome: "enumeration-failed"`): emitted by the merger
-  //    when worktree enumeration fails BEFORE any advance was processed, so
-  //    they carry NO `worktreePath` and NO `newSha`. We still want operators
-  //    to see these — pair them by taskId-only as a fallback so the matching
-  //    advance shows the actual reason instead of "no auto-sync record."
   const wantPath = canonicalForCompare(worktreePath);
   const autoSyncByAdvance = new Map<string, string>();
   const autoSyncByTaskFallback = new Map<string, string>();
@@ -620,21 +628,17 @@ async function collectRecentMergeAdvances(
     const hasPath = typeof md.worktreePath === "string";
     const hasNewSha = typeof md.newSha === "string";
     if (hasPath && hasNewSha) {
-      // Per-advance event for a specific worktree: only attribute to this
-      // user's checkout when the canonicalized paths match.
       if (canonicalForCompare(md.worktreePath as string) !== wantPath) continue;
       const key = pairKey(tid, md.newSha as string);
-      // Events are timestamp DESC; first occurrence is the freshest.
       if (!autoSyncByAdvance.has(key)) autoSyncByAdvance.set(key, md.outcome);
     } else if (!hasPath && !hasNewSha) {
-      // Early-failure event (e.g. "enumeration-failed"): no per-worktree
-      // attribution possible — apply to every advance for this task.
       if (!autoSyncByTaskFallback.has(tid)) autoSyncByTaskFallback.set(tid, md.outcome);
     }
-    // Events with one of the two but not the other are malformed; skip.
   }
   const successOutcomes = new Set(["clean-sync", "synced-with-edits-restored"]);
   const out: NonNullable<ExtendedGitStatus["recentMergeAdvances"]> = [];
+  const headPatchIds = new Set<string>();
+  let headPatchIdsLoaded = false;
   for (const ev of advances) {
     const md = ev.metadata as { fromSha?: unknown; toSha?: unknown; succeeded?: unknown } | undefined;
     if (!md || typeof md !== "object") continue;
@@ -642,30 +646,55 @@ async function collectRecentMergeAdvances(
     if (md.succeeded === false) continue;
     const tid = typeof ev.taskId === "string" ? ev.taskId : "";
     if (!tid) continue;
-    const autoSyncOutcome =
-      autoSyncByAdvance.get(pairKey(tid, md.toSha))
-      ?? autoSyncByTaskFallback.get(tid);
-    // The worktree may already contain `toSha` — either because auto-sync
-    // succeeded, the operator manually ran "Sync working tree" / pulled, or
-    // they checked out a later commit by hand. In all those cases there's
-    // nothing left to do, regardless of what the original auto-sync audit
-    // event recorded. Treat reachability from HEAD as authoritative.
-    let alreadyInHead = false;
-    if (headSha) {
-      if (headSha === md.toSha) {
-        alreadyInHead = true;
-      } else {
+    const autoSyncOutcome = autoSyncByAdvance.get(pairKey(tid, md.toSha)) ?? autoSyncByTaskFallback.get(tid);
+
+    let resolution: "reachable" | "orphaned" | "subsumed" | "pending" = "pending";
+    let toShaExists = true;
+    if (headSha && headSha === md.toSha) {
+      resolution = "reachable";
+    } else if (headSha) {
+      try {
+        await runGitCommand(["cat-file", "-e", `${md.toSha}^{commit}`], worktreePath, 5_000);
+      } catch {
+        toShaExists = false;
+        resolution = "orphaned";
+      }
+
+      if (toShaExists && resolution === "pending") {
         try {
           await runGitCommand(["merge-base", "--is-ancestor", md.toSha, headSha], worktreePath, 5_000);
-          alreadyInHead = true;
+          resolution = "reachable";
         } catch {
-          alreadyInHead = false;
+          // continue
+        }
+      }
+
+      if (toShaExists && resolution === "pending") {
+        const targetPatchId = await getPatchFingerprint(worktreePath, md.toSha);
+        if (targetPatchId) {
+          if (!headPatchIdsLoaded) {
+            headPatchIdsLoaded = true;
+            try {
+              const commitsOut = (await runGitCommand(["log", "-n", "50", "--pretty=%H", headSha], worktreePath, 5_000)).trim();
+              const commits = commitsOut ? commitsOut.split("\n").filter(Boolean) : [];
+              for (const commitSha of commits) {
+                const patchId = await getPatchFingerprint(worktreePath, commitSha);
+                if (patchId) headPatchIds.add(patchId);
+              }
+            } catch {
+              // degrade conservatively
+            }
+          }
+          if (headPatchIds.has(targetPatchId)) {
+            resolution = "subsumed";
+          }
         }
       }
     }
-    const needsAction = alreadyInHead
-      ? false
-      : (autoSyncOutcome === undefined || !successOutcomes.has(autoSyncOutcome));
+
+    const needsAction = resolution === "pending"
+      && (autoSyncOutcome === undefined || !successOutcomes.has(autoSyncOutcome));
+
     out.push({
       taskId: tid,
       fromSha: typeof md.fromSha === "string" ? md.fromSha : null,
@@ -673,6 +702,7 @@ async function collectRecentMergeAdvances(
       advancedAt: ev.timestamp,
       autoSyncOutcome,
       needsAction,
+      resolution,
     });
     if (out.length >= 5) break;
   }
