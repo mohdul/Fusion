@@ -85,6 +85,14 @@ function makeProviderAuth() {
 }
 
 describe("onboard", () => {
+  it("isCliOnboardingComplete handles marker presence correctly", () => {
+    expect(__testUtils.isCliOnboardingComplete({})).toBe(false);
+    expect(__testUtils.isCliOnboardingComplete({ cliOnboardingCompletedAt: "" })).toBe(false);
+    expect(__testUtils.isCliOnboardingComplete({ cliOnboardingCompletedAt: "2026-06-01T00:00:00.000Z" })).toBe(
+      true,
+    );
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     for (const key of Object.keys(globalSettingsState)) delete globalSettingsState[key];
@@ -166,9 +174,11 @@ describe("onboard", () => {
   it("re-runs only with force when marker already exists", async () => {
     const providerAuth = makeProviderAuth();
     mockProviderAuthFactory.mockReturnValue(providerAuth);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     globalSettingsState.cliOnboardingCompletedAt = "2026-06-01T00:00:00.000Z";
 
     await runOnboard({ input: inputFrom(["y", "3", "y", "y", "n", "y"]) });
+    expect(logSpy).toHaveBeenCalledWith("Onboarding already completed. Re-run with --force to run it again.");
     expect(providerAuth.setApiKey).not.toHaveBeenCalled();
     expect(mockRunInit).not.toHaveBeenCalled();
 

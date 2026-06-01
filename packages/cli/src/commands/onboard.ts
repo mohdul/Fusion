@@ -150,12 +150,19 @@ async function runSkippableStep(
   return true;
 }
 
+export function isCliOnboardingComplete(settings: { cliOnboardingCompletedAt?: string }): boolean {
+  return (
+    typeof settings.cliOnboardingCompletedAt === "string" &&
+    settings.cliOnboardingCompletedAt.trim().length > 0
+  );
+}
+
 export async function runOnboard(options: OnboardOptions = {}): Promise<void> {
   const globalSettingsStore = new GlobalSettingsStore();
   await globalSettingsStore.init();
   const settings = await globalSettingsStore.getSettings();
 
-  if (settings.cliOnboardingCompletedAt && !options.force) {
+  if (isCliOnboardingComplete(settings) && !options.force) {
     console.log("Onboarding already completed. Re-run with --force to run it again.");
     return;
   }
@@ -267,5 +274,6 @@ export const __testUtils = {
   createPromptSession,
   validateMaxConcurrent,
   runSkippableStep,
+  isCliOnboardingComplete,
   PROMPT_CANCELLED_ERROR,
 };
