@@ -1625,11 +1625,15 @@
 .detail-tabs {
   display: flex;
   gap: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
   border-bottom: 1px solid var(--border);
   margin-bottom: var(--space-md);
 }
 
 .detail-tab {
+  flex-shrink: 0;
   padding: var(--space-sm) var(--space-lg);
   background: none;
   border: none;
@@ -1788,8 +1792,6 @@
   }
 
   .detail-tabs {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
   }
 
@@ -1800,7 +1802,6 @@
   .detail-tab {
     padding: var(--space-sm) var(--space-md);
     font-size: 13px;
-    flex-shrink: 0;
   }
 
   /* Task detail modal: prevent header clipping + full-screen refine flow */

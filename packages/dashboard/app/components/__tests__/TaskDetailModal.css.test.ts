@@ -7,4 +7,11 @@ describe("TaskDetailModal CSS contract", () => {
 
     expect(css).toMatch(/\.detail-source-header\s*\{[^}]*align-items\s*:\s*flex-start\s*;/);
   });
+
+  it("FN-5879 keeps the base detail tab strip horizontally scrollable without shrinking tabs", async () => {
+    const css = await loadAllAppCssBaseOnly();
+
+    expect(css).toMatch(/\.detail-tabs\s*\{[^}]*overflow-x\s*:\s*auto\s*;/);
+    expect(css).toMatch(/\.detail-tab\s*\{[^}]*flex-shrink\s*:\s*0\s*;/);
+  });
 });
