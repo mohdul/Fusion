@@ -18,6 +18,7 @@ import { PluginSlot } from "./PluginSlot";
 import { useBadgeWebSocket } from "../hooks/useBadgeWebSocket";
 import { getFreshBatchData } from "../hooks/useBatchBadgeFetch";
 import { useTaskDiffStats } from "../hooks/useTaskDiffStats";
+import { useAgentsMapCache } from "../hooks/useAgentsMapCache";
 import { isTaskStuck } from "../utils/taskStuck";
 import { getStalledReviewSignal } from "../utils/taskStalledReview";
 import { getInReviewStallCopy, shouldShowInReviewStallBadge } from "../utils/inReviewStallCopy";
@@ -93,10 +94,30 @@ function abbreviateBadge(text: string, max: number): string {
   return text.slice(0, max - 3) + "...";
 }
 
-function getSourceAgentName(task: Task): string | undefined {
+function getResolvedAgentNameFromMap(
+  agentId: string | undefined,
+  agentsMap: ReadonlyMap<string, { name?: string | null }>,
+): string | undefined {
+  if (typeof agentId !== "string" || agentId.trim().length === 0) {
+    return undefined;
+  }
+
+  const cachedName = agentsMap.get(agentId)?.name;
+  return typeof cachedName === "string" && cachedName.trim().length > 0 ? cachedName.trim() : undefined;
+}
+
+function getSourceAgentName(
+  task: Task,
+  agentsMap?: ReadonlyMap<string, { name?: string | null }>,
+): string | undefined {
   const metadataAgentName = task.sourceMetadata?.agentName;
   if (typeof metadataAgentName === "string" && metadataAgentName.trim().length > 0) {
     return metadataAgentName.trim();
+  }
+
+  const resolvedAgentName = getResolvedAgentNameFromMap(task.sourceAgentId, agentsMap ?? new Map());
+  if (resolvedAgentName) {
+    return resolvedAgentName;
   }
 
   if (typeof task.sourceAgentId === "string" && task.sourceAgentId.trim().length > 0) {
@@ -571,6 +592,7 @@ function TaskCardComponent({
   const sendBackRef = useRef<HTMLDivElement>(null);
   const [isInViewport, setIsInViewport] = useState(false);
   const { badgeUpdates, subscribeToBadge, unsubscribeFromBadge } = useBadgeWebSocket(projectId);
+  const { agentsMap } = useAgentsMapCache(projectId);
   const { confirm } = useConfirm();
   const retryWarningThreshold = useRetryWarning();
 
@@ -628,7 +650,13 @@ function TaskCardComponent({
       return;
     }
 
-    // Check cache synchronously first
+    const cachedFromMap = getResolvedAgentNameFromMap(task.assignedAgentId, agentsMap);
+    if (cachedFromMap) {
+      agentNameCache.set(task.assignedAgentId, cachedFromMap);
+      setAgentName(cachedFromMap);
+      return;
+    }
+
     const cached = agentNameCache.get(task.assignedAgentId);
     if (cached) {
       setAgentName(cached);
@@ -642,7 +670,7 @@ function TaskCardComponent({
       if (!cancelled) setAgentName(name);
     });
     return () => { cancelled = true; };
-  }, [task.assignedAgentId, projectId]);
+  }, [agentsMap, task.assignedAgentId, projectId]);
 
   // Auto-focus and auto-resize description textarea when entering edit mode
   useEffect(() => {
@@ -857,9 +885,14 @@ function TaskCardComponent({
   const branchMetadata = useMemo(() => getVisibleTaskCardBranches(task), [task.id, task.branch, task.baseBranch]);
   const hasBranchMetadata = Boolean(branchMetadata.branch || branchMetadata.baseBranch);
   const isAgentCreated = isAgentCreatedTask(task);
-  const sourceAgentName = getSourceAgentName(task);
+  const sourceAgentName = getSourceAgentName(task, agentsMap);
+  const agentCreatedVisibleLabel = sourceAgentName ? abbreviateBadge(sourceAgentName, 15) : "Agent";
   const agentCreatedTitle = sourceAgentName ? `Created by agent: ${sourceAgentName}` : "Created by agent";
-  const isAgentNameLoading = Boolean(task.assignedAgentId && agentName === null);
+  const assignedAgentNameFromMap = getResolvedAgentNameFromMap(task.assignedAgentId, agentsMap);
+  const assignedAgentNameFromCache = task.assignedAgentId ? agentNameCache.get(task.assignedAgentId) ?? null : null;
+  const resolvedAssignedAgentName = assignedAgentNameFromMap ?? assignedAgentNameFromCache ?? agentName;
+  const assignedAgentBadgeLabel = resolvedAssignedAgentName ?? task.assignedAgentId ?? "";
+  const isAgentNameLoading = Boolean(task.assignedAgentId && !resolvedAssignedAgentName);
   const taskProviders = useMemo(() => {
     const providers: string[] = [];
     if (task.modelProvider) providers.push(task.modelProvider);
@@ -1742,7 +1775,7 @@ function TaskCardComponent({
           >
             <Bot size={11} aria-hidden="true" />
             <span className="visually-hidden">{agentCreatedTitle}</span>
-            <span aria-hidden="true">Agent</span>
+            <span aria-hidden="true">{agentCreatedVisibleLabel}</span>
           </span>
         )}
         {showPriorityBadge && (
@@ -2132,13 +2165,13 @@ function TaskCardComponent({
           {task.assignedAgentId && (
             <span
               className={`card-agent-badge${isAgentNameLoading ? " card-agent-badge--loading" : ""}`}
-              title={`Assigned to ${agentName ?? task.assignedAgentId}`}
+              title={`Assigned to ${assignedAgentBadgeLabel}`}
             >
               <Bot size={11} />
               <span className="card-agent-badge-text" aria-hidden="true">
-                {abbreviateBadge(agentName ?? task.assignedAgentId, 15)}
+                {abbreviateBadge(assignedAgentBadgeLabel, 15)}
               </span>
-              <span className="visually-hidden">Assigned to {agentName ?? task.assignedAgentId}</span>
+              <span className="visually-hidden">Assigned to {assignedAgentBadgeLabel}</span>
             </span>
           )}
         </div>

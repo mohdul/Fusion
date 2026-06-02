@@ -79,6 +79,7 @@ vi.mock("../../api", () => ({
   uploadAttachment: vi.fn(),
   fetchMission: vi.fn(),
   fetchAgent: vi.fn(),
+  fetchAgents: vi.fn(),
 }));
 
 const mockConfirm = vi.fn<(options: ConfirmOptions) => Promise<boolean>>();
@@ -87,8 +88,9 @@ vi.mock("../../hooks/useConfirm", () => ({
   useConfirm: () => ({ confirm: mockConfirm, confirmWithChoice: mockConfirmWithChoice }),
 }));
 
-import { uploadAttachment, fetchMission, fetchAgent } from "../../api";
+import { uploadAttachment, fetchMission, fetchAgent, fetchAgents } from "../../api";
 import { loadAllAppCss, loadAllAppCssBaseOnly } from "../../test/cssFixture";
+import { writeCache, SWR_CACHE_KEYS } from "../../utils/swrCache";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -104,6 +106,18 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 }
 
 const noop = () => {};
+
+function seedAgentsCache(projectId: string, agents: Array<{ id: string; name: string; role?: string; state?: string }>) {
+  writeCache(
+    `${SWR_CACHE_KEYS.CHAT_AGENTS_MAP_PREFIX}${projectId}`,
+    agents.map((agent) => ({
+      role: "executor",
+      state: "active",
+      ...agent,
+    })),
+    { maxBytes: 500_000 },
+  );
+}
 
 function mountCssForBadgeTests() {
   const style = document.createElement("style");
@@ -3026,8 +3040,11 @@ describe("TaskCard", () => {
   });
 
   it("renders agent-created provenance badge for automation tasks and prefers sourceMetadata.agentName", () => {
+    seedAgentsCache("p1", [{ id: "agent-123", name: "Cache Robot" }]);
+
     const { container } = render(
       <TaskCard
+        projectId="p1"
         task={makeTask({
           column: "todo",
           sourceType: "automation",
@@ -3042,6 +3059,8 @@ describe("TaskCard", () => {
     const badge = container.querySelector(".card-agent-created-badge");
     expect(badge).not.toBeNull();
     expect(badge?.getAttribute("title")).toBe("Created by agent: Task Robot");
+    expect(badge?.querySelector("span[aria-hidden='true']")?.textContent).toBe("Task Robot");
+    expect(badge?.querySelector(".visually-hidden")?.textContent).toBe("Created by agent: Task Robot");
   });
 
   it("renders agent-created provenance badge for agent_heartbeat tasks", () => {
@@ -3064,9 +3083,12 @@ describe("TaskCard", () => {
     expect(badge?.getAttribute("aria-label")).toBe("Created by agent: Scheduler Bot");
   });
 
-  it("renders agent-created provenance badge for legacy sourceAgentId-only tasks", () => {
+  it("renders agent-created provenance badge with cached source agent names before falling back to ids", () => {
+    seedAgentsCache("p1", [{ id: "legacy-agent-1", name: "Legacy Robot" }]);
+
     const { container } = render(
       <TaskCard
+        projectId="p1"
         task={makeTask({
           column: "todo",
           sourceAgentId: "legacy-agent-1",
@@ -3078,7 +3100,29 @@ describe("TaskCard", () => {
 
     const badge = container.querySelector(".card-agent-created-badge");
     expect(badge).not.toBeNull();
-    expect(badge?.getAttribute("title")).toBe("Created by agent: legacy-agent-1");
+    expect(badge?.getAttribute("title")).toBe("Created by agent: Legacy Robot");
+    expect(badge?.querySelector("span[aria-hidden='true']")?.textContent).toBe("Legacy Robot");
+  });
+
+  it("falls back to the generic Agent label when source type is agent-created without a resolvable name", () => {
+    const { container } = render(
+      <TaskCard
+        task={makeTask({
+          column: "todo",
+          sourceType: "automation",
+          sourceAgentId: undefined,
+          sourceMetadata: undefined,
+        })}
+        onOpenDetail={noop}
+        addToast={noop}
+      />,
+    );
+
+    const badge = container.querySelector(".card-agent-created-badge");
+    expect(badge).not.toBeNull();
+    expect(badge?.getAttribute("title")).toBe("Created by agent");
+    expect(badge?.querySelector("span[aria-hidden='true']")?.textContent).toBe("Agent");
+    expect(badge?.querySelector(".visually-hidden")?.textContent).toBe("Created by agent");
   });
 
   it("does not render agent-created provenance badge for non-agent task sources", () => {
@@ -4403,10 +4447,34 @@ describe("TaskCard agent badge", () => {
 
   beforeEach(() => {
     clearAgentCache?.();
+    localStorage.clear();
     vi.mocked(fetchAgent).mockReset();
+    vi.mocked(fetchAgents).mockReset();
+    vi.mocked(fetchAgents).mockResolvedValue([] as any);
   });
 
-  it("renders agent badge when task has assignedAgentId", async () => {
+  it("renders agent badge synchronously from the seeded agents cache", () => {
+    seedAgentsCache("p1", [{ id: "agent-001", name: "Task Robot" }]);
+
+    const { container } = render(
+      <TaskCard
+        projectId="p1"
+        task={makeTask({ assignedAgentId: "agent-001" })}
+        onOpenDetail={noop}
+        addToast={noop}
+      />,
+    );
+
+    const badge = container.querySelector(".card-agent-badge");
+    expect(badge).not.toBeNull();
+    expect(badge?.getAttribute("title")).toBe("Assigned to Task Robot");
+    expect(badge?.className).not.toContain("card-agent-badge--loading");
+    expect(badge?.querySelector(".card-agent-badge-text")?.textContent).toBe("Task Robot");
+    expect(badge?.querySelector(".visually-hidden")?.textContent).toContain("Assigned to Task Robot");
+    expect(fetchAgent).not.toHaveBeenCalled();
+  });
+
+  it("renders agent badge when task has assignedAgentId and falls back to fetchAgent on cache miss", async () => {
     vi.mocked(fetchAgent).mockResolvedValue({
       id: "agent-001",
       name: "Task Robot",
