@@ -224,6 +224,8 @@ Features:
 
 - Multiple terminal tabs
 - PTY-backed shell sessions
+- Ctrl/Cmd+C copies the current terminal selection, while plain Ctrl+C with no selection still sends SIGINT
+- Ctrl/Cmd+V pastes clipboard text into the active terminal session
 - Mobile-aware virtual keyboard handling and auto-refit behavior
 - Reopen/reconnect/session-recovery flows preserve single-keystroke input forwarding (no duplicate characters, no page refresh required)
 

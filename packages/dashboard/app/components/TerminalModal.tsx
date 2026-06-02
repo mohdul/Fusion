@@ -161,6 +161,16 @@ function isMobileDevice(): boolean {
   return hasTouchScreen && isNarrow;
 }
 
+function isMacPlatform(): boolean {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+
+  const platform = navigator.platform ?? "";
+  const userAgent = navigator.userAgent ?? "";
+  return /mac/i.test(platform) || /mac/i.test(userAgent);
+}
+
 /**
  * Compute how many CSS pixels the virtual keyboard covers from the bottom
  * of the layout viewport. Returns 0 on desktop or when visualViewport is
@@ -647,6 +657,44 @@ export function TerminalModal({ isOpen, onClose, initialCommand, projectId }: Te
         terminal.onData((data) => {
           if (xtermInitializedRef.current !== currentSessionId) return;
           sendInputRef.current(data);
+        });
+
+        terminal.attachCustomKeyEventHandler((event) => {
+          if (event.type !== "keydown") {
+            return true;
+          }
+
+          const isModifierPressed = isMacPlatform() ? event.metaKey : event.ctrlKey;
+          if (!isModifierPressed || event.altKey || event.shiftKey) {
+            return true;
+          }
+
+          const key = event.key.toLowerCase();
+
+          if (key === "c") {
+            const selection = terminal.hasSelection() ? terminal.getSelection() : "";
+            if (!selection) {
+              return true;
+            }
+
+            navigator.clipboard?.writeText(selection).catch(() => {
+              // Ignore clipboard permission/errors so terminal input stays responsive.
+            });
+            return false;
+          }
+
+          if (key === "v") {
+            navigator.clipboard?.readText().then((text) => {
+              if (text) {
+                sendInputRef.current(text);
+              }
+            }).catch(() => {
+              // Ignore clipboard permission/errors so terminal input stays responsive.
+            });
+            return false;
+          }
+
+          return true;
         });
 
         // Window resize listener bound to this xterm. Tracked in a ref so it

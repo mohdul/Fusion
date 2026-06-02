@@ -23,10 +23,18 @@ vi.mock("../../api", () => ({
 // Mock xterm modules to prevent DOM errors in jsdom
 const mockFitAddonFit = vi.fn();
 
+let terminalKeyEventHandler: ((event: KeyboardEvent) => boolean) | null = null;
+
 const mockTerminalInstance = {
   loadAddon: vi.fn(),
   open: vi.fn(),
   onData: vi.fn((_cb: (data: string) => void) => ({ dispose: vi.fn() })),
+  attachCustomKeyEventHandler: vi.fn((handler: (event: KeyboardEvent) => boolean) => {
+    terminalKeyEventHandler = handler;
+  }),
+  hasSelection: vi.fn(() => false),
+  getSelection: vi.fn(() => ""),
+  paste: vi.fn(),
   dispose: vi.fn(),
   write: vi.fn(),
   clear: vi.fn(),
@@ -122,7 +130,18 @@ describe("TerminalModal", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    terminalKeyEventHandler = null;
     mockFitAddonFit.mockClear();
+    mockTerminalInstance.hasSelection.mockReturnValue(false);
+    mockTerminalInstance.getSelection.mockReturnValue("");
+    Object.defineProperty(navigator, "platform", {
+      value: "Win32",
+      configurable: true,
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      configurable: true,
+    });
     window.localStorage.removeItem(TERMINAL_FONT_SIZE_KEY);
     mockTerminalInstance.options.fontSize = 14;
     mockCreateTerminalSession.mockResolvedValue({
@@ -3991,6 +4010,100 @@ describe("TerminalModal — xterm focus initialization (FN-1602)", () => {
     });
 
     expect(mockSendInput).toHaveBeenCalledWith("echo hello\r");
+  });
+
+  it("copies selected terminal text on ctrl+c and blocks sigint", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "platform", {
+      value: "Win32",
+      configurable: true,
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    mockTerminalInstance.hasSelection.mockReturnValue(true);
+    mockTerminalInstance.getSelection.mockReturnValue("copied output");
+
+    render(<TerminalModal isOpen={true} onClose={mockOnClose} />);
+
+    await waitFor(() => {
+      expect(terminalKeyEventHandler).not.toBeNull();
+    });
+
+    const handled = terminalKeyEventHandler?.(
+      new KeyboardEvent("keydown", { key: "c", ctrlKey: true }),
+    );
+
+    expect(handled).toBe(false);
+    expect(writeText).toHaveBeenCalledWith("copied output");
+    expect(mockSendInput).not.toHaveBeenCalled();
+  });
+
+  it("preserves sigint on ctrl+c when nothing is selected", async () => {
+    Object.defineProperty(navigator, "platform", {
+      value: "Win32",
+      configurable: true,
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+    });
+    mockTerminalInstance.hasSelection.mockReturnValue(false);
+
+    render(<TerminalModal isOpen={true} onClose={mockOnClose} />);
+
+    await waitFor(() => {
+      expect(terminalKeyEventHandler).not.toBeNull();
+    });
+
+    const handled = terminalKeyEventHandler?.(
+      new KeyboardEvent("keydown", { key: "c", ctrlKey: true }),
+    );
+
+    expect(handled).toBe(true);
+  });
+
+  it("pastes clipboard text into the active session on cmd+v", async () => {
+    const readText = vi.fn().mockResolvedValue("npm test\n");
+    Object.defineProperty(navigator, "platform", {
+      value: "MacIntel",
+      configurable: true,
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      value: { readText },
+      configurable: true,
+    });
+
+    render(<TerminalModal isOpen={true} onClose={mockOnClose} />);
+
+    await waitFor(() => {
+      expect(terminalKeyEventHandler).not.toBeNull();
+    });
+
+    const handled = terminalKeyEventHandler?.(
+      new KeyboardEvent("keydown", { key: "v", metaKey: true }),
+    );
+
+    expect(handled).toBe(false);
+    await waitFor(() => {
+      expect(readText).toHaveBeenCalled();
+      expect(mockSendInput).toHaveBeenCalledWith("npm test\n");
+    });
+  });
+
+  it("leaves unrelated key handling untouched", async () => {
+    render(<TerminalModal isOpen={true} onClose={mockOnClose} />);
+
+    await waitFor(() => {
+      expect(terminalKeyEventHandler).not.toBeNull();
+    });
+
+    const handled = terminalKeyEventHandler?.(
+      new KeyboardEvent("keydown", { key: "x", ctrlKey: true }),
+    );
+
+    expect(handled).toBe(true);
   });
 
   it("keeps terminal input forwarding active after active-tab title rerenders", async () => {
