@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const commandMocks = vi.hoisted(() => ({
@@ -8,6 +9,7 @@ const commandMocks = vi.hoisted(() => ({
   runDaemon: vi.fn(),
   runDesktop: vi.fn(),
   runInit: vi.fn(),
+  runOnboard: vi.fn(),
 
   runTaskCreate: vi.fn(),
   runTaskList: vi.fn(),
@@ -111,6 +113,28 @@ const commandMocks = vi.hoisted(() => ({
   runResearchCancel: vi.fn(),
   runResearchRetry: vi.fn(),
 }));
+
+const onboardEnv = vi.hoisted(() => ({
+  centralDbPath: "/tmp/fusion-central.db",
+}));
+
+const ttyState = vi.hoisted(() => ({
+  isTTYAvailable: true,
+}));
+
+vi.mock("@fusion/core", async () => {
+  const actual = await vi.importActual<typeof import("@fusion/core")>("@fusion/core");
+  return {
+    ...actual,
+    getDefaultCentralDbPath: vi.fn(() => onboardEnv.centralDbPath),
+  };
+});
+
+vi.mock("../commands/dashboard-tui/index.js", () => ({
+  isTTYAvailable: vi.fn(() => ttyState.isTTYAvailable),
+}));
+
+vi.mock("../commands/onboard.js", () => ({ runOnboard: commandMocks.runOnboard }));
 
 vi.mock("../commands/dashboard.js", () => ({ runDashboard: commandMocks.runDashboard }));
 vi.mock("../commands/serve.js", () => ({ runServe: commandMocks.runServe }));
@@ -254,6 +278,7 @@ vi.mock("../commands/research.js", () => ({
 const originalArgv = process.argv;
 const originalExit = process.exit;
 const originalPiPackageDir = process.env.PI_PACKAGE_DIR;
+const originalSkipOnboardingEnv = process.env.FUSION_SKIP_ONBOARDING;
 
 let importCounter = 0;
 
@@ -270,6 +295,9 @@ describe("bin command routing and fallbacks", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.PI_PACKAGE_DIR;
+    delete process.env.FUSION_SKIP_ONBOARDING;
+    ttyState.isTTYAvailable = true;
+    onboardEnv.centralDbPath = join(mkdtempSync(join(tmpdir(), "fn-bin-onboard-")), "fusion-central.db");
     process.exit = vi.fn(((code?: number) => {
       throw new Error(`process.exit:${code ?? 0}`);
     }) as typeof process.exit);
@@ -283,6 +311,12 @@ describe("bin command routing and fallbacks", () => {
       delete process.env.PI_PACKAGE_DIR;
     } else {
       process.env.PI_PACKAGE_DIR = originalPiPackageDir;
+    }
+
+    if (originalSkipOnboardingEnv === undefined) {
+      delete process.env.FUSION_SKIP_ONBOARDING;
+    } else {
+      process.env.FUSION_SKIP_ONBOARDING = originalSkipOnboardingEnv;
     }
   });
 
@@ -614,6 +648,67 @@ describe("bin command routing and fallbacks", () => {
 
   it("exits on unknown goals subcommand", async () => {
     await expect(runBin(["goals", "bogus"])).rejects.toThrow("process.exit:1");
+  });
+
+  it("auto-launches onboarding for interactive commands when central DB is missing", async () => {
+    await runBin(["task", "list"]);
+
+    expect(commandMocks.runOnboard).toHaveBeenCalledTimes(1);
+    expect(commandMocks.runTaskList).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not auto-launch onboarding for non-TTY invocations", async () => {
+    ttyState.isTTYAvailable = false;
+
+    await runBin(["task", "list"]);
+
+    expect(commandMocks.runOnboard).not.toHaveBeenCalled();
+    expect(commandMocks.runTaskList).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["serve", "daemon"])("skips auto-launch for %s command", async (command) => {
+    await runBin([command]);
+
+    expect(commandMocks.runOnboard).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-launch when central DB and project DB already exist", async () => {
+    const projectDbPath = join(process.cwd(), ".fusion", "fusion.db");
+    mkdirSync(join(process.cwd(), ".fusion"), { recursive: true });
+    writeFileSync(onboardEnv.centralDbPath, "db");
+    writeFileSync(projectDbPath, "project-db");
+
+    await runBin(["task", "list"]);
+
+    expect(existsSync(onboardEnv.centralDbPath)).toBe(true);
+    expect(commandMocks.runOnboard).not.toHaveBeenCalled();
+  });
+
+  it("honors --skip-onboarding flag", async () => {
+    await runBin(["task", "list", "--skip-onboarding"]);
+
+    expect(commandMocks.runOnboard).not.toHaveBeenCalled();
+    expect(commandMocks.runTaskList).toHaveBeenCalledTimes(1);
+  });
+
+  it("honors FUSION_SKIP_ONBOARDING env var", async () => {
+    process.env.FUSION_SKIP_ONBOARDING = "1";
+
+    await runBin(["task", "list"]);
+
+    expect(commandMocks.runOnboard).not.toHaveBeenCalled();
+  });
+
+  it("passes --force to explicit onboard command and keeps marker semantics covered in onboard.test.ts", async () => {
+    await runBin(["onboard", "--force"]);
+
+    expect(commandMocks.runOnboard).toHaveBeenCalledWith({ force: true });
+  });
+
+  it("still invokes onboarding hook when marker would already be set (single-fire prompt behavior is covered in onboard.test.ts)", async () => {
+    await runBin(["task", "list"]);
+
+    expect(commandMocks.runOnboard).toHaveBeenCalledTimes(1);
   });
 
   it("routes daemon command with all flags", async () => {
