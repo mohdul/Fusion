@@ -272,10 +272,14 @@ describe("Workspace bootstrap script contract", () => {
 
   it("keeps dashboard's default test lane curated with explicit deep coverage", () => {
     const defaultTest = dashboardPkg.scripts?.test;
+    const defaultAppQuality = dashboardPkg.scripts?.["test:quality:app"];
+    const defaultApiQuality = dashboardPkg.scripts?.["test:quality:api"];
     const deepTest = dashboardPkg.scripts?.["test:deep"];
 
-    expect(hasProjectArg(defaultTest, "dashboard-app-quality")).toBe(true);
-    expect(hasProjectArg(defaultTest, "dashboard-api-quality")).toBe(true);
+    expect(defaultTest).toBe("pnpm run test:quality:app && pnpm run test:quality:api");
+    expect(defaultAppQuality).toContain("test:quality:app:foundation-api");
+    expect(defaultAppQuality).toContain("test:quality:app:settings");
+    expect(hasProjectArg(defaultApiQuality, "dashboard-api-quality")).toBe(true);
     expect(hasProjectArg(defaultTest, "dashboard-app")).toBe(false);
     expect(hasProjectArg(defaultTest, "dashboard-api")).toBe(false);
 
