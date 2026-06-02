@@ -189,6 +189,10 @@ export function parseSkillId(skillId: string): { source: string; relativePath: s
   }
 }
 
+function normalizeStoredSkillPath(path: string): string {
+  return path.replaceAll("\\", "/").replace(/^skills\//, "");
+}
+
 /**
  * Check if a skill path is enabled in the settings.
  * Checks both top-level skills and package-scoped skills.
@@ -198,11 +202,20 @@ function isSkillEnabled(
   settings: { skills?: string[]; packages?: Array<{ source: string; skills?: string[] }> },
 ): boolean {
   // Check top-level skills
+  const parsedSkillId = parseSkillId(skillId);
+  if (!parsedSkillId) {
+    return false;
+  }
+
+  const normalizedSkillPath = normalizeStoredSkillPath(parsedSkillId.relativePath);
+
   const skills = settings.skills ?? [];
   for (const entry of skills) {
-    const entryPath = entry.startsWith("+") || entry.startsWith("-") ? entry.slice(1) : entry;
-    const entryId = computeSkillId("*", entryPath);
-    if (entryId === skillId) {
+    const entryPath = normalizeStoredSkillPath(
+      entry.startsWith("+") || entry.startsWith("-") ? entry.slice(1) : entry,
+    );
+    const entryId = computeSkillId("*", `skills/${entryPath}`);
+    if (entryId === skillId || entryPath === normalizedSkillPath) {
       return entry.startsWith("+");
     }
   }
@@ -215,9 +228,11 @@ function isSkillEnabled(
     if (!pkgSkills) continue;
 
     for (const entry of pkgSkills) {
-      const entryPath = entry.startsWith("+") || entry.startsWith("-") ? entry.slice(1) : entry;
-      const entryId = computeSkillId(source, entryPath);
-      if (entryId === skillId) {
+      const entryPath = normalizeStoredSkillPath(
+        entry.startsWith("+") || entry.startsWith("-") ? entry.slice(1) : entry,
+      );
+      const entryId = computeSkillId(source, `skills/${entryPath}`);
+      if (entryId === skillId || entryPath === normalizedSkillPath) {
         return entry.startsWith("+");
       }
     }
@@ -333,7 +348,7 @@ export function createSkillsAdapter(options: {
       }
 
       const isTopLevel = source === "*";
-      const skillPath = relativePath.replace(/^skills\//, "");
+      const skillPath = normalizeStoredSkillPath(relativePath);
 
       if (isTopLevel) {
         // Toggle in top-level skills

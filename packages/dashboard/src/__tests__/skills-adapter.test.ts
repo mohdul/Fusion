@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createSkillsAdapter, extractSkillName } from "../skills-adapter.js";
-import { writeFile, mkdir, access } from "node:fs/promises";
+import { createSkillsAdapter, extractSkillName, computeSkillId } from "../skills-adapter.js";
+import { writeFile, mkdir, access, readFile, rm } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
-import { rm } from "node:fs/promises";
 
 describe("createSkillsAdapter - fetchCatalog fallback behavior", () => {
   const originalFetch = globalThis.fetch;
@@ -529,6 +528,117 @@ describe("createSkillsAdapter - readSkillContent", () => {
     expect(result.files).toHaveLength(1);
 
     await cleanup(skillDir);
+  });
+});
+
+describe("createSkillsAdapter - toggleExecutionSkill persistence", () => {
+  async function createRoundTripFixture(source: string) {
+    const rootDir = join(tmpdir(), `skills-adapter-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const baseDir = source === "*" ? rootDir : join(rootDir, "packages", "example-package");
+    const relativePath = "skills/test-skill/SKILL.md";
+    const absolutePath = join(baseDir, relativePath);
+    const settingsPath = join(rootDir, ".fusion", "settings.json");
+
+    await mkdir(dirname(absolutePath), { recursive: true });
+    await writeFile(absolutePath, "# Test Skill\n", "utf-8");
+
+    const adapter = createSkillsAdapter({
+      packageManager: {
+        resolve: vi.fn().mockResolvedValue({
+          skills: [
+            {
+              path: absolutePath,
+              enabled: false,
+              metadata: {
+                source,
+                scope: "project" as const,
+                origin: source === "*" ? "top-level" as const : "package" as const,
+                baseDir,
+              },
+            },
+          ],
+        }),
+      },
+      getSettingsPath: vi.fn().mockReturnValue(settingsPath),
+    });
+
+    return {
+      adapter,
+      rootDir,
+      settingsPath,
+      skillId: computeSkillId(source, relativePath),
+      cleanup: () => rm(rootDir, { recursive: true, force: true }),
+    };
+  }
+
+  it.each([
+    { source: "*", settingsKey: "skills", expectedPattern: "+test-skill/SKILL.md" },
+    { source: "@scope/pkg", settingsKey: "packages[].skills", expectedPattern: "+test-skill/SKILL.md" },
+  ])("round-trips enabled skills for source $source", async ({ source, settingsKey, expectedPattern }) => {
+    const fixture = await createRoundTripFixture(source);
+
+    try {
+      const result = await fixture.adapter.toggleExecutionSkill(fixture.rootDir, {
+        skillId: fixture.skillId,
+        enabled: true,
+      });
+
+      expect(result.pattern).toBe(expectedPattern);
+      expect(result.settingsPath).toBe(settingsKey);
+
+      const settings = JSON.parse(await readFile(fixture.settingsPath, "utf-8")) as {
+        skills?: string[];
+        packages?: Array<{ source: string; skills?: string[] }>;
+      };
+
+      if (source === "*") {
+        expect(settings.skills).toContain(expectedPattern);
+      } else {
+        expect(settings.packages).toContainEqual({ source, skills: [expectedPattern] });
+      }
+
+      const discovered = await fixture.adapter.discoverSkills(fixture.rootDir);
+      expect(discovered).toContainEqual(
+        expect.objectContaining({ id: fixture.skillId, enabled: true }),
+      );
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it.each([
+    { source: "*", settingsKey: "skills", expectedPattern: "-test-skill/SKILL.md" },
+    { source: "@scope/pkg", settingsKey: "packages[].skills", expectedPattern: "-test-skill/SKILL.md" },
+  ])("round-trips disabled skills for source $source", async ({ source, settingsKey, expectedPattern }) => {
+    const fixture = await createRoundTripFixture(source);
+
+    try {
+      const result = await fixture.adapter.toggleExecutionSkill(fixture.rootDir, {
+        skillId: fixture.skillId,
+        enabled: false,
+      });
+
+      expect(result.pattern).toBe(expectedPattern);
+      expect(result.settingsPath).toBe(settingsKey);
+
+      const settings = JSON.parse(await readFile(fixture.settingsPath, "utf-8")) as {
+        skills?: string[];
+        packages?: Array<{ source: string; skills?: string[] }>;
+      };
+
+      if (source === "*") {
+        expect(settings.skills).toContain(expectedPattern);
+      } else {
+        expect(settings.packages).toContainEqual({ source, skills: [expectedPattern] });
+      }
+
+      const discovered = await fixture.adapter.discoverSkills(fixture.rootDir);
+      expect(discovered).toContainEqual(
+        expect.objectContaining({ id: fixture.skillId, enabled: false }),
+      );
+    } finally {
+      await fixture.cleanup();
+    }
   });
 });
 
