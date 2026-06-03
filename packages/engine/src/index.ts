@@ -112,12 +112,26 @@ export {
 } from "./merger-squash-audit.js";
 export { reviewStep, type ReviewType, type ReviewVerdict, type ReviewResult, type ReviewOptions } from "./reviewer.js";
 export { createFnAgent, promptWithFallback, describeModel, setHostExtensionPaths, getHostExtensionPaths, type AgentOptions, type AgentResult } from "./pi.js";
+export {
+  createInteractiveAiSessionWith,
+  parseAgentResponse as parseInteractiveAgentResponse,
+  type InteractiveAgentSession,
+  type InteractiveAgentResult,
+  type InteractiveAgentFactory,
+} from "./interactive-ai-session.js";
 
 // Register createFnAgent into core's loader so consumers in @fusion/core
 // (e.g. ai-summarize, memory-compaction) can resolve it without a circular
 // static import. Runs once at engine module load.
-import type { AiSessionResult, CreateAiSessionFactory, CreateAiSessionOptions } from "@fusion/core";
+import type {
+  AiSessionResult,
+  CreateAiSessionFactory,
+  CreateAiSessionOptions,
+  CreateInteractiveAiSessionFactory,
+  CreateInteractiveAiSessionOptions,
+} from "@fusion/core";
 import { createFnAgent as _createFnAgentForCore } from "./pi.js";
+import { createInteractiveAiSessionWith } from "./interactive-ai-session.js";
 
 const _createAiSessionAdapter: CreateAiSessionFactory = async (options: CreateAiSessionOptions): Promise<AiSessionResult> => {
   return _createFnAgentForCore({
@@ -129,6 +143,23 @@ const _createAiSessionAdapter: CreateAiSessionFactory = async (options: CreateAi
   });
 };
 
+// Interactive (multi-turn, await-input) adapter: builds the prompt→parse→
+// retry→pause→resume loop on top of the one-shot createFnAgent.
+const _createInteractiveAiSessionAdapter: CreateInteractiveAiSessionFactory = (
+  options: CreateInteractiveAiSessionOptions,
+) =>
+  createInteractiveAiSessionWith(
+    (opts) =>
+      _createFnAgentForCore({
+        cwd: opts.cwd,
+        systemPrompt: opts.systemPrompt,
+        tools: opts.tools,
+        defaultProvider: opts.defaultProvider,
+        defaultModelId: opts.defaultModelId,
+      }),
+    options,
+  );
+
 void import("@fusion/core")
   .then((core) => {
     if ("setCreateFnAgent" in core && typeof core.setCreateFnAgent === "function") {
@@ -136,6 +167,9 @@ void import("@fusion/core")
     }
     if ("setCreateAiSessionFactory" in core && typeof core.setCreateAiSessionFactory === "function") {
       core.setCreateAiSessionFactory(_createAiSessionAdapter);
+    }
+    if ("setCreateInteractiveAiSessionFactory" in core && typeof core.setCreateInteractiveAiSessionFactory === "function") {
+      core.setCreateInteractiveAiSessionFactory(_createInteractiveAiSessionAdapter);
     }
   })
   .catch(() => {

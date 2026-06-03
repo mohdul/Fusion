@@ -61,6 +61,8 @@ export {
   getFnAgent,
   setCreateAiSessionFactory,
   getCreateAiSessionFactory,
+  setCreateInteractiveAiSessionFactory,
+  getCreateInteractiveAiSessionFactory,
   type AgentMessage,
 } from "./ai-engine-loader.js";
 export {
@@ -524,6 +526,11 @@ export type {
   CreateAiSessionOptions,
   AiSessionResult,
   CreateAiSessionFactory,
+  CreateInteractiveAiSessionOptions,
+  InteractiveAiSessionEvent,
+  InteractiveAiSession,
+  CreateInteractiveAiSessionResult,
+  CreateInteractiveAiSessionFactory,
   PluginLogger,
   PluginSkillContribution,
   PluginWorkflowStepContribution,
