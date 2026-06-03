@@ -449,6 +449,14 @@ function InnerEditor({
                           <p className="wf-inspector-note wf-inspector-note--info">
                             Runs an arbitrary command in the task worktree. The first time this exact command runs, the task pauses for your approval. The node prompt is passed via FUSION_NODE_PROMPT.
                           </p>
+                          <label className="wf-field wf-field--checkbox">
+                            <input
+                              type="checkbox"
+                              checked={selectedNode.data.config?.cliSkipApproval === true}
+                              onChange={(e) => updateSelectedData({ config: { cliSkipApproval: e.target.checked } })}
+                            />
+                            <span>Skip first-run approval (runs without pausing)</span>
+                          </label>
                         </label>
                       ) : (
                         <label className="wf-field">

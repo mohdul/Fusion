@@ -3479,9 +3479,11 @@ export class TaskExecutor {
     } else if (executorKind === "cli") {
       const rawCommand = typeof cfg.cliCommand === "string" && cfg.cliCommand.trim() ? cfg.cliCommand.trim() : undefined;
       if (rawCommand) {
-        // Arbitrary command: gated by trust-on-first-use approval. The exact
-        // command string must have been explicitly approved by the user.
-        if (!(await this.store.isWorkflowCliCommandApproved(rawCommand))) {
+        // Arbitrary command: gated by trust-on-first-use approval unless the
+        // node explicitly opts out (cliSkipApproval). The exact command string
+        // must otherwise have been approved by the user.
+        const skipApproval = cfg.cliSkipApproval === true;
+        if (!skipApproval && !(await this.store.isWorkflowCliCommandApproved(rawCommand))) {
           return this.pauseForCliApproval(node, live, rawCommand);
         }
         const env = prompt ? { ...process.env, FUSION_NODE_PROMPT: prompt } : undefined;
