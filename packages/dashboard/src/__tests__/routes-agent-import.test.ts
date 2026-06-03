@@ -384,6 +384,23 @@ describe("POST /api/agents/import", () => {
     expect(body.warnings[0]).toContain("executor");
   });
 
+  it("includes the custom-role warning on a live (non-dry-run) import too (issue #1261)", async () => {
+    mockListAgents.mockResolvedValue([]);
+
+    const response = await postImport(app, {
+      manifest: "---\nname: YAML Agent\n---\nInstructions",
+    });
+
+    expect(response.status).toBe(200);
+    const body = response.body as any;
+    // Live import actually persists the agent...
+    expect(body.created).toHaveLength(1);
+    // ...and still surfaces the warning (the path the dry-run test can't cover).
+    expect(Array.isArray(body.warnings)).toBe(true);
+    expect(body.warnings[0]).toContain("custom");
+    expect(body.warnings[0]).toContain("executor");
+  });
+
   it("does not warn when an eligible executor agent already exists", async () => {
     mockListAgents.mockResolvedValue([
       { id: "exec-1", name: "Executor", role: "executor", state: "idle", metadata: {} },
