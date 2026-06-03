@@ -62,6 +62,26 @@ A recurring background scan that detects and repairs stuck Task states — stall
 ### Shared branch group
 A set of Tasks integrating into a common shared branch instead of each merging straight to the project's default branch. Member integration (task branch → shared branch) is a soft pre-integration step exempt from the global auto-merge gate; promotion (shared branch → default branch) is gated separately.
 
+## Compound Engineering sessions
+
+### CE Stage
+A registered step of the compound-engineering pipeline (e.g. brainstorm, plan, work, compound), each mapped to a bundled skill and a conventional artifact location. Adding a stage is a registry data entry, not new code surface.
+
+### CE Session
+A single interactive run of a CE Stage: an agent drives a question/answer flow with the user and produces the stage's artifact on completion. Sessions are independent pipeline runs — many can exist concurrently, each with its own lifecycle (launching, active, awaiting-input, completed, error, interrupted) and conversation history. A completed work-stage CE Session lands derived Tasks on the board, linked back to the session for provenance.
+
+### Detached turn
+The execution posture for CE Session agent turns: the request that triggers a turn returns as soon as the session reflects it, and the turn runs in the background while clients converge through push events and polling. A detached turn never rejects — every failure persists into session state and emits an observable event, so progress is never silently lost.
+
+### Live activity
+The transient working output of an in-flight agent turn — accumulated thinking, streamed text, and tool execution markers. It is observable while the turn runs but is not session state; when the turn settles or is interrupted, a condensed trace is folded into the conversation history so the transcript keeps the story.
+
+### Steering
+The user's mid-stage feedback channel: free-text guidance attached to an answer, or sent on its own without answering the pending question. Agents treat steering as first-class input — incorporate it, adjust course, and either re-ask or proceed.
+
+### Rehydration
+Re-establishing a live agent handle for a paused CE Session by replaying its recorded conversation against the model. Replay is side-effect-suppressed: it reconstructs the agent's context without re-emitting events, re-streaming Live activity, or re-writing artifacts.
+
 ## Flagged ambiguities
 
 - "Merging" a shared-branch-group Task had been used for both member integration and group promotion — these are distinct steps with independent gating and must not be conflated.
