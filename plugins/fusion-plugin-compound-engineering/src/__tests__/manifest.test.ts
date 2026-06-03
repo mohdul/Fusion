@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import manifest from "../../manifest.json";
 import plugin from "../index.js";
+import { COMPOUND_ENGINEERING_SKILLS } from "../skills.js";
 
 describe("compound engineering plugin manifest", () => {
   it("exports expected plugin id", () => {
@@ -30,8 +31,33 @@ describe("compound engineering plugin manifest", () => {
     expect(manifest.dashboardViews).toEqual(plugin.dashboardViews);
   });
 
-  it("ships an empty hooks/routes scaffold (U1)", () => {
-    expect(plugin.hooks).toEqual({});
+  it("ships an empty routes scaffold (U1)", () => {
     expect(plugin.routes).toEqual([]);
+  });
+
+  it("registers the bundled CE pipeline-stage skills on plugin and manifest (U2)", () => {
+    const expectedIds = [
+      "ce-strategy",
+      "ce-ideate",
+      "ce-brainstorm",
+      "ce-plan",
+      "ce-work",
+      "ce-code-review",
+      "ce-compound",
+    ];
+    expect(COMPOUND_ENGINEERING_SKILLS.map((s) => s.skillId)).toEqual(expectedIds);
+    expect(plugin.skills).toBe(COMPOUND_ENGINEERING_SKILLS);
+    // Manifest mirrors agent-browser: { skillId, name } projection.
+    expect(plugin.manifest.skills).toEqual(
+      COMPOUND_ENGINEERING_SKILLS.map((s) => ({ skillId: s.skillId, name: s.name })),
+    );
+    // Each contribution points at a plugin-root-relative bundled SKILL.md.
+    for (const s of COMPOUND_ENGINEERING_SKILLS) {
+      expect(s.skillFiles).toEqual([`skills/${s.skillId}/SKILL.md`]);
+    }
+  });
+
+  it("registers an onLoad hook that installs bundled skills (U2)", () => {
+    expect(typeof plugin.hooks?.onLoad).toBe("function");
   });
 });
