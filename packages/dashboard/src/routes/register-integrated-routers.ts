@@ -13,7 +13,8 @@ import { createDevServerRouter } from "../dev-server-routes.js";
 import type { AiSessionStore } from "../ai-session-store.js";
 import { createStashRecoveryRouter } from "./register-stash-recovery-routes.js";
 import { createBranchGroupsRouter } from "./register-branch-groups-routes.js";
-import { GitHubClient, closeGroupPullRequest } from "../github.js";
+import { GitHubClient, closeGroupPullRequest, reconcileGroupPullRequest } from "../github.js";
+import { reconcileBranchGroupPr } from "@fusion/engine";
 
 interface IntegratedRoutersOptions {
   router: Router;
@@ -64,9 +65,24 @@ export function registerIntegratedRouters({
       if (group.prNumber == null) {
         return null;
       }
-      const client = new GitHubClient();
+      // Fix #1: forward the configured token so token-only environments (no gh
+      // CLI) can still close the PR.
+      const client = new GitHubClient(options?.githubToken);
       const result = await closeGroupPullRequest(client, group);
       return { prNumber: result.prNumber, prUrl: result.prUrl, prState: result.prState };
+    },
+    reconcileGroupPr: async ({ group }) => {
+      // Fix #3: flip prState when the managed PR was merged/closed out-of-band.
+      // Build a read-only SyncGroupPrFn over the GitHub client (mirrors the CLI's
+      // syncGroupPrCallback shape) and delegate persistence to the engine's
+      // reconcileBranchGroupPr primitive.
+      const client = new GitHubClient(options?.githubToken);
+      await reconcileBranchGroupPr({
+        store,
+        group,
+        syncGroupPr: async ({ group: g }) => reconcileGroupPullRequest(client, g),
+      });
+      return store.getBranchGroup(group.id) ?? group;
     },
   }));
 }

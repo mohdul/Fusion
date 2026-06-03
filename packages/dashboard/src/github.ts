@@ -3848,6 +3848,31 @@ export interface CreateGroupPrResult {
 }
 
 /**
+ * Read-only reconciliation of the single managed group PR against GitHub (Fix
+ * #3). Reads the current PR status and maps it to the persisted `prState`. Used
+ * by the dashboard's single-group read path (`GET /branch-groups/:id`) to flip
+ * `prState` → merged/closed when the PR was merged/closed out-of-band. Does not
+ * mutate the PR; if GitHub still reports it open, returns the open state so the
+ * caller writes nothing.
+ */
+export async function reconcileGroupPullRequest(
+  github: Pick<GitHubClient, "getPrStatus">,
+  group: Pick<BranchGroup, "id" | "prNumber">,
+): Promise<CreateGroupPrResult> {
+  const prNumber = group.prNumber;
+  if (prNumber == null) {
+    throw new Error(`reconcileGroupPullRequest: group ${group.id} has no persisted prNumber`);
+  }
+  const { owner, repo } = getCurrentRepoOrThrow();
+  const current = await github.getPrStatus(owner, repo, prNumber);
+  return {
+    prNumber: current.number,
+    prUrl: current.url,
+    prState: prInfoToBranchGroupPrState(current),
+  };
+}
+
+/**
  * Close the single managed group PR (U6, R7) — best-effort terminal
  * reconciliation when a branch group is abandoned. If the PR is already
  * closed/merged out-of-band on GitHub, returns the reconciled state instead of

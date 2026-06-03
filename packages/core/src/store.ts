@@ -9,6 +9,7 @@ import { VALID_TRANSITIONS, DEFAULT_SETTINGS, isGlobalOnlySettingsKey, WORKFLOW_
 import { DEFAULT_PROJECT_SETTINGS } from "./settings-schema.js";
 import { resolveWorktrunkSettings, validateWorktrunkSettings } from "./worktrunk-settings.js";
 import { normalizeTaskPriority } from "./task-priority.js";
+import { validateBranchGroupBranchName, filterTasksByBranchGroup } from "./branch-assignment.js";
 import { canAgentTakeImplementationTaskForExplicitRouting } from "./agent-role-policy.js";
 import { GlobalSettingsStore } from "./global-settings.js";
 import { Database, SCHEMA_VERSION, toJson, toJsonNullable, fromJson } from "./db.js";
@@ -4336,6 +4337,9 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   }
 
   createBranchGroup(input: BranchGroupCreateInput): BranchGroup {
+    // Fix #11: reject injection-shaped branch names at the persistence boundary
+    // so they can never reach a downstream git/shell sink (coordinator, merger).
+    validateBranchGroupBranchName(input.branchName);
     const now = Date.now();
     const id = this.generateBranchGroupId();
     this.db.prepare(`
@@ -4474,23 +4478,13 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
 
   async listTasksByBranchGroup(groupId: string): Promise<Task[]> {
     const tasks = await this.listTasks({ includeArchived: false, slim: true });
-    // LEGACY SHIM (removable): groups created before the membership-identity fix
-    // stamped branchContext.groupId with a synthetic string (`planning:<sourceId>` /
-    // `mission:<sourceId>`) instead of the real `BG-` id. Derive that synthetic form
-    // from the group's source so those old rows still enumerate. New rows match on the
-    // real id directly; this fallback can be deleted once no legacy groups remain.
+    // Membership filter (incl. legacy synthetic-groupId fallback) is shared with
+    // the dashboard list route via `filterTasksByBranchGroup` so semantics can't
+    // drift between the two call sites (Fix #8/#9).
     const group = this.getBranchGroup(groupId);
-    const legacyGroupId =
-      group && (group.sourceType === "planning" || group.sourceType === "mission")
-        ? `${group.sourceType}:${group.sourceId}`
-        : undefined;
-    return tasks
-      .filter(
-        (task) =>
-          task.branchContext?.groupId === groupId ||
-          (legacyGroupId !== undefined && task.branchContext?.groupId === legacyGroupId),
-      )
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return filterTasksByBranchGroup(tasks, group, groupId).sort((a, b) =>
+      a.createdAt.localeCompare(b.createdAt),
+    );
   }
 
   recordBranchGroupMemberLanded(

@@ -13,9 +13,10 @@
  * - Full PR lifecycle orchestration (create → status check → merge)
  */
 
-import { exec } from "node:child_process";
+import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 import type { TaskStore } from "@fusion/core";
 import { resolveTaskMergeTarget, getCurrentRepo, isBranchGroupMemberLanded } from "@fusion/core";
 import type { Settings, TaskDetail, PrInfo, MergeResult, BranchGroup, BranchGroupPrState, Task } from "@fusion/core";
@@ -107,7 +108,9 @@ async function pushTaskBranchToOrigin(cwd: string, branch: string): Promise<void
   }
 
   try {
-    await execAsync(`git push -u origin "${branch}"`, {
+    // No-shell invocation (Fix #11): pass the branch as a discrete argv entry so a
+    // crafted branch name (e.g. `$(...)`) cannot be interpreted by a shell.
+    await execFileAsync("git", ["push", "-u", "origin", branch], {
       cwd,
       timeout: 60_000,
     });

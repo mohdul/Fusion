@@ -16,7 +16,7 @@ vi.mock("@fusion/core", async () => {
 });
 
 import { runGh, runGhJsonAsync, isGhAvailable, isGhAuthenticated } from "@fusion/core";
-import { GitHubClient, closeGroupPullRequest } from "../github.js";
+import { GitHubClient, closeGroupPullRequest, reconcileGroupPullRequest } from "../github.js";
 
 const mockRunGh = vi.mocked(runGh);
 const mockRunGhJsonAsync = vi.mocked(runGhJsonAsync);
@@ -70,5 +70,31 @@ describe("closeGroupPullRequest", () => {
     const result = await closeGroupPullRequest(client, { id: group.id, prNumber: group.prNumber });
     expect(result.prState).toBe("merged");
     expect(mockRunGh.mock.calls.find((c) => c[0]?.[1] === "close")).toBeUndefined();
+  });
+});
+
+describe("reconcileGroupPullRequest (Fix #3)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsGhAvailable.mockReturnValue(true);
+    mockIsGhAuthenticated.mockReturnValue(true);
+  });
+
+  it("maps a merged GitHub PR to prState=merged without mutating it", async () => {
+    mockRunGhJsonAsync.mockResolvedValue({ ...ghPrViewOpen, state: "MERGED" } as any);
+    const client = new GitHubClient({ forceMode: undefined as never });
+
+    const result = await reconcileGroupPullRequest(client, { id: group.id, prNumber: group.prNumber });
+    expect(result.prState).toBe("merged");
+    // Pure read — never edits or closes.
+    expect(mockRunGh.mock.calls.find((c) => c[0]?.[1] === "close" || c[0]?.[1] === "edit")).toBeUndefined();
+  });
+
+  it("returns prState=open for a still-open PR", async () => {
+    mockRunGhJsonAsync.mockResolvedValue(ghPrViewOpen as any);
+    const client = new GitHubClient({ forceMode: undefined as never });
+
+    const result = await reconcileGroupPullRequest(client, { id: group.id, prNumber: group.prNumber });
+    expect(result.prState).toBe("open");
   });
 });

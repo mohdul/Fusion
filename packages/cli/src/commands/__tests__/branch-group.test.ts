@@ -14,8 +14,10 @@ vi.mock("@fusion/engine", () => ({
 
 // The canonical completion predicate lives in @fusion/core; keep its real
 // behavior so the CLI gate matches the dashboard route gate (parity).
+const closeGroupPullRequestMock = vi.fn(async () => ({ prNumber: 55, prUrl: "https://example/pr/55", prState: "closed" as const }));
 vi.mock("@fusion/dashboard", () => ({
   GitHubClient: vi.fn(function GitHubClient() {}),
+  closeGroupPullRequest: (...args: unknown[]) => closeGroupPullRequestMock(...args),
 }));
 
 const createGroupPrCallbackMock = vi.fn(() => async () => ({ prNumber: 1, prUrl: "x", prState: "open" as const }));
@@ -24,7 +26,7 @@ vi.mock("../task-lifecycle.js", () => ({
 }));
 
 import { resolveProject } from "../../project-context.js";
-import { runBranchGroupPromote, runBranchGroupList } from "../branch-group.js";
+import { runBranchGroupPromote, runBranchGroupList, runBranchGroupAbandon } from "../branch-group.js";
 
 const LANDED_TASK = {
   id: "FN-1",
@@ -51,6 +53,7 @@ function makeStore(group: Record<string, unknown>, members: unknown[]) {
     getBranchGroup: vi.fn(() => group),
     listBranchGroups: vi.fn(() => [group]),
     listTasksByBranchGroup: vi.fn(async () => members),
+    updateBranchGroup: vi.fn((_id: string, patch: Record<string, unknown>) => ({ ...group, ...patch })),
     getSettings: vi.fn(async () => ({
       autoMerge: false,
       globalPause: false,
@@ -172,5 +175,88 @@ describe("branch-group CLI promote (agent-native parity)", () => {
     expect(out).toContain("BG-1");
     expect(out).toContain("feature/shared");
     expect(out).toContain("PR open");
+  });
+});
+
+describe("branch-group CLI abandon (agent-native parity, Fix #7)", () => {
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let errSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    closeGroupPullRequestMock.mockClear();
+    exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`process.exit(${code})`);
+    }) as never);
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    exitSpy.mockRestore();
+    logSpy.mockRestore();
+    errSpy.mockRestore();
+    vi.mocked(resolveProject).mockReset();
+  });
+
+  function mountStore(group: Record<string, unknown>) {
+    const store = makeStore(group, []);
+    vi.mocked(resolveProject).mockResolvedValue({
+      projectId: "p", projectPath: "/tmp/p", projectName: "p", isRegistered: true, store: store as never,
+    });
+    return store;
+  }
+
+  it("closes the managed PR and marks the group abandoned/closed", async () => {
+    const store = mountStore({ ...BASE_GROUP, prState: "open", prNumber: 55, prUrl: "https://example/pr/55" });
+
+    await runBranchGroupAbandon("BG-1");
+
+    expect(closeGroupPullRequestMock).toHaveBeenCalledTimes(1);
+    expect(store.updateBranchGroup).toHaveBeenCalledWith(
+      "BG-1",
+      expect.objectContaining({ status: "abandoned", prState: "closed" }),
+    );
+    expect(logSpy.mock.calls.flat().join("\n")).toContain("abandoned");
+  });
+
+  it("abandons without touching GitHub when there is no open PR", async () => {
+    const store = mountStore({ ...BASE_GROUP, prState: "none", prNumber: undefined });
+
+    await runBranchGroupAbandon("BG-1");
+
+    expect(closeGroupPullRequestMock).not.toHaveBeenCalled();
+    expect(store.updateBranchGroup).toHaveBeenCalledWith(
+      "BG-1",
+      expect.objectContaining({ status: "abandoned", prState: "closed" }),
+    );
+  });
+
+  it("still marks abandoned when the PR close fails (best-effort)", async () => {
+    const store = mountStore({ ...BASE_GROUP, prState: "open", prNumber: 55 });
+    closeGroupPullRequestMock.mockRejectedValueOnce(new Error("github down"));
+
+    await runBranchGroupAbandon("BG-1");
+
+    expect(store.updateBranchGroup).toHaveBeenCalledWith(
+      "BG-1",
+      expect.objectContaining({ status: "abandoned", prState: "closed" }),
+    );
+  });
+
+  it("rejects abandon of an already-merged group (terminal-state guard)", async () => {
+    const store = mountStore({ ...BASE_GROUP, prState: "merged", status: "open" });
+
+    await expect(runBranchGroupAbandon("BG-1")).rejects.toThrow(/process.exit/);
+    expect(closeGroupPullRequestMock).not.toHaveBeenCalled();
+    expect(store.updateBranchGroup).not.toHaveBeenCalled();
+    expect(errSpy.mock.calls.flat().join("\n")).toMatch(/finalized\/merged/);
+  });
+
+  it("rejects abandon of an already-abandoned group", async () => {
+    const store = mountStore({ ...BASE_GROUP, status: "abandoned", prState: "closed" });
+
+    await expect(runBranchGroupAbandon("BG-1")).rejects.toThrow(/process.exit/);
+    expect(store.updateBranchGroup).not.toHaveBeenCalled();
   });
 });

@@ -4,6 +4,10 @@ import { EventEmitter } from "node:events";
 // Mock child_process so we can intercept the `git push -u origin <branch>`
 // call that processPullRequestMergeTask issues before createPr.
 const execMock = vi.hoisted(() => vi.fn());
+// Records raw (file, args[]) tuples for execFile so tests can assert a no-shell
+// invocation (Fix #11) — i.e. the branch is a discrete argv entry, not shell-
+// interpolated.
+const execFileCalls = vi.hoisted(() => [] as Array<{ file: string; args: string[] }>);
 vi.mock("node:child_process", () => ({
   exec: (cmd: string, opts: unknown, cb: (err: Error | null, stdout: string, stderr: string) => void) => {
     try {
@@ -15,6 +19,7 @@ vi.mock("node:child_process", () => ({
   },
   execFile: (file: string, args: string[] | undefined, opts: unknown, cb: (err: Error | null, stdout: string, stderr: string) => void) => {
     try {
+      execFileCalls.push({ file, args: args ?? [] });
       const result = execMock(`${file} ${(args ?? []).join(" ")}`.trim(), opts);
       cb(null, typeof result === "string" ? result : "", "");
     } catch (err) {
@@ -114,6 +119,7 @@ function makeStatefulStore(task: MockTask, settings: Record<string, unknown> = {
 describe("processPullRequestMergeTask", () => {
   beforeEach(() => {
     execMock.mockReset();
+    execFileCalls.length = 0;
   });
 
   it("pushes the per-task branch to origin before creating a new PR", async () => {
@@ -169,12 +175,21 @@ describe("processPullRequestMergeTask", () => {
     expect(github.findPrForBranch).toHaveBeenCalled();
 
     // The git push must happen after findPrForBranch and before createPr.
-    const pushIdx = callOrder.findIndex((c) => c === `exec:git push -u origin "${branch}"`);
+    // No-shell invocation (Fix #11): the branch is now a discrete execFile arg, so
+    // there are no surrounding quotes in the recorded command string.
+    const pushIdx = callOrder.findIndex((c) => c === `exec:git push -u origin ${branch}`);
     const findIdx = callOrder.indexOf("findPrForBranch");
     const createIdx = callOrder.indexOf("createPr");
     expect(pushIdx).toBeGreaterThan(-1);
     expect(pushIdx).toBeGreaterThan(findIdx);
     expect(pushIdx).toBeLessThan(createIdx);
+
+    // The push goes through execFile with the branch as a separate argv entry —
+    // never interpolated into a shell command — so a crafted branch name can't
+    // execute a subshell.
+    const pushCall = execFileCalls.find((c) => c.file === "git" && c.args[0] === "push");
+    expect(pushCall).toBeDefined();
+    expect(pushCall!.args).toEqual(["push", "-u", "origin", branch]);
   });
 
   it("creates shared-group PR from integration branch into default branch", async () => {

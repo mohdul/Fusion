@@ -1,6 +1,6 @@
 import { Router, type Request } from "express";
-import type { BranchGroup, TaskStore } from "@fusion/core";
-import { isBranchGroupComplete, isBranchGroupMemberLanded } from "@fusion/core";
+import type { BranchGroup, Task, TaskStore } from "@fusion/core";
+import { isBranchGroupComplete, isBranchGroupMemberLanded, filterTasksByBranchGroup } from "@fusion/core";
 import { badRequest, notFound } from "../api-error.js";
 
 export interface BranchGroupsRouterOptions {
@@ -16,6 +16,18 @@ export interface BranchGroupsRouterOptions {
     group: BranchGroup;
     projectId?: string;
   }) => Promise<{ prNumber: number; prUrl: string; prState: BranchGroup["prState"] } | null>;
+  /**
+   * Out-of-band PR reconciliation on single-group read (Fix #3): when a group has
+   * an open managed PR, this is invoked best-effort before serialization so a PR
+   * merged/closed directly on GitHub flips `prState` accordingly. Wired over the
+   * engine's `reconcileBranchGroupPr` + a GitHub-backed `SyncGroupPrFn`. Omitted
+   * (or throwing) leaves the persisted state untouched. Only the single-group
+   * GET path calls this — the list stays cheap.
+   */
+  reconcileGroupPr?: (input: {
+    group: BranchGroup;
+    projectId?: string;
+  }) => Promise<BranchGroup>;
 }
 
 function parseProjectId(req: Request): string | undefined {
@@ -23,8 +35,18 @@ function parseProjectId(req: Request): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-async function serializeGroup(store: TaskStore, group: BranchGroup) {
-  const members = await store.listTasksByBranchGroup(group.id);
+/**
+ * Serialize a single group. Pass `allTasks` to filter membership in memory from a
+ * single up-front `listTasks` call (list route, Fix #8/#9 — avoids the N+1 scan);
+ * omit it to fall back to a per-group `listTasksByBranchGroup` scan (single-group
+ * read / abandon, where one scan is fine).
+ */
+async function serializeGroup(store: TaskStore, group: BranchGroup, allTasks?: Task[]) {
+  const members = allTasks
+    ? filterTasksByBranchGroup(allTasks, group, group.id).sort((a, b) =>
+        a.createdAt.localeCompare(b.createdAt),
+      )
+    : await store.listTasksByBranchGroup(group.id);
   const memberRows = members.map((task) => ({
     taskId: task.id,
     title: task.title ?? task.description,
@@ -54,15 +76,31 @@ export function createBranchGroupsRouter(store: TaskStore, options?: BranchGroup
     }
 
     const groups = store.listBranchGroups(status ? { status: status as BranchGroup["status"] } : undefined);
-    const data = await Promise.all(groups.map((group) => serializeGroup(store, group)));
+    // Fix #8/#9: fetch tasks ONCE and filter per group in memory rather than one
+    // full scan per group (the old N+1). Membership semantics (incl. legacy
+    // synthetic-groupId fallback) come from the shared `filterTasksByBranchGroup`.
+    const allTasks = await store.listTasks({ includeArchived: false, slim: true });
+    const data = await Promise.all(groups.map((group) => serializeGroup(store, group, allTasks)));
     res.json({ groups: data });
   });
 
   router.get("/:id", async (req, res) => {
     const id = String(req.params.id ?? "").trim();
     if (!id) throw badRequest("id is required");
-    const group = store.getBranchGroup(id);
+    let group = store.getBranchGroup(id);
     if (!group) throw notFound("Branch group not found");
+
+    // Fix #3: reconcile an out-of-band merged/closed PR before serializing so the
+    // response reflects the real GitHub state. Best-effort — a reconcile failure
+    // must not break the read; we serialize the (possibly stale) persisted state.
+    if (group.prNumber != null && group.prState === "open" && options?.reconcileGroupPr) {
+      try {
+        group = await options.reconcileGroupPr({ group, projectId: parseProjectId(req) });
+      } catch {
+        group = store.getBranchGroup(id) ?? group;
+      }
+    }
+
     res.json({ group: await serializeGroup(store, group) });
   });
 
@@ -130,7 +168,15 @@ export function createBranchGroupsRouter(store: TaskStore, options?: BranchGroup
     const group = store.getBranchGroup(id);
     if (!group) throw notFound("Branch group not found");
 
-    let prState: BranchGroup["prState"] = group.prState === "merged" ? "merged" : "closed";
+    // Fix #2: a finalized or already-merged group is terminal and must not be
+    // flipped to abandoned/closed (mirrors the promote route's gate style).
+    if (group.status === "finalized" || group.prState === "merged") {
+      throw badRequest("Branch group is already finalized or merged and cannot be abandoned");
+    }
+
+    // The guard above already rejected `prState === "merged"`, so abandon always
+    // resolves to "closed" unless the GitHub reconcile below reports otherwise.
+    let prState: BranchGroup["prState"] = "closed";
     let prNumber = group.prNumber;
     let prUrl = group.prUrl;
 

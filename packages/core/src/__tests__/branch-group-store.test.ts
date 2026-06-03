@@ -84,6 +84,20 @@ describe("TaskStore branch groups", () => {
     ).toThrow();
   });
 
+  it("rejects injection-shaped branch names at createBranchGroup (Fix #11)", () => {
+    for (const bad of ["$(touch /tmp/x)", "`cmd`", "feature; rm -rf /", "has space", "a|b"]) {
+      expect(() =>
+        store.createBranchGroup({ sourceType: "planning", sourceId: `bad-${bad}`, branchName: bad }),
+      ).toThrow(/Invalid branch group branch name/);
+    }
+    // ensureBranchGroupForSource shares the createBranchGroup path → also rejected.
+    expect(() =>
+      store.ensureBranchGroupForSource("planning", "PS-inj", { branchName: "$(evil)", autoMerge: false }),
+    ).toThrow(/Invalid branch group branch name/);
+    // Legitimate names still pass.
+    expect(store.createBranchGroup({ sourceType: "planning", sourceId: "PS-good", branchName: "feature/auth-shared" }).branchName).toBe("feature/auth-shared");
+  });
+
   it("finds open branch groups by branch name and ignores closed groups", () => {
     expect(store.getBranchGroupByBranchName("fn/missing")).toBeNull();
 

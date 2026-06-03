@@ -6,6 +6,9 @@ export {
   sanitizeBranchSegment,
   derivePerTaskBranchName,
   deriveAutoTaskBranchName,
+  isValidBranchGroupBranchName,
+  validateBranchGroupBranchName,
+  filterTasksByBranchGroup,
 } from "./branch-assignment.js";
 export type {
   EntryPointAssignmentMode,

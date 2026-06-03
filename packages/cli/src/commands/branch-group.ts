@@ -1,6 +1,6 @@
 import { TaskStore, isBranchGroupComplete, isBranchGroupMemberLanded, type BranchGroup, type Settings } from "@fusion/core";
 import { promoteBranchGroup, resolveIntegrationBranch } from "@fusion/engine";
-import { GitHubClient } from "@fusion/dashboard";
+import { GitHubClient, closeGroupPullRequest } from "@fusion/dashboard";
 import { resolveProject } from "../project-context.js";
 import { createGroupPrCallback } from "./task-lifecycle.js";
 
@@ -106,6 +106,49 @@ export async function runBranchGroupShow(id: string, projectName?: string) {
     console.log(`      ${mark} ${member.taskId}  ${member.title} [${member.column}]`);
   }
   console.log();
+}
+
+export async function runBranchGroupAbandon(id: string, projectName?: string) {
+  const { store } = await getBranchGroupContext(projectName);
+  const group = store.getBranchGroup(id);
+  if (!group) {
+    console.error(`\n  ✗ Branch group ${id} not found\n`);
+    process.exit(1);
+  }
+
+  // Terminal-state guard — same semantics as the dashboard abandon route (Fix #2):
+  // a finalized/merged or already-abandoned group cannot be abandoned.
+  if (group.status === "abandoned" || group.status === "finalized" || group.prState === "merged") {
+    console.error(`\n  ✗ Branch group ${id} is already ${group.status === "abandoned" ? "abandoned" : "finalized/merged"} and cannot be abandoned\n`);
+    process.exit(1);
+  }
+
+  let prState: BranchGroup["prState"] = "closed";
+  let prNumber = group.prNumber;
+  let prUrl = group.prUrl;
+
+  // Best-effort close of the single managed GitHub PR (R7). If it fails, still
+  // mark the row abandoned/closed and leave the PR for out-of-band reconciliation.
+  if (group.prState === "open" && group.prNumber != null) {
+    try {
+      const github = new GitHubClient(process.env.GITHUB_TOKEN);
+      const reconciled = await closeGroupPullRequest(github, group);
+      prState = reconciled.prState;
+      prNumber = reconciled.prNumber;
+      prUrl = reconciled.prUrl;
+    } catch (err) {
+      console.error(`  ! Could not close GitHub PR (left for out-of-band reconciliation): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  const updated = store.updateBranchGroup(id, {
+    status: "abandoned",
+    prState,
+    prNumber: prNumber ?? null,
+    prUrl: prUrl ?? null,
+  });
+
+  console.log(`\n  ✓ Branch group ${updated.id} abandoned (status: ${updated.status}, prState: ${updated.prState})\n`);
 }
 
 export async function runBranchGroupPromote(id: string, projectName?: string) {

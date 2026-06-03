@@ -124,7 +124,7 @@ async function loadCommandHandlers() {
   const { runSettingsExport } = await import("./commands/settings-export.js");
   const { runSettingsImport } = await import("./commands/settings-import.js");
   const { runGitStatus, runGitFetch, runGitPull, runGitPush } = await import("./commands/git.js");
-  const { runBranchGroupList, runBranchGroupShow, runBranchGroupPromote } = await import("./commands/branch-group.js");
+  const { runBranchGroupList, runBranchGroupShow, runBranchGroupPromote, runBranchGroupAbandon } = await import("./commands/branch-group.js");
   const { runBackupCreate, runBackupList, runBackupRestore, runBackupCleanup } = await import("./commands/backup.js");
   const { runMemoryBackupCreate, runMemoryBackupList, runMemoryBackupRestore } = await import("./commands/memory-backup.js");
   const { runMissionCreate, runMissionList, runMissionShow, runMissionDelete, runMissionActivateSlice, runMissionLinkGoal, runMissionUnlinkGoal, runMissionGoals } = await import("./commands/mission.js");
@@ -188,6 +188,7 @@ async function loadCommandHandlers() {
     runBranchGroupList,
     runBranchGroupShow,
     runBranchGroupPromote,
+    runBranchGroupAbandon,
     runBackupCreate,
     runBackupList,
     runBackupRestore,
@@ -373,6 +374,8 @@ PR:
   fn branch-group show <id>  Show a branch group's members and completion gate
   fn branch-group promote <id>
                              Promote a complete group (opens/links the single managed PR)
+  fn branch-group abandon <id>
+                             Abandon a group (best-effort closes the managed PR)
   fn agent stop <id>                Stop a running agent (pause execution)
   fn agent start <id>               Start a stopped agent (resume execution)
   fn agent import <path> [--dry-run] [--skip-existing]
@@ -634,6 +637,7 @@ async function main() {
     runBranchGroupList,
     runBranchGroupShow,
     runBranchGroupPromote,
+    runBranchGroupAbandon,
     runBackupCreate,
     runBackupList,
     runBackupRestore,
@@ -1591,9 +1595,18 @@ async function main() {
             await runBranchGroupPromote(id, projectName);
             break;
           }
+          case "abandon": {
+            const id = args[2];
+            if (!id) {
+              console.error("Usage: fn branch-group abandon <group-id>");
+              process.exit(1);
+            }
+            await runBranchGroupAbandon(id, projectName);
+            break;
+          }
           default:
             console.error(`Unknown subcommand: branch-group ${subcommand || ""}`);
-            console.log("Try: fn branch-group list | show <id> | promote <id>");
+            console.log("Try: fn branch-group list | show <id> | promote <id> | abandon <id>");
             process.exit(1);
         }
         break;

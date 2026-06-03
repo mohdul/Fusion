@@ -6,7 +6,21 @@ import type { BranchGroup, Task, TaskStore } from "@fusion/core";
 import { evaluateBranchGroupCompletion, ProjectEngine } from "@fusion/engine";
 import { createApiRoutes } from "../routes.js";
 import { createBranchGroupsRouter } from "../routes/register-branch-groups-routes.js";
+import { ApiError, sendErrorResponse } from "../api-error.js";
 import { request as REQUEST } from "../test-request.js";
+
+// Standalone routers (mounted without createApiRoutes) need the same error
+// middleware createApiRoutes provides, so thrown ApiErrors become HTTP responses
+// instead of hanging the request.
+function attachErrorHandler(app: express.Express) {
+  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (err instanceof ApiError) {
+      sendErrorResponse(res, err.statusCode, err.message, { details: err.details });
+      return;
+    }
+    sendErrorResponse(res, 500, err instanceof Error ? err.message : "Internal server error");
+  });
+}
 
 function buildTask(id: string, groupId: string, landed: boolean): Task {
   return {
@@ -30,6 +44,7 @@ function createStore(group: BranchGroup, tasks: Task[]): TaskStore {
     getRootDir: vi.fn(() => "/tmp/project"),
     listBranchGroups: vi.fn(() => [group]),
     getBranchGroup: vi.fn((id: string) => (id === group.id ? group : null)),
+    listTasks: vi.fn(async () => tasks),
     listTasksByBranchGroup: vi.fn(async () => tasks),
     setTaskBranchGroup: vi.fn(async () => {}),
     ensureBranchGroupForSource: vi.fn(() => group),
@@ -237,6 +252,7 @@ describe("branch group abandon (U6, R7)", () => {
     const app = express();
     app.use(express.json());
     app.use("/branch-groups", createBranchGroupsRouter(store, { closeGroupPr }));
+    attachErrorHandler(app);
     return app;
   }
 
@@ -276,16 +292,179 @@ describe("branch group abandon (U6, R7)", () => {
     expect(res.body.group.status).toBe("abandoned");
   });
 
-  it("preserves prState=merged on abandon if the group was already merged", async () => {
+  it("rejects abandon of an already-merged group with 400 (Fix #2)", async () => {
     const merged = { ...buildOpenGroup(), prState: "merged" as const };
-    const { store } = buildAbandonStore(merged);
+    const { store, updateBranchGroup } = buildAbandonStore(merged);
     const closeGroupPr = vi.fn();
     const app = mount(store, closeGroupPr as unknown as ReturnType<typeof vi.fn>);
 
     const res = await REQUEST(app, "POST", "/branch-groups/BG-AB/abandon", JSON.stringify({}), { "content-type": "application/json" });
-    expect(res.status).toBe(200);
-    // Already merged → do not close; keep merged terminal state.
+    // Terminal state — must not flip to abandoned/closed.
+    expect(res.status).toBe(400);
     expect(closeGroupPr).not.toHaveBeenCalled();
+    expect(updateBranchGroup).not.toHaveBeenCalled();
+  });
+
+  it("rejects abandon of a finalized group with 400 (Fix #2)", async () => {
+    const finalized = { ...buildOpenGroup(), status: "finalized" as const };
+    const { store, updateBranchGroup } = buildAbandonStore(finalized);
+    const closeGroupPr = vi.fn();
+    const app = mount(store, closeGroupPr as unknown as ReturnType<typeof vi.fn>);
+
+    const res = await REQUEST(app, "POST", "/branch-groups/BG-AB/abandon", JSON.stringify({}), { "content-type": "application/json" });
+    expect(res.status).toBe(400);
+    expect(closeGroupPr).not.toHaveBeenCalled();
+    expect(updateBranchGroup).not.toHaveBeenCalled();
+  });
+});
+
+describe("branch group reconcile-on-read (Fix #3)", () => {
+  function buildOpenGroup(): BranchGroup {
+    return {
+      id: "BG-RC",
+      sourceType: "planning",
+      sourceId: "PS-RC",
+      branchName: "feature/shared-rc",
+      autoMerge: false,
+      prState: "open",
+      prNumber: 77,
+      prUrl: "https://example/pr/77",
+      status: "open",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+  }
+
+  function buildStore(initial: BranchGroup) {
+    let current = { ...initial };
+    const store = {
+      getRootDir: vi.fn(() => "/tmp/project"),
+      getBranchGroup: vi.fn(() => current),
+      listTasksByBranchGroup: vi.fn(async () => [] as Task[]),
+      updateBranchGroup: vi.fn((_id: string, patch: Partial<BranchGroup>) => {
+        current = { ...current, ...patch };
+        return current;
+      }),
+    } as unknown as TaskStore;
+    return { store, getCurrent: () => current };
+  }
+
+  function mount(store: TaskStore, reconcileGroupPr?: ReturnType<typeof vi.fn>) {
+    const app = express();
+    app.use(express.json());
+    app.use("/branch-groups", createBranchGroupsRouter(store, { reconcileGroupPr }));
+    attachErrorHandler(app);
+    return app;
+  }
+
+  it("flips prState to merged and persists when the injected reconcile reports merged", async () => {
+    const { store, getCurrent } = buildStore(buildOpenGroup());
+    const reconcileGroupPr = vi.fn(async ({ group }: { group: BranchGroup }) => {
+      // Mirror the wired callback: persist via the store, then return fresh row.
+      store.updateBranchGroup(group.id, { prState: "merged", prNumber: 77, prUrl: group.prUrl ?? null });
+      return getCurrent();
+    });
+    const app = mount(store, reconcileGroupPr);
+
+    const res = await REQUEST(app, "GET", "/branch-groups/BG-RC");
+    expect(res.status).toBe(200);
+    expect(reconcileGroupPr).toHaveBeenCalledTimes(1);
     expect(res.body.group.prState).toBe("merged");
+    expect(getCurrent().prState).toBe("merged");
+  });
+
+  it("returns 200 with stale state when the reconcile callback throws", async () => {
+    const { store } = buildStore(buildOpenGroup());
+    const reconcileGroupPr = vi.fn(async () => { throw new Error("github down"); });
+    const app = mount(store, reconcileGroupPr);
+
+    const res = await REQUEST(app, "GET", "/branch-groups/BG-RC");
+    expect(res.status).toBe(200);
+    expect(reconcileGroupPr).toHaveBeenCalledTimes(1);
+    expect(res.body.group.prState).toBe("open");
+  });
+
+  it("does not reconcile when the group has no open PR", async () => {
+    const noPr = { ...buildOpenGroup(), prState: "none" as const, prNumber: undefined };
+    const { store } = buildStore(noPr);
+    const reconcileGroupPr = vi.fn();
+    const app = mount(store, reconcileGroupPr as unknown as ReturnType<typeof vi.fn>);
+
+    const res = await REQUEST(app, "GET", "/branch-groups/BG-RC");
+    expect(res.status).toBe(200);
+    expect(reconcileGroupPr).not.toHaveBeenCalled();
+  });
+});
+
+describe("branch group list N+1 elimination (Fix #6)", () => {
+  function buildGroups(): BranchGroup[] {
+    const base = {
+      sourceType: "planning" as const,
+      autoMerge: false,
+      prState: "open" as const,
+      status: "open" as const,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    return [
+      { ...base, id: "BG-A", sourceId: "PS-A", branchName: "feature/a" },
+      { ...base, id: "BG-B", sourceId: "PS-B", branchName: "feature/b" },
+      { ...base, id: "BG-C", sourceId: "PS-C", branchName: "feature/c" },
+    ];
+  }
+
+  // Landed requires mergeTargetBranch === the group's branchName, so build tasks
+  // with a branch that matches their group.
+  function memberTask(id: string, groupId: string, branchName: string, landed: boolean): Task {
+    return {
+      id,
+      description: id,
+      column: landed ? "done" : "in-progress",
+      dependencies: [],
+      steps: [],
+      currentStep: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      branchContext: { groupId, source: "planning", assignmentMode: "shared" },
+      mergeDetails: landed
+        ? { mergeConfirmed: true, mergeTargetSource: "branch-group-integration", mergeTargetBranch: branchName }
+        : undefined,
+    } as Task;
+  }
+
+  it("issues exactly ONE listTasks call regardless of group count, with identical results", async () => {
+    const groups = buildGroups();
+    const tasks: Task[] = [
+      memberTask("FN-A1", "BG-A", "feature/a", true),
+      memberTask("FN-A2", "BG-A", "feature/a", false),
+      memberTask("FN-B1", "BG-B", "feature/b", true),
+    ];
+    const listTasks = vi.fn(async () => tasks);
+    // listTasksByBranchGroup must NOT be used by the list route anymore.
+    const listTasksByBranchGroup = vi.fn(async (groupId: string) =>
+      tasks.filter((t) => t.branchContext?.groupId === groupId),
+    );
+    const store = {
+      getRootDir: vi.fn(() => "/tmp/project"),
+      listBranchGroups: vi.fn(() => groups),
+      getBranchGroup: vi.fn((id: string) => groups.find((g) => g.id === id) ?? null),
+      listTasks,
+      listTasksByBranchGroup,
+    } as unknown as TaskStore;
+
+    const app = express();
+    app.use(express.json());
+    app.use("/branch-groups", createBranchGroupsRouter(store));
+    attachErrorHandler(app);
+
+    const res = await REQUEST(app, "GET", "/branch-groups");
+    expect(res.status).toBe(200);
+    expect(listTasks).toHaveBeenCalledTimes(1);
+    expect(listTasksByBranchGroup).not.toHaveBeenCalled();
+
+    const byId = Object.fromEntries(res.body.groups.map((g: { id: string }) => [g.id, g]));
+    expect(byId["BG-A"].completion).toEqual({ landed: 1, total: 2, complete: false });
+    expect(byId["BG-B"].completion).toEqual({ landed: 1, total: 1, complete: true });
+    expect(byId["BG-C"].completion).toEqual({ landed: 0, total: 0, complete: false });
   });
 });
