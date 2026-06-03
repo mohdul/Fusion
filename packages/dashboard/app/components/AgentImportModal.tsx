@@ -43,6 +43,7 @@ interface ImportResult {
   skipped: string[];
   errors: Array<{ name: string; error: string }>;
   skills?: SkillImportResult;
+  warnings?: string[];
 }
 
 interface DirectoryAgentInput {
@@ -840,6 +841,17 @@ export function AgentImportModal({ isOpen, onClose, onImported, projectId, initi
                     <div key={idx} className="agent-import-result-error">
                       <X size={12} />
                       <span>{err.name}: {err.error}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {importResult.warnings && importResult.warnings.length > 0 && (
+                <div className="agent-import-result-warnings">
+                  {importResult.warnings.map((warning, idx) => (
+                    <div key={idx} className="agent-import-result-warning">
+                      <AlertTriangle size={12} />
+                      <span>{warning}</span>
                     </div>
                   ))}
                 </div>
