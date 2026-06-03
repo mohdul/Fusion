@@ -1,9 +1,9 @@
 {
   "settings": {
     "appearance": {
-      "title": "",
-      "language": "",
-      "languageHint": ""
+      "title": "Apparence",
+      "language": "Langue",
+      "languageHint": "Choisissez la langue de l'interface {{brand}}."
     }
   }
 }

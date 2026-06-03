@@ -1,9 +1,9 @@
 {
   "tui": {
-    "loading": "",
-    "quit": "",
-    "loadingTasks": "",
-    "noTasks": "",
-    "switchProjectsHint": ""
+    "loading": "Cargando…",
+    "loadingTasks": "Cargando tareas…",
+    "noTasks": "No hay tareas en este proyecto.",
+    "switchProjectsHint": "Pulsa [{{key}}] para cambiar de proyecto.",
+    "quit": "Salir"
   }
 }

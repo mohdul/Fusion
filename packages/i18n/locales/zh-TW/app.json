@@ -1,9 +1,9 @@
 {
   "settings": {
     "appearance": {
-      "title": "",
-      "language": "",
-      "languageHint": ""
+      "title": "外觀",
+      "language": "語言",
+      "languageHint": "選擇 {{brand}} 介面的語言。"
     }
   }
 }

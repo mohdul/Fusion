@@ -1,15 +1,15 @@
 {
   "columns": {
-    "triage": "",
-    "todo": "",
-    "in-progress": "",
-    "in-review": "",
-    "done": "",
-    "archived": ""
+    "triage": "Planificación",
+    "todo": "Por hacer",
+    "in-progress": "En progreso",
+    "in-review": "En revisión",
+    "done": "Hecho",
+    "archived": "Archivado"
   },
   "actions": {
-    "save": "",
-    "cancel": "",
-    "close": ""
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "close": "Cerrar"
   }
 }

@@ -1,9 +1,9 @@
 {
   "tui": {
-    "loading": "",
-    "quit": "",
-    "loadingTasks": "",
-    "noTasks": "",
-    "switchProjectsHint": ""
+    "loading": "加载中…",
+    "loadingTasks": "正在加载任务…",
+    "noTasks": "此项目中没有任务。",
+    "switchProjectsHint": "按 [{{key}}] 切换项目。",
+    "quit": "退出"
   }
 }
