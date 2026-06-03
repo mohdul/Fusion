@@ -65,7 +65,7 @@ async function filterToNodeProcesses(
     if (!Number.isFinite(pid) || pid <= 0) continue;
     const comm = trimmed.slice(spaceIdx + 1).trim();
     const executable = comm.split("/").pop() ?? comm;
-    if (executable === "node" || executable === "node.exe") {
+    if (executable === "node" || executable === "node.exe" || executable === "nodejs") {
       nodePids.push(pid);
     }
   }
