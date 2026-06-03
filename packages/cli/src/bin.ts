@@ -733,7 +733,9 @@ async function main() {
         const noAuth = args.includes("--no-auth");
         const dashTokenIdx = args.indexOf("--token");
         const token = dashTokenIdx !== -1 && dashTokenIdx + 1 < args.length ? args[dashTokenIdx + 1] : undefined;
-        await runDashboard(port, { paused, dev, interactive, host, noAuth, token });
+        const dashLangIdx = args.indexOf("--lang");
+        const lang = dashLangIdx !== -1 && dashLangIdx + 1 < args.length ? args[dashLangIdx + 1] : undefined;
+        await runDashboard(port, { paused, dev, interactive, host, noAuth, token, lang });
         break;
       }
 

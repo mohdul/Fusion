@@ -1,0 +1,69 @@
+import { Text } from "ink";
+import { render } from "ink-testing-library";
+import { createElement } from "react";
+import { I18nextProvider, useTranslation } from "react-i18next";
+import { describe, expect, it } from "vitest";
+import { cliI18n, detectEnvLocale, initCliI18n, resolveCliLocale } from "../index.js";
+
+describe("detectEnvLocale", () => {
+  it("parses POSIX locale env values to a supported locale", () => {
+    expect(detectEnvLocale({ LANG: "fr_FR.UTF-8" })).toBe("fr");
+    expect(detectEnvLocale({ LC_ALL: "es_ES.UTF-8" })).toBe("es");
+    expect(detectEnvLocale({ LANG: "zh_CN.UTF-8" })).toBe("zh-CN");
+    expect(detectEnvLocale({ LANG: "zh_TW" })).toBe("zh-TW");
+  });
+
+  it("honors precedence LC_ALL > LC_MESSAGES > LANG > LANGUAGE", () => {
+    expect(detectEnvLocale({ LC_ALL: "fr_FR", LANG: "es_ES" })).toBe("fr");
+    expect(detectEnvLocale({ LC_MESSAGES: "es_ES", LANG: "fr_FR" })).toBe("es");
+  });
+
+  it("falls back to a bare language and undefined for unsupported", () => {
+    expect(detectEnvLocale({ LANG: "zh" })).toBe("zh-CN");
+    expect(detectEnvLocale({ LANG: "de_DE.UTF-8" })).toBeUndefined();
+    expect(detectEnvLocale({})).toBeUndefined();
+  });
+});
+
+describe("resolveCliLocale precedence", () => {
+  it("flag overrides setting and env", () => {
+    expect(resolveCliLocale({ flag: "zh-TW", setting: "fr", env: { LANG: "es_ES" } })).toBe("zh-TW");
+  });
+  it("setting overrides env", () => {
+    expect(resolveCliLocale({ setting: "fr", env: { LANG: "es_ES" } })).toBe("fr");
+  });
+  it("env used when no flag/setting", () => {
+    expect(resolveCliLocale({ env: { LANG: "es_ES.UTF-8" } })).toBe("es");
+  });
+  it("defaults to en", () => {
+    expect(resolveCliLocale({ env: {} })).toBe("en");
+    expect(resolveCliLocale({ flag: "de", env: {} })).toBe("en");
+  });
+});
+
+// The load-bearing spike: react-i18next must work under Ink's custom reconciler.
+function Loading() {
+  const { t } = useTranslation("cli");
+  return createElement(Text, null, t("tui.loading", "Loading…"));
+}
+
+describe("react-i18next under the Ink reconciler", () => {
+  it("renders a localized first frame synchronously", () => {
+    const i18n = initCliI18n("en");
+    const { lastFrame } = render(
+      createElement(I18nextProvider, { i18n }, createElement(Loading)),
+    );
+    expect(lastFrame()).toContain("Loading…");
+  });
+
+  it("re-renders on changeLanguage", async () => {
+    const i18n = initCliI18n("en");
+    cliI18n.addResourceBundle("zh-CN", "cli", { tui: { loading: "加载中…" } }, true, true);
+    const { lastFrame } = render(
+      createElement(I18nextProvider, { i18n }, createElement(Loading)),
+    );
+    expect(lastFrame()).toContain("Loading…");
+    await i18n.changeLanguage("zh-CN");
+    expect(lastFrame()).toContain("加载中…");
+  });
+});
