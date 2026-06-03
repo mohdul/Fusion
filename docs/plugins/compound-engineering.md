@@ -41,6 +41,17 @@ The orchestrator streams `thinking`/`text` turns, surfaces a structured
 `interrupted`. Interrupt/error auto-saves progress and emits an observable event;
 sessions resume/retry back to their current question.
 
+Turn execution is **detached**: start/answer/resume return as soon as the
+session row reflects the request, with the agent turn running in the background
+(failures persist into session state — never an unhandled rejection). While a
+turn runs, the engine streams mid-turn progress (thinking/text deltas + tool
+markers) through the seam's `onProgress` option; the orchestrator buffers it
+and `GET /sessions/:id` attaches it as transient `liveActivity`. The per-turn
+timeout is **inactivity-based** (progress re-arms it), so long actively-working
+turns are never killed; on settle/interrupt the working trace is condensed into
+the conversation history. Users can also **steer** mid-stage: answers may carry
+free-text guidance (`{value, comment}`) or be guidance-only (`{feedback}`).
+
 Updates are **pushed** over the shared `/api/events` SSE stream: the orchestrator
 emits via `ctx.emitEvent`, the host forwards them as project-scoped
 `plugin:custom` events, and the view subscribes through the host
