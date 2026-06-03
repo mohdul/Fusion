@@ -9,6 +9,7 @@ const node = (kind: WorkflowIrNode["kind"], seam?: string): WorkflowIrNode => ({
 describe("workflow node handlers", () => {
   it("dispatches prompt node to matching seam", async () => {
     const seams = {
+      planning: vi.fn(async () => ({ outcome: "success" as const })),
       execute: vi.fn(async () => ({ outcome: "success" as const })),
       review: vi.fn(async () => ({ outcome: "success" as const })),
       merge: vi.fn(async () => ({ outcome: "success" as const })),
@@ -22,6 +23,7 @@ describe("workflow node handlers", () => {
 
   it("dispatches script node to matching seam", async () => {
     const seams = {
+      planning: vi.fn(async () => ({ outcome: "success" as const })),
       execute: vi.fn(async () => ({ outcome: "success" as const })),
       review: vi.fn(async () => ({ outcome: "success" as const })),
       merge: vi.fn(async () => ({ outcome: "success" as const })),
@@ -34,6 +36,7 @@ describe("workflow node handlers", () => {
 
   it("gate returns failure when expected context value does not match", async () => {
     const handlers = createDefaultNodeHandlers({
+      planning: async () => ({ outcome: "success" }),
       execute: async () => ({ outcome: "success" }),
       review: async () => ({ outcome: "success" }),
       merge: async () => ({ outcome: "success" }),
@@ -49,6 +52,7 @@ describe("workflow node handlers", () => {
   });
 
   const noopSeams = () => ({
+    planning: vi.fn(async () => ({ outcome: "success" as const })),
     execute: vi.fn(async () => ({ outcome: "success" as const })),
     review: vi.fn(async () => ({ outcome: "success" as const })),
     merge: vi.fn(async () => ({ outcome: "success" as const })),

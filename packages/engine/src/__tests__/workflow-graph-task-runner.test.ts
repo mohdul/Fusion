@@ -64,6 +64,7 @@ function recordingSeams(calls: string[], overrides: Partial<Record<string, Workf
     return overrides[name] ?? { outcome: "success" };
   };
   return {
+    planning: seam("planning"),
     execute: seam("execute"),
     review: seam("review"),
     merge: seam("merge"),
@@ -183,6 +184,39 @@ describe("WorkflowGraphTaskRunner (CU-U2)", () => {
     expect(result.disposition).toBe("fell-back");
     expect(result.reason).toMatch(/interpreter-error/);
     expect(events).toContain("fallback");
+  });
+
+  it("an interpreter error AFTER side effects terminates as failed, not fell-back", async () => {
+    // Cycle reached only after custom nodes execute: re-running legacy would
+    // repeat the implementation, so the runner must not signal fallback.
+    const cyclicIr: WorkflowIr = {
+      version: "v1",
+      name: "cyclic",
+      nodes: [
+        { id: "start", kind: "start" },
+        { id: "a", kind: "prompt", config: { prompt: "a" } },
+        { id: "b", kind: "prompt", config: { prompt: "b" } },
+        { id: "end", kind: "end" },
+      ],
+      edges: [
+        { from: "start", to: "a", condition: "success" },
+        { from: "a", to: "b", condition: "success" },
+        { from: "b", to: "a", condition: "success" },
+      ],
+    };
+    const calls: string[] = [];
+    const runner = new WorkflowGraphTaskRunner({
+      store: storeWith(definition(cyclicIr)),
+      seams: recordingSeams(calls),
+      runCustomNode: async (node) => {
+        calls.push(`custom:${node.id}`);
+        return { outcome: "success" };
+      },
+    });
+    const result = await runner.run(task, flagOn);
+    expect(calls.length).toBeGreaterThan(0);
+    expect(result.disposition).toBe("failed");
+    expect(result.reason).toMatch(/interpreter-error/);
   });
 
   it("exposes node outcomes in the shared context for downstream consumers", async () => {

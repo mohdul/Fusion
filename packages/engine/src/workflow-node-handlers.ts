@@ -3,9 +3,13 @@ import type { TaskDetail, WorkflowIrNode } from "@fusion/core";
 
 import type { WorkflowNodeHandler, WorkflowNodeResult } from "./workflow-graph-executor.js";
 
-export type WorkflowSeamName = "execute" | "review" | "merge" | "schedule";
+export type WorkflowSeamName = "planning" | "execute" | "review" | "merge" | "schedule";
 
 export interface WorkflowLegacySeams {
+  /** Planning/spec stage. Built-in triage runs upstream of the interpreter
+   *  today, so the default engine seam is a no-op for already-specified tasks;
+   *  custom planning behavior is expressed as a custom prompt node. */
+  planning: (task: TaskDetail, context: Record<string, unknown>) => Promise<WorkflowNodeResult>;
   execute: (task: TaskDetail, context: Record<string, unknown>) => Promise<WorkflowNodeResult>;
   review: (task: TaskDetail, context: Record<string, unknown>) => Promise<WorkflowNodeResult>;
   merge: (task: TaskDetail, context: Record<string, unknown>) => Promise<WorkflowNodeResult>;
@@ -27,7 +31,7 @@ export type WorkflowCustomNodeRunner = (
 export function resolveSeamName(node: { config?: Record<string, unknown> }): WorkflowSeamName | undefined {
   const seam = node.config?.seam;
   if (seam === undefined) return undefined;
-  if (seam === "execute" || seam === "review" || seam === "merge" || seam === "schedule") {
+  if (seam === "planning" || seam === "execute" || seam === "review" || seam === "merge" || seam === "schedule") {
     return seam;
   }
   throw new WorkflowIrError(`Unsupported workflow seam: ${String(seam)}`);
@@ -99,6 +103,7 @@ export const gateNodeHandler: WorkflowNodeHandler = createGateHandler();
 export function createNoopLegacySeams(): WorkflowLegacySeams {
   const success = async (): Promise<WorkflowNodeResult> => ({ outcome: "success" });
   return {
+    planning: success,
     execute: success,
     review: success,
     merge: success,

@@ -3,6 +3,7 @@ import { isExperimentalFeatureEnabled } from "@fusion/core";
 
 import { WorkflowGraphExecutor, type WorkflowNodeOutcome } from "./workflow-graph-executor.js";
 import type { WorkflowCustomNodeRunner, WorkflowLegacySeams } from "./workflow-node-handlers.js";
+// (Both types are also used as values in the side-effect tracking wrappers below.)
 
 /**
  * Terminal disposition of an interpreter-driven task run.
@@ -90,10 +91,29 @@ export class WorkflowGraphTaskRunner {
     }
 
     this.emit("start", task.id, definition.id);
+
+    // Track whether any node side effects ran. A pre-run interpreter error
+    // (bad IR structure, wiring) can safely fall back to the legacy pipeline;
+    // a mid-run error cannot — re-running legacy would repeat the implementation
+    // session — so it terminates as "failed" for the caller to park instead.
+    let sideEffectsRan = false;
+    const seams = this.deps.seams;
+    const wrappedSeams: WorkflowLegacySeams = {
+      planning: (t, c) => ((sideEffectsRan = true), seams.planning(t, c)),
+      execute: (t, c) => ((sideEffectsRan = true), seams.execute(t, c)),
+      review: (t, c) => ((sideEffectsRan = true), seams.review(t, c)),
+      merge: (t, c) => ((sideEffectsRan = true), seams.merge(t, c)),
+      schedule: (t, c) => ((sideEffectsRan = true), seams.schedule(t, c)),
+    };
+    const wrappedRunCustomNode: WorkflowCustomNodeRunner = (node, t, c) => {
+      sideEffectsRan = true;
+      return this.deps.runCustomNode(node, t, c);
+    };
+
     try {
       const executor = new WorkflowGraphExecutor({
-        seams: this.deps.seams,
-        runCustomNode: this.deps.runCustomNode,
+        seams: wrappedSeams,
+        runCustomNode: wrappedRunCustomNode,
         maxRetriesPerNode: this.deps.maxRetriesPerNode,
       });
       const result = await executor.run(task, settings, definition.ir);
@@ -109,9 +129,13 @@ export class WorkflowGraphTaskRunner {
         context: result.context,
       };
     } catch (err) {
-      // Interpreter-level error (bad IR, handler wiring, etc.) — never strand
-      // the task; the caller runs the legacy pipeline.
-      return this.fallBack(task.id, `interpreter-error: ${err instanceof Error ? err.message : String(err)}`);
+      const reason = `interpreter-error: ${err instanceof Error ? err.message : String(err)}`;
+      if (sideEffectsRan) {
+        // Too late to fall back — the caller parks the task for human review.
+        this.emit("terminal", task.id, `${definition.id}:failed (${reason})`);
+        return { disposition: "failed", outcome: "failure", reason, visitedNodeIds: [] };
+      }
+      return this.fallBack(task.id, reason);
     }
   }
 }

@@ -353,6 +353,9 @@ export class ProjectEngine {
     this.runtime.setMergeActiveClearer?.((taskId) => {
       this.mergeActive.delete(taskId);
     });
+    // Workflow-graph interpreter merge seam: resolves with the merge outcome
+    // through the same serialized merge queue the legacy pipeline uses.
+    this.runtime.setMergeRequester?.((taskId) => this.onMerge(taskId));
   }
 
   getActiveMergeTaskId(): string | null {

@@ -8,8 +8,11 @@ const execAsync = promisify(exec);
 import { delimiter, isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { existsSync, realpathSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
-import type { TaskStore, Task, TaskDetail, TaskTokenUsage, StepStatus, Settings, WorkflowStep, MissionStore, Slice, AgentState, AgentCapability, RunMutationContext, AgentHeartbeatConfig, Agent, AgentMemoryInclusionMode, ProjectSettings } from "@fusion/core";
-import { RetryStormError, TaskDeletedError, serializeRetryStormError } from "@fusion/core";
+import type { TaskStore, Task, TaskDetail, TaskTokenUsage, StepStatus, Settings, WorkflowStep, MissionStore, Slice, AgentState, AgentCapability, RunMutationContext, AgentHeartbeatConfig, Agent, AgentMemoryInclusionMode, ProjectSettings, MergeResult, WorkflowIrNode } from "@fusion/core";
+import { RetryStormError, TaskDeletedError, serializeRetryStormError, isExperimentalFeatureEnabled } from "@fusion/core";
+import { WorkflowGraphTaskRunner, type WorkflowGraphTaskRunResult } from "./workflow-graph-task-runner.js";
+import type { WorkflowLegacySeams } from "./workflow-node-handlers.js";
+import type { WorkflowNodeResult } from "./workflow-graph-executor.js";
 import {
   ApprovalRequestStore,
   buildExecutionMemoryInstructions,
@@ -3149,7 +3152,222 @@ export class TaskExecutor {
    * a task that already has `task.worktree` set, the existing path is used
    * as-is. Branches remain task-scoped (`fusion/{task-id}`).
    */
+  // ── Workflow graph interpreter (cutover M-B/M-C) ─────────────────────────
+  //
+  // When `experimentalFeatures.workflowGraphExecutor` is enabled and a task has
+  // a selected custom workflow, the graph runner owns lifecycle SEQUENCING:
+  // custom prompt/script/gate nodes run via the WorkflowStep machinery, and the
+  // planning/execute/review/merge seam nodes delegate to the legacy engine
+  // implementations. Any interpreter-level error falls back to the legacy
+  // pipeline — a task is never stranded by interpreter bugs.
+
+  /** Completion interceptors for graph-driven tasks: when present for a task,
+   *  execute() stops at the implementation-complete boundary (no workflow
+   *  steps, no review handoff) and hands control back to the graph runner.
+   *  Doubles as the re-entrancy guard for graph routing. */
+  private graphCompletionInterceptors = new Map<string, (info: { modifiedFiles: string[] }) => void>();
+
+  /** Tasks currently being orchestrated by the graph runner. Process-wide for
+   *  the same reason as executingTaskLock (FN-4811): duplicate execute()
+   *  invocations can arrive from different TaskExecutor instances in one
+   *  process (engine restart race, hybrid runtimes), and the graph runner does
+   *  not hold the executing-task lock between seams. */
+  private get graphRouting(): Set<string> {
+    return TaskExecutor.processWideGraphRouting;
+  }
+
+  private static processWideGraphRouting = new Set<string>();
+
+  /** Wired by the runtime to ProjectEngine.onMerge — resolves with the merge outcome. */
+  private mergeRequester?: (taskId: string) => Promise<MergeResult>;
+
+  setMergeRequester(requestMerge: (taskId: string) => Promise<MergeResult>): void {
+    this.mergeRequester = requestMerge;
+  }
+
+  /**
+   * Route a task through the workflow graph interpreter when eligible.
+   * Returns true when the graph owned the task to a terminal disposition
+   * (completed or failed); false when the legacy pipeline should run.
+   */
+  private async maybeExecuteWorkflowGraph(task: Task): Promise<boolean> {
+    // Claim synchronously before any await so concurrent execute() calls for
+    // the same task cannot both enter graph routing (mirrors executingTaskLock).
+    this.graphRouting.add(task.id);
+    try {
+      let settings: Settings;
+      try {
+        settings = await this.store.getSettings();
+      } catch {
+        return false;
+      }
+      if (!isExperimentalFeatureEnabled(settings, "workflowGraphExecutor")) return false;
+      if (typeof this.store.getTaskWorkflowSelection !== "function") return false;
+
+      let selection: { workflowId: string; stepIds: string[] } | undefined;
+      try {
+        selection = this.store.getTaskWorkflowSelection(task.id);
+      } catch {
+        return false;
+      }
+      if (!selection) return false;
+
+      const runner = new WorkflowGraphTaskRunner({
+        store: this.store,
+        seams: this.createGraphSeams(settings),
+        runCustomNode: (node, nodeTask) => this.runGraphCustomNode(node, nodeTask, settings),
+        onEvent: (event) => executorLog.log(`[workflow-graph] ${event.type} ${event.taskId}: ${event.detail}`),
+      });
+      const detail = await this.store.getTask(task.id);
+      const result = await runner.run(detail, settings);
+      if (result.disposition === "fell-back") {
+        executorLog.log(`[workflow-graph] ${task.id} fell back to legacy pipeline: ${result.reason}`);
+        return false;
+      }
+      if (result.disposition === "failed") {
+        await this.handleGraphFailure(task, result);
+      }
+      return true;
+    } finally {
+      this.graphRouting.delete(task.id);
+    }
+  }
+
+  /**
+   * Run ONLY the implementation phase of execute() for a graph-driven task —
+   * full legacy setup plus the agent session up to fn_task_done. The registered
+   * interceptor makes execute() stop at the completion boundary instead of
+   * running workflow steps and the review handoff.
+   */
+  private async runImplementationPhase(task: Task): Promise<{ taskDone: boolean; modifiedFiles: string[] }> {
+    let captured: { taskDone: boolean; modifiedFiles: string[] } = { taskDone: false, modifiedFiles: [] };
+    this.graphCompletionInterceptors.set(task.id, (info) => {
+      captured = { taskDone: true, modifiedFiles: info.modifiedFiles };
+    });
+    try {
+      await this.execute(task);
+    } finally {
+      this.graphCompletionInterceptors.delete(task.id);
+    }
+    return captured;
+  }
+
+  /** Seam implementations delegating to the legacy engine (KTD-1: delegate, never reimplement). */
+  private createGraphSeams(_settings: Settings): WorkflowLegacySeams {
+    return {
+      // Built-in triage/spec generation runs upstream of the interpreter today,
+      // so planning is a no-op for already-specified tasks. Custom planning
+      // behavior is expressed as a custom prompt node before the execute seam.
+      planning: async () => ({ outcome: "success", value: "pre-specified" }),
+      execute: async (seamTask) => {
+        const result = await this.runImplementationPhase(seamTask as Task);
+        return result.taskDone
+          ? { outcome: "success", value: "implemented" }
+          : { outcome: "failure", value: "implementation-incomplete" };
+      },
+      review: async (seamTask) => {
+        // The legacy "review" stage is the in-review handoff: per-step AI review
+        // already ran during implementation (fn_review_step), and the in-review
+        // column is the staging state the merge queue consumes.
+        const live = await this.store.getTask(seamTask.id);
+        await this.persistTokenUsage(seamTask.id);
+        await this.handoffTaskToReview(live, "workflow-graph-review");
+        return { outcome: "success", value: "in-review" };
+      },
+      merge: async (seamTask) => {
+        if (!this.mergeRequester) {
+          return { outcome: "failure", value: "merge-unavailable" };
+        }
+        const result = await this.mergeRequester(seamTask.id);
+        if (result.merged || result.noOp) {
+          return { outcome: "success", value: result.noOp ? "merge-noop" : "merged" };
+        }
+        return { outcome: "failure", value: result.reason ?? result.error ?? "merge-failed" };
+      },
+      schedule: async () => ({ outcome: "success" }),
+    };
+  }
+
+  /** Run a custom (non-seam) graph node on the proven WorkflowStep machinery. */
+  private async runGraphCustomNode(
+    node: WorkflowIrNode,
+    nodeTask: TaskDetail,
+    settings: Settings,
+  ): Promise<WorkflowNodeResult> {
+    const cfg = node.config ?? {};
+    const live = await this.store.getTask(nodeTask.id);
+    const worktreePath = live.worktree || this.rootDir;
+    const scriptName = typeof cfg.scriptName === "string" && cfg.scriptName.trim() ? cfg.scriptName : undefined;
+    const mode: "prompt" | "script" = node.kind === "script" || (node.kind === "gate" && scriptName) ? "script" : "prompt";
+    const now = new Date().toISOString();
+    const step: WorkflowStep = {
+      id: `graph:${node.id}`,
+      name: typeof cfg.name === "string" && cfg.name.trim() ? cfg.name : node.id,
+      description: typeof cfg.description === "string" ? cfg.description : "",
+      mode,
+      phase: "pre-merge",
+      gateMode: node.kind === "gate" || cfg.gateMode === "gate" ? "gate" : "advisory",
+      prompt: typeof cfg.prompt === "string" ? cfg.prompt : "",
+      toolMode: cfg.toolMode === "coding" ? "coding" : "readonly",
+      scriptName,
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+      ...(typeof cfg.modelProvider === "string" && typeof cfg.modelId === "string"
+        ? { modelProvider: cfg.modelProvider, modelId: cfg.modelId }
+        : {}),
+    };
+
+    const outcome = mode === "script"
+      ? await this.executeScriptWorkflowStep(live, step, worktreePath, settings)
+      : await this.executeWorkflowStep(live, step, worktreePath, settings);
+
+    const blocking = step.gateMode === "gate";
+    // Script-mode outcomes carry no structured verdict; prompt-mode may.
+    const verdict = (outcome as { verdict?: string }).verdict;
+    return {
+      outcome: outcome.success || !blocking ? "success" : "failure",
+      value: verdict ?? (outcome.success ? "passed" : "failed"),
+    };
+  }
+
+  /** Terminal failure of a graph run: record the error and park the task in
+   *  review so a human can act — never leave it invisible in in-progress. */
+  private async handleGraphFailure(task: Task, result: WorkflowGraphTaskRunResult): Promise<void> {
+    const failedNode = result.visitedNodeIds[result.visitedNodeIds.length - 1];
+    const message = `Workflow graph terminated with failure at node '${failedNode ?? "unknown"}'`;
+    executorLog.warn(`${task.id}: ${message}`);
+    try {
+      await this.store.logEntry(task.id, message, undefined, this.getRunContextFor(task.id));
+      await this.store.updateTask(task.id, { error: message }, this.getRunContextFor(task.id));
+      const live = await this.store.getTask(task.id);
+      if (live.column === "in-progress") {
+        await this.persistTokenUsage(task.id);
+        await this.handoffTaskToReview(live, "workflow-graph-failed");
+      }
+    } catch (err) {
+      executorLog.error(
+        `${task.id}: failed to park graph-failed task: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
   async execute(task: Task): Promise<void> {
+    // Workflow graph interpreter routing (cutover M-C): graph-selected tasks
+    // are orchestrated by the interpreter. The execute seam re-enters this
+    // method with a completion interceptor registered (which claims the task
+    // lock normally), so routing is skipped for that inner invocation.
+    if (!this.graphCompletionInterceptors.has(task.id)) {
+      if (this.graphRouting.has(task.id)) {
+        // Duplicate dispatch while the graph runner owns this task — drop it,
+        // mirroring the executingTaskLock duplicate-invocation behavior.
+        executorLog.log(`execute() called for ${task.id} while graph routing is active — skipping duplicate`);
+        return;
+      }
+      const graphOwned = await this.maybeExecuteWorkflowGraph(task);
+      if (graphOwned) return;
+    }
+
     // FN-4811 follow-up (FN-4814/FN-4809/FN-4811 production failure): claim a
     // PROCESS-WIDE lock synchronously before any other work. Per-instance
     // `this.executing` was insufficient in production because two execute()
@@ -4553,6 +4771,17 @@ export class TaskExecutor {
             if (modifiedFiles.length > 0) {
               await this.store.updateTask(task.id, { modifiedFiles });
               executorLog.log(`${task.id}: captured ${modifiedFiles.length} modified files`);
+            }
+
+            // Graph-driven completion (interpreter cutover): the workflow graph
+            // owns workflow steps, review handoff, and merge from here — stop
+            // at the implementation-complete boundary and hand control back.
+            const graphCompletion = this.graphCompletionInterceptors.get(task.id);
+            if (graphCompletion) {
+              this.clearCompletedTaskWatchdog(task.id);
+              executorLog.log(`✓ ${task.id} implementation complete — graph interpreter owns the remaining lifecycle`);
+              graphCompletion({ modifiedFiles });
+              return;
             }
 
             this.scheduleCompletedTaskWatchdog(task.id, "task completion");
