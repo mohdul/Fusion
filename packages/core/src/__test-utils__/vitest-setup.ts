@@ -69,6 +69,20 @@ const BLOCKED_TEST_CLI_PATTERN =
 
 const originalCwd = process.cwd.bind(process);
 
+// Pin `git init` to the `main` branch for every test process. Git defaults the
+// initial branch to `master` unless `init.defaultBranch` is set — true on Linux
+// CI runners but usually overridden to `main` on developer macOS machines. That
+// host gap silently broke git-worktree tests that assume `main` (e.g. the
+// shared-branch-group reliability suite) in CI only. These GIT_CONFIG_* env
+// vars apply the setting to all child git invocations without mutating the
+// developer's global config. Appended (not clobbered) if a count already exists.
+(() => {
+  const existing = Number.parseInt(process.env.GIT_CONFIG_COUNT ?? "0", 10) || 0;
+  process.env[`GIT_CONFIG_KEY_${existing}`] = "init.defaultBranch";
+  process.env[`GIT_CONFIG_VALUE_${existing}`] = "main";
+  process.env.GIT_CONFIG_COUNT = String(existing + 1);
+})();
+
 function ensureValidCwd(): string {
   try {
     return originalCwd();
