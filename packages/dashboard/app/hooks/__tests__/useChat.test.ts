@@ -2173,8 +2173,10 @@ describe("useChat", () => {
       result.current.selectSession("session-001");
     });
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 25));
+    await waitFor(() => {
+      expect(result.current.pendingMessage).toBe("Queued follow-up");
+      expect(mockStreamChatResponse).not.toHaveBeenCalled();
+      expect(localStorage.getItem(getChatPendingMessageKey("session-001"))).toBe("Queued follow-up");
     });
 
     expect(result.current.pendingMessage).toBe("Queued follow-up");
