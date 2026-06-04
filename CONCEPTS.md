@@ -88,6 +88,18 @@ The post-merge step that rebases locally-landed merge commits onto the upstream 
 
 ### Contamination
 Foreign commits — work attributed to other Tasks — appearing on a Task's branch beyond its recorded Fork point. Contamination checks must compute their reference base fresh from the Integration branch rather than reuse the Task's stored base, since a stale stored base makes every legitimately merged commit look foreign.
+
+## Chat
+
+### Generation
+A single in-flight assistant turn for a chat session, owned server-side and identified by a generation id. At most one Generation runs per session: starting a new one aborts whatever Generation is still active for that session, so an "extra" send from a client is never harmless. A Generation periodically persists an in-flight snapshot so a reconnecting client can recover the streaming UI.
+
+### Queued message
+A follow-up the user sends while a Generation is active. It is held client-side (and persisted per session so navigation cannot lose it) and flushed — actually sent — only when the session's Generation settles. Flushing decisions must be made against the server's authoritative generation state, not a locally cached copy.
+
+### Enrichment field
+A session field computed at the API route from live server state (whether a Generation is running, last-message preview) rather than stored on the session row. Enrichment fields exist only in responses from enriching endpoints: store-event payloads and SSE broadcasts lack them, so a client that overwrites its session state from those sources silently degrades enrichment fields to absent — any side-effecting decision gated on one must re-fetch from an enriching endpoint.
+
 ## Compound Engineering sessions
 
 ### CE Stage
