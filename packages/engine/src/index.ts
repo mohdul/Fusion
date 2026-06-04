@@ -119,6 +119,7 @@ export {
   type InteractiveAgentResult,
   type InteractiveAgentFactory,
 } from "./interactive-ai-session.js";
+export { selectPermanentAgentForTask, listEligibleExecutorAgents } from "./agent-assignment.js";
 
 // Register createFnAgent into core's loader so consumers in @fusion/core
 // (e.g. ai-summarize, memory-compaction) can resolve it without a circular
