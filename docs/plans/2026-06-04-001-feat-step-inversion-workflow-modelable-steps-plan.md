@@ -15,7 +15,9 @@ Extend the engine→workflow inversion to **task steps**. Today the engine owns 
 
 Steps additionally gain **parallel execution and worktree isolation as explicit foreach axes** (`mode: sequential|parallel`, `isolation: shared|worktree`): PROMPT.md steps may carry `depends:` metadata, and a parallel foreach runs dependency-satisfied instances concurrently — each in its **own worktree/branch off a common base** — with an **ordered integration stage** that lands step branches in step order and routes rebase conflicts to an `integration-conflict` rework outcome (KTD-11).
 
-The default workflow is untouched (monolithic `execute` seam, byte-identical — it is the parity oracle, same posture as the columns track). Inversion is opt-in via custom workflows; a new built-in **stepwise coding workflow** demonstrates the full modeling and is the parity-comparison subject.
+Third, the **task shape itself becomes workflow-defined** (KTD-12/13/14): the existence of PROMPT.md and the `### Step N:` parsing convention stop being engine law — workflows declare their **artifacts** (named task documents) and their **step source** (which artifact/parser produces the step list). Workflows also declare **custom task fields** (typed, with enum options and rendering instructions); the task model reduces to core fields (title, description) plus standard metadata, with everything else as workflow-defined fields, and the task UI renders the field schema dynamically (detail form + card badges).
+
+The default workflow is untouched (monolithic `execute` seam, declares PROMPT.md + the step-headings parser + zero custom fields — byte-identical; it is the parity oracle, same posture as the columns track). Inversion is opt-in via custom workflows; a new built-in **stepwise coding workflow** demonstrates the full modeling and is the parity-comparison subject.
 
 ---
 
@@ -43,6 +45,9 @@ The FN-4359 reliability-freeze waiver carried by plans 002/003 continues to appl
 - Runtime template expansion with deterministic instance identity, persisted instance run-state (schema v108), crash/resume reconstruction, and a stale-instance recovery sweep.
 - `Task.steps[]` kept as the **physical projection sink**: instance transitions call the existing `store.updateStep`, so the merge-blocker, dashboard step display, CLI/TUI, reconcile-from-git, and lost-work reset all keep working unchanged.
 - **Parallel step execution** (KTD-11): `TaskStep.dependsOn` metadata parsed from PROMPT.md `### Step N (depends: 1,2):` annotations; foreach `concurrency` config; per-instance worktrees/branches off a common base via the existing worktree pool; ordered integration (rebase/cherry-pick in step order) with `outcome:integration-conflict` routed as rework on the updated base; branch-scoped RETHINK reset in parallel mode.
+- **Workflow-defined task artifacts & step source** (KTD-12): workflows declare named task documents (riding the existing task-documents machinery) and which artifact+parser produces the step list; `parseStepsFromPrompt` becomes the built-in `step-headings` parser in a parser registry; the default workflow declares `PROMPT.md` + `step-headings` for byte-identical parity.
+- **Workflow-defined custom task fields** (KTD-13): typed field definitions (string/text/number/boolean/enum/multi-enum/date/url) with enum options and rendering instructions in the IR; values stored per task and validated against the schema through a single store authority; agent-tool parity.
+- **Dynamic task UI** (KTD-14): TaskDetailModal renders the field schema as a form section; TaskCard renders card-front-placed fields as badges/chips; workflow editor gains a field-definitions panel.
 - Built-in **stepwise coding workflow** (new, opt-in) modeling today's per-step review policy explicitly; parity assertions against legacy in-session behavior.
 - Workflow node editor support for authoring foreach/step-review/rework constructs; agent-tool and plugin-SDK type parity; docs.
 
@@ -52,6 +57,9 @@ The FN-4359 reliability-freeze waiver carried by plans 002/003 continues to appl
 - Re-expansion when the agent edits PROMPT.md after the foreach has expanded (instance count is pinned at expansion; documented limitation, surfaced via tool message — see KTD-3).
 - Step-template authoring from the dashboard *board* (lanes/cards unchanged); authoring lives in the existing workflow node editor.
 - Plugin-defined node kinds (plugins already reach gates via traits; new node kinds stay built-in this round).
+- **Recasting existing built-in task fields** (priority, labels, etc.) as workflow custom fields — this plan ships the field *system*; migrating built-ins onto it is a follow-up with its own compatibility track (every built-in field has hardcoded consumers across ~150 files). The field system is designed so that migration is additive when it comes.
+- Plugin-contributed field types or parsers (the registries are built-in-only this round, same posture as node kinds).
+- Cross-workflow field identity (two workflows defining a field with the same id are distinct schemas; no shared/global field namespace yet).
 - Graduating any flag default.
 
 ---
@@ -123,7 +131,7 @@ New table `workflow_run_step_instances` (migration 108, additive):
 taskId, runId, foreachNodeId, stepIndex, pinnedStepCount, currentNodeId, status, baselineSha, checkpointId, reworkCount, branchName, integratedAt, updatedAt
 ```
 
-(`branchName`/`integratedAt` and the `awaiting-integration` status serve parallel mode, KTD-11; null/unused at `concurrency: 1`.)
+(`branchName`/`integratedAt` and the `awaiting-integration` status serve parallel mode, KTD-11; null/unused at `concurrency: 1`.) The same v108 migration adds `tasks.customFields TEXT DEFAULT '{}'` (KTD-13) — one schema bump for the whole plan.
 
 - **No new interface layer**: the CRUD pair (`saveWorkflowRunStepInstance` / `loadWorkflowRunStepInstances` / `clearWorkflowRunStepInstances`) are direct store methods wired into the executor via the same additive-guard pattern as `buildBranchPersistence()` (`executor.ts:3302`). A named persistence interface gets added only if a second adapter materializes in the same PR (e.g., in-memory for tests).
 - On resume: rebuild the instance set from the persisted `pinnedStepCount` + rows (mismatch with live `steps[]` → `pin-mismatch` failure, KTD-3); completed instances skip; the in-flight instance seeds its iterative sub-walk position directly from persisted `currentNodeId` + `reworkCount` — **not** from a node-id-keyed `completedNodeIds` skip set, which is unsound under rework cycles (the same node id legitimately runs multiple times). `reconcileStepsFromGitHistory` remains the git-truth fallback and its verdict wins over stale instance rows (rows are corrected to match, never the reverse).
@@ -163,6 +171,33 @@ A second built-in (`builtin-stepwise-coding-workflow-ir.ts`): plan seam → fore
 - **Projection ordering guard**: `store.updateStep`'s out-of-order-done guard (`store.ts:7592-7610`) assumes index order; graph-source writes (U6's `source: "graph"`) relax it to **dependency order** — a done write is legal when all `dependsOn` steps are done. `currentStep` auto-advance (first non-done scan) is order-agnostic already.
 - **Persistence**: instance rows gain `branchName` and `integratedAt`; status adds `awaiting-integration`. Crash under worktree isolation resumes by reconciling rows against branch existence: integrated → done; branch exists, not integrated → re-enter integration queue; branch missing → instance re-runs.
 
+### KTD-12 — Workflow-defined task artifacts & step source
+
+Today `PROMPT.md` is hardcoded engine law: created by the planning phase, parsed by the fixed regex in `parseStepsFromPrompt` (`store.ts:8534`), and assumed by reconcile, step init, and resume prompts. Inversion:
+
+- **IR gains an `artifacts` declaration**: `artifacts: [{ key, title?, producedBy?: "planning" | "manual", role?: "step-source" | "context" }]`. Artifacts ride the **existing task-documents machinery** (`TaskDocument`, `fn_task_document_write/read`) — no new storage; `PROMPT.md` becomes the default workflow's declared `step-source` artifact backed by its current file location (the document layer already fronts it).
+- **Step source is workflow-configured**: foreach `source` widens from the literal `"task-steps"` to `{ artifact: <key>, parser: "step-headings" | "json-steps" }` (with `"task-steps"` kept as an alias for `{artifact: "PROMPT.md", parser: "step-headings"}`). A **built-in parser registry** (same registry posture as traits — built-in-only this round) holds: `step-headings` (the extracted `parseStepsFromPrompt` logic, including the `(depends: …)` annotation from U1 — extraction, not rewrite) and `json-steps` (a structured `[{name, depends?}]` document for workflows that plan in JSON).
+- **The planning seam contract**: the workflow's `producedBy: "planning"` artifacts are what the planning seam is told to produce (surfaced in the planning prompt); the engine no longer assumes PROMPT.md by name outside the default workflow's declaration. Reconcile (`reconcileStepsFromGitHistory`) and step init read through the workflow-resolved step source.
+- **Parity**: the default workflow's declaration (`PROMPT.md` + `step-headings`) routes through the same extracted parser code path — byte-identical, proven by the existing parse tests running against both the direct call and the registry resolution.
+
+### KTD-13 — Workflow-defined custom task fields
+
+The task model is recast as: **core fields** (title, description) + **standard metadata** (column/status, timestamps, branch/git state, workflow selection) + **workflow-defined custom fields** for everything else. This round ships the field system; built-ins stay where they are (see Out of scope).
+
+- **IR gains `fields`**: `fields: [{ id, name, type, required?, default?, options?, render? }]` where `type ∈ string | text | number | boolean | enum | multi-enum | date | url`; `options: [{value, label, color?}]` for enum kinds; `render: { placement?: "card" | "detail" | "detail-section", widget?: "select" | "radio" | "chips" | "input" | "textarea" | "toggle", badge?: boolean }` as rendering instructions. Validator enforces id uniqueness, type whitelist, options present iff enum-kind, render-hint whitelist.
+- **Storage**: `tasks.customFields` JSON column (added in the same v108 migration as the instance table — one schema bump for the plan). Values keyed by field id.
+- **Single write authority**: a store-level `updateTaskCustomFields(taskId, patch)` (and the same path inside `updateTask`) validates every write against the task's workflow field schema — type check, enum membership, required-on-transition is NOT enforced this round (fields are data, not gates; a `gate` trait can read them later). Invalid writes are typed rejections, mirroring `TransitionRejection` style.
+- **Schema evolution**: editing a workflow's fields follows the reconciliation posture of columns (#1409/`rehome_to` precedent): removing a field orphans existing values (retained, rendered under an "orphaned fields" disclosure in detail UI, excluded from cards); an incompatible type change is rejected unless the update names `coerce: "drop" | "keep-orphaned"`. Tasks switching workflows keep values for ids the new workflow also defines (same id = same field by convention within a project), orphan the rest.
+- **Agent-native parity**: `fn_task_update` accepts a `custom_fields` patch (validated through the same authority); `fn_workflow_create/update` accept `fields`; field values are surfaced in session/task context so agents can read and set them.
+
+### KTD-14 — Dynamic task UI from the field schema
+
+- **Task detail**: `TaskDetailModal` renders a schema-driven fields section — widget per `type`+`render.widget` (select/radio/chips for enums, toggle for boolean, date input, validated url/number inputs, textarea for text), grouped by `placement` (`detail` inline near description; `detail-section` as a collapsible group). Saves go through the dashboard route → store authority; validation errors surface inline per field (400 with field path).
+- **Card front**: fields with `placement: "card"` render as badges/chips on `TaskCard` (enum colors from `options[].color`; boolean as a labeled chip when true). Card real estate is bounded: max 3 card-placed fields rendered, overflow indicated — the validator warns (not rejects) past 3.
+- **Data flow**: field definitions ship with the board-workflows payload (`/api/tasks/board-workflows` already carries per-workflow data and invalidates on `workflow:updated` SSE); task field values are already on the task payload via `customFields`.
+- **Workflow editor**: a **Fields panel** in the workflow editor (sibling to the column panel from the columns track) — add/edit/remove field definitions, enum option editor with color picker, render-placement controls, live badge preview. Reuses the editor's existing validation-at-save surfacing.
+- **TUI**: read-only rendering of card-placed fields in the task detail view (chips → bracketed labels); no TUI editing this round.
+
 ---
 
 ## Requirements
@@ -182,6 +217,9 @@ A second built-in (`builtin-stepwise-coding-workflow-ir.ts`): plan seam → fore
 - R13: Agent tools and plugin SDK expose the new IR types (type-only in SDK); `fn_workflow_create/update` accept the new constructs with the same validation.
 - R14: Five lifecycle invariants + lost-work guard trio remain non-configurable and covered by tests on the stepwise path.
 - R15: Parallel step execution per KTD-11 — foreach exposes explicit `mode` (sequential|parallel) and `isolation` (shared|worktree) axes (parallel+shared validator-rejected); `dependsOn` parsed from PROMPT.md (unannotated steps depend on the previous step, preserving sequential behavior by default); per-instance worktrees off the integration base; ordered integration flips the projection (done iff integrated); rebase conflicts route `outcome:integration-conflict` to rework on the updated base within the rework budget; concurrency clamped by semaphore availability without deadlock; dependency cycles rejected at expansion.
+- R16: Workflows declare task artifacts and the step source (artifact + parser) per KTD-12; the default workflow's PROMPT.md + step-headings declaration is byte-identical to today; reconcile and step init resolve through the workflow's step source.
+- R17: Workflows define custom task fields (typed, enum options, render instructions) per KTD-13; values validated through a single store authority with typed rejections; field removal orphans (never destroys) values; agent tools have full read/write parity.
+- R18: Task UI renders the field schema dynamically per KTD-14 — detail form widgets by type, card badges by placement, workflow-editor Fields panel; zero custom fields renders exactly today's UI.
 
 ---
 
@@ -270,16 +308,44 @@ A second built-in (`builtin-stepwise-coding-workflow-ir.ts`): plan seam → fore
 - **Test scenarios**: diamond dep graph (1 ← 2,3 ← 4) runs 2∥3 then 4; sequential+worktree runs one at a time with per-step branches and ordered integration; unannotated plan stays fully sequential at concurrency 4; conflict between parallel steps → loser reworks on updated base and succeeds; conflict rework exhaustion routes rework-exhausted; integration order is step order even when completion order inverts; crash with one branch un-integrated resumes into the integration queue; branch missing on resume re-runs the instance; semaphore starvation degrades to sequential without deadlock; dependency cycle at expansion fails audited; RETHINK resets only the instance branch; merge-blocker stays blocked until last integration (projection rule).
 - **Verification**: parallel suite green; sequential foreach suites (U3) untouched green; file-scope guard + lost-work trio exercised on parallel paths.
 
+### U11 — Custom task fields: IR schema, storage, write authority
+
+- **Goal**: KTD-13 core half (R17). **Execution note: test-first** for the validation authority.
+- **Files**: Modify `packages/core/src/workflow-ir-types.ts` / `workflow-ir.ts` (`fields` declaration + validation), `packages/core/src/types.ts` (`Task.customFields?: Record<string, unknown>`, `WorkflowFieldDefinition`), `packages/core/src/db.ts` (customFields column rides the U4 v108 migration), `packages/core/src/store.ts` (`updateTaskCustomFields` authority + `updateTask` integration + orphan handling on workflow edit/switch); new `packages/core/src/task-fields.ts` (validation: type check, enum membership, render whitelist); tests new `packages/core/src/__tests__/task-fields.test.ts`, workflow-ir tests extended.
+- **Approach**: per KTD-13 — single write authority with typed rejections (TransitionRejection style); field removal orphans values; incompatible type change rejected unless `coerce` named (reuses the `rehome_to` conflict-resolution pattern from workflow updates); workflow-switch keeps same-id values.
+- **Patterns to follow**: `workflow-ir.ts` column validation; `plugin-gate-verdict.ts` typed-shape style; #1409 reconciliation posture.
+- **Test scenarios**: each type validates/rejects correctly; enum membership enforced; multi-enum subsets; unknown field id rejected; required default applied at task create under the workflow; field removed → value orphaned not deleted; type change without coerce rejected, with coerce honored; workflow switch keeps same-id values and orphans the rest; zero-fields workflow → writes to custom_fields rejected cleanly; JSON round-trip.
+- **Verification**: core suite green; v108 migration test covers the column.
+
+### U12 — Workflow-defined artifacts & step-source parser registry
+
+- **Goal**: KTD-12 (R16). **Execution note: characterization-first** — pin `parseStepsFromPrompt` behavior before extraction.
+- **Files**: Modify `packages/core/src/workflow-ir-types.ts` / `workflow-ir.ts` (`artifacts` declaration + step-source config validation), new `packages/core/src/step-parsers.ts` (registry + `step-headings` extraction + `json-steps`), `packages/core/src/store.ts` (step init resolves through workflow step source; `parseStepsFromPrompt` delegates to the registry), `packages/engine/src/executor.ts` (reconcile + planning-prompt artifact contract reads workflow declaration); tests new `packages/core/src/__tests__/step-parsers.test.ts`, executor reconcile tests extended.
+- **Approach**: per KTD-12 — registry is built-in-only; `"task-steps"` alias preserved so U1–U10 IR remains valid; default workflow declaration routes through the same extracted code path (parity by construction); planning seam surfaces `producedBy: "planning"` artifact keys in its prompt.
+- **Patterns to follow**: trait registry (`trait-registry.ts`) for the registry shape; task-documents machinery for artifact backing.
+- **Test scenarios**: step-headings extraction byte-identical on existing fixtures (incl. depends annotations); json-steps parses `[{name, depends}]`; malformed json-steps → audited failure, not crash; foreach resolves a custom artifact source; missing artifact at expansion → dominance-style audited failure; default workflow parity (direct call vs registry resolution identical); reconcile reads through the resolved source.
+- **Verification**: characterization tests green pre/post extraction; core + engine suites green.
+
+### U13 — Dynamic task UI: field rendering + Fields panel
+
+- **Goal**: KTD-14 (R18).
+- **Files**: Modify `packages/dashboard/app/components/TaskDetailModal.tsx` (schema-driven fields section), `packages/dashboard/app/components/TaskCard.tsx` (card-placed badges/chips), new `packages/dashboard/app/components/TaskFieldsSection.tsx` + `TaskFieldsSection.css` + `WorkflowFieldsPanel.tsx` (editor Fields panel, sibling to the column panel), `packages/dashboard/src/routes/` (field-values PATCH endpoint → store authority, 400 with field path), `packages/dashboard/src/routes/board-workflows.ts` (field defs in payload), CLI TUI task detail (read-only chips); tests new `packages/dashboard/app/components/__tests__/TaskFieldsSection.test.tsx` + `WorkflowFieldsPanel.test.tsx` (BOTH registered in `qualityAppComponentTests`), TaskCard/TaskDetailModal tests extended.
+- **Approach**: per KTD-14 — widget per type/render hint; max-3 card fields with overflow indicator; enum colors from options; orphaned-fields disclosure in detail; live badge preview in the Fields panel; zero custom fields renders exactly today's UI (snapshot-guarded); all strings `t()`-wrapped, 6-locale deep-merge.
+- **Test scenarios**: each widget type renders + edits + validation error inline; card badge placement honors max-3 overflow; enum color applied; orphaned values shown in disclosure, absent from card; Fields panel CRUD + option color editor + save-time IR validation surfaced; zero-fields snapshot identical; SSE workflow:updated refreshes field defs.
+- **Verification**: dashboard component shards green; `qualityAppComponentTests` registration verified; TUI render test.
+
 ### U9 — Agent tools, plugin SDK, docs, changeset
 
-- **Goal**: Agent-native parity and documentation (R13).
-- **Files**: Modify `packages/engine/src/agent-tools.ts` (`fn_workflow_create/update` schema docs + validation passthrough; `fn_trait_list` untouched), `packages/plugin-sdk/src/index.ts` (TYPE-ONLY re-exports of new IR types — runtime exports break the standalone-artifact test), `docs/workflow-steps.md`, `docs/architecture.md` §9 extension, `CONCEPTS.md`; new `.changeset/step-inversion-workflow-modelable-steps.md` (with rollback note, mirroring the columns changeset).
-- **Test scenarios**: fn_workflow_create with a foreach IR validates and persists; invalid template rejected with the IR error surfaced; SDK type-only export keeps standalone-artifact test green.
+- **Goal**: Agent-native parity and documentation (R13, R16/R17 agent halves).
+- **Files**: Modify `packages/engine/src/agent-tools.ts` (`fn_workflow_create/update` accept `fields`/`artifacts`; `fn_task_update` accepts `custom_fields` patch through the U11 authority; planning-prompt guidance for `depends:` annotations; `fn_trait_list` untouched), `packages/cli/skill/fusion/references/engine-tools.md` (tool table — the skill-sync test enforces this), `packages/plugin-sdk/src/index.ts` (TYPE-ONLY re-exports of new IR types — runtime exports break the standalone-artifact test), `docs/workflow-steps.md`, `docs/architecture.md` §9 extension, `CONCEPTS.md`; new `.changeset/step-inversion-workflow-modelable-steps.md` (with rollback note, mirroring the columns changeset).
+- **Test scenarios**: fn_workflow_create with a foreach IR + fields validates and persists; invalid template/field rejected with the IR error surfaced; fn_task_update custom_fields validated through the authority; SDK type-only export keeps standalone-artifact test green; skill-sync test green.
 - **Verification**: agent-tools tests green; plugin-sdk test green; docs render.
 
 ### Dependencies & sequencing
 
 U1 → (U2 ∥ U4-core-half) → U3 → U5 → U6 → U10 → U7; U9 last. U2, U3, U5, U6, U10 are **strictly serial** (all touch `executor.ts`/graph executor). U4's core-only half (db.ts migration + store CRUD) parallelizes with U2; U4's executor wiring (`buildStepInstancePersistence`) waits for U3. U10 (parallel/isolated execution) builds on sequential foreach (U3) + projection discipline (U6) and lands before U7 so the parity/invariant suite covers all modes. U8 may start IR-type authoring, palette, inspector, and CSS work in parallel with U3–U6 (the `foreach:active` context decision is now committed in U3's approach, so no mid-stream rewrite risk); its round-trip tests land after U1 is merged.
+
+The task-shape track is largely independent of the step-execution track: **U11 (fields core) parallelizes with U2–U6** (core-only, no executor surface beyond the U4 migration it shares); **U12 (artifacts/parsers) follows U1** (shares IR validation) and its executor touches (reconcile/planning contract) slot between U6 and U10 in the serial executor chain; **U13 (dynamic UI) follows U11** and parallelizes with U8 (different dashboard surfaces; both register component tests). U7's parity scope includes U12's default-workflow declaration.
 
 ---
 
@@ -293,6 +359,9 @@ U1 → (U2 ∥ U4-core-half) → U3 → U5 → U6 → U10 → U7; U9 last. U2, U
 - **Schema-version literal sweep**: v107 bump missed satellite test files last round (4 CI rounds). Mitigation: explicit grep sweep in U4's verification.
 - **Integration-conflict churn (parallel mode)**: heavily-overlapping steps marked independent would loop integrate→conflict→rework until budget exhaustion. Mitigation: optimistic conflicts are budget-counted with a routed exhaustion outcome; unannotated steps default to sequential dependence, so parallelism only exists where the planner asserted it; the planning prompt guidance (U9 docs) tells planners to annotate `depends:` conservatively.
 - **Worktree pool pressure**: per-instance worktrees multiply pool usage. Mitigation: concurrency cap 8, semaphore clamp, and release-on-integration hygiene in U10; pool reuse machinery already exists for fan-out branches.
+- **Parser extraction parity (KTD-12)**: `parseStepsFromPrompt` has subtle behaviors (auto-reinit interplay, regex edge cases) that a registry indirection could perturb. Mitigation: characterization-first in U12; default workflow resolves to the same extracted function, asserted identical on existing fixtures.
+- **Dynamic UI regression surface (KTD-14)**: schema-driven rendering touches TaskCard/TaskDetailModal, the two highest-traffic components. Mitigation: zero-fields snapshot guard (today's UI byte-identical when no fields are defined); new rendering isolated in `TaskFieldsSection`; card overflow bounded at 3.
+- **Field-schema drift vs stored values**: workflow edits can strand values. Mitigation: orphan-not-delete posture (KTD-13), `coerce` confirmation on incompatible type changes, orphaned-fields disclosure in detail UI.
 
 ## System-Wide Impact
 
