@@ -132,6 +132,23 @@ export {
 } from "./workflow-transitions.js";
 export type { ColumnAdjacency } from "./workflow-transitions.js";
 export { isWorkflowColumnsEnabled } from "./workflow-columns-settings.js";
+// ── U5: workflow lifecycle reconciliation (switch / edit / delete) ───────────
+export {
+  OccupiedColumnsError,
+  resolveEntryColumnId,
+  resolveSwitchReconciliation,
+  computeRemovedOccupiedColumns,
+  assertRehomeTargetValid,
+  setReconciliationAbort,
+  runReconciliationAbort,
+  __resetReconciliationAbortForTests,
+} from "./workflow-reconciliation.js";
+export type {
+  SwitchReconciliation,
+  ColumnOccupancy,
+  ReconciliationAbort,
+  ReconciliationAbortContext,
+} from "./workflow-reconciliation.js";
 export {
   readTransitionPending,
   writeTransitionPending,

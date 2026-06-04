@@ -11,6 +11,14 @@ import { parseWorkflowIr, serializeWorkflowIr } from "./workflow-ir.js";
 import { isWorkflowColumnsEnabled } from "./workflow-columns-settings.js";
 import { resolveAllowedColumns, workflowHasColumn } from "./workflow-transitions.js";
 import {
+  OccupiedColumnsError,
+  assertRehomeTargetValid,
+  computeRemovedOccupiedColumns,
+  resolveEntryColumnId,
+  resolveSwitchReconciliation,
+  runReconciliationAbort,
+} from "./workflow-reconciliation.js";
+import {
   type DefaultWorkflowMoveContext,
   applyDefaultWorkflowMoveEffects,
   evaluateMergeBlockerGuard,
@@ -1106,6 +1114,18 @@ interface MoveTaskOptions {
    * `moveSource === "engine"` plus `skipMergeBlocker`.
    */
   bypassGuards?: boolean;
+  /**
+   * U5 (R15/R20): a workflow-reconciliation re-home move (switch/edit/delete).
+   * Unlike `bypassGuards` (which skips trait guards but still enforces the
+   * column-graph adjacency, so the U4 parity matrix is unaffected), a recovery
+   * re-home must reach the new workflow's entry column from ANY current column —
+   * a card that would otherwise be stranded in a column its (new) workflow does
+   * not define. So this additionally skips the adjacency check (step 2). The
+   * structural unknown-column check (step 1) and the in-txn capacity check
+   * (KTD-10) still apply. Engine-internal only: never forwarded from an HTTP
+   * endpoint. When set, implies `bypassGuards`.
+   */
+  recoveryRehome?: boolean;
 }
 
 interface MoveTaskInternalOptions {
@@ -5636,7 +5656,8 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     // capacity check is not a guard (U6 fills the enforcement; U4 leaves a
     // pass-through slot). An explicit option value wins; otherwise derive it.
     const bypassGuards =
-      options?.bypassGuards ?? (moveSource === "engine" || options?.skipMergeBlocker === true);
+      options?.recoveryRehome === true ||
+      (options?.bypassGuards ?? (moveSource === "engine" || options?.skipMergeBlocker === true));
     const workflowIr: WorkflowIr | undefined = useWorkflow
       ? this.resolveTaskWorkflowIrSync(id)
       : undefined;
@@ -5715,9 +5736,11 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       }
       // 2. Column-graph adjacency. For the default workflow this reproduces
       //    VALID_TRANSITIONS verbatim (resolveAllowedColumns); the
-      //    transition-parity suite machine-checks the equivalence.
+      //    transition-parity suite machine-checks the equivalence. A U5 recovery
+      //    re-home (recoveryRehome) skips this so a stranded card can reach its
+      //    new workflow's entry column from any current column.
       const allowed = resolveAllowedColumns(workflowIr, fromColumn);
-      if (!allowed.includes(toColumn)) {
+      if (options?.recoveryRehome !== true && !allowed.includes(toColumn)) {
         throw new TransitionRejectionError(
           makeTransitionRejection(
             "guard-rejected",
@@ -11517,7 +11540,39 @@ ${stepsSection}`;
     updates: WorkflowDefinitionUpdate,
   ): Promise<WorkflowDefinition> {
     if (isBuiltinWorkflowId(id)) throw new Error("Built-in workflows cannot be edited");
-    return this.withConfigLock(async () => {
+    // U5 (R20): flag-ON edits that remove an occupied column block with a typed
+    // OccupiedColumnsError unless `rehomeTo` is supplied. Computed before taking
+    // the config lock (pure DB reads) so the lock body stays focused.
+    const flagOn = await this.workflowColumnsFlagOn();
+    let pendingRehome: { rehomeTo: string; occupantTaskIds: string[] } | undefined;
+    if (flagOn && updates.ir !== undefined) {
+      const existingForCheck = await this.getWorkflowDefinition(id);
+      if (!existingForCheck) throw new Error(`Workflow '${id}' not found`);
+      const nextIrForCheck = parseWorkflowIr(updates.ir);
+      const occupantsByColumn = this.occupantsByColumnForWorkflow(id, false);
+      const removed = computeRemovedOccupiedColumns(
+        existingForCheck.ir,
+        nextIrForCheck,
+        occupantsByColumn,
+      );
+      if (removed.length > 0) {
+        if (updates.rehomeTo === undefined) {
+          throw new OccupiedColumnsError(id, removed);
+        }
+        assertRehomeTargetValid(nextIrForCheck, updates.rehomeTo);
+        // Collect the occupant task ids of the removed columns to re-home AFTER
+        // the IR save commits, so the cards land in a column the new IR defines.
+        const removedSet = new Set(removed.map((r) => r.columnId));
+        const occupantTaskIds = this.listWorkflowOccupantTaskIds(id, false).filter((taskId) => {
+          const row = this.db.prepare(`SELECT "column" AS column FROM tasks WHERE id = ?`).get(taskId) as
+            | { column: string }
+            | undefined;
+          return row ? removedSet.has(row.column) : false;
+        });
+        pendingRehome = { rehomeTo: updates.rehomeTo, occupantTaskIds };
+      }
+    }
+    const saved = await this.withConfigLock(async () => {
       const existing = await this.getWorkflowDefinition(id);
       if (!existing) throw new Error(`Workflow '${id}' not found`);
 
@@ -11550,6 +11605,18 @@ ${stepsSection}`;
       this.db.bumpLastModified();
       return next;
     });
+
+    // U5 (R20): now that the new IR is committed, re-home the occupants of the
+    // removed columns into `rehomeTo` (one audit event per card). Done outside
+    // the config lock; each rehome takes its own task lock via moveTask.
+    if (pendingRehome) {
+      for (const taskId of pendingRehome.occupantTaskIds) {
+        await this.rehomeOccupant(taskId, pendingRehome.rehomeTo, "workflow-edit-rehome", {
+          workflowId: id,
+        });
+      }
+    }
+    return saved;
   }
 
   /** Delete a workflow definition, cascading to per-task selections, their
@@ -11557,6 +11624,11 @@ ${stepsSection}`;
    *  not exist. */
   async deleteWorkflowDefinition(id: string): Promise<void> {
     if (isBuiltinWorkflowId(id)) throw new Error("Built-in workflows cannot be deleted");
+    // U5 (R20): flag-ON, capture the occupant task ids BEFORE the cascade clears
+    // their selection rows, so we can re-home them to the DEFAULT workflow's
+    // entry column once their selection resolves back to the default (KTD-1).
+    const flagOn = await this.workflowColumnsFlagOn();
+    const occupantTaskIds = flagOn ? this.listWorkflowOccupantTaskIds(id, false) : [];
     const deleted = this.db.prepare("DELETE FROM workflows WHERE id = ?").run(id) as { changes?: number };
     if ((deleted.changes || 0) === 0) {
       throw new Error(`Workflow '${id}' not found`);
@@ -11600,6 +11672,133 @@ ${stepsSection}`;
     }
     if (selections.length > 0) this.workflowStepsCache = null;
     this.db.bumpLastModified();
+
+    // U5 (R20) delete reconciliation: re-home each occupant to the default
+    // workflow's entry column. Their selection rows are already cleared above,
+    // so they now resolve to the built-in default workflow (KTD-1); the re-home
+    // move preserves task fields (preserveProgress) and emits one audit per card.
+    if (flagOn && occupantTaskIds.length > 0) {
+      const defaultEntry = resolveEntryColumnId(BUILTIN_CODING_WORKFLOW_IR);
+      if (defaultEntry) {
+        for (const taskId of occupantTaskIds) {
+          await this.rehomeOccupant(taskId, defaultEntry, "workflow-delete", { workflowId: id });
+        }
+      }
+    }
+  }
+
+  // ── U5: workflow lifecycle reconciliation (switch / edit / delete) ──────────
+  //
+  // These helpers are only consulted when the `workflowColumns` flag is ON; the
+  // flag-OFF CRUD paths above keep their exact current behavior. Re-homing moves
+  // always route through `moveTask` with `moveSource: "engine"` + `bypassGuards`
+  // (a recovery-class move, KTD-9) — never a raw column write — so capacity
+  // (KTD-10) and the single transition authority (KTD-3) are honored.
+
+  /** True when the `workflowColumns` flag is ON (merged global + project). */
+  private async workflowColumnsFlagOn(): Promise<boolean> {
+    return isWorkflowColumnsEnabled(await this.getSettingsFast());
+  }
+
+  /** The active (non-deleted) task ids currently selecting `workflowId`. A
+   *  built-in/default workflow additionally owns every task with NO selection
+   *  row (null selection resolves to the default workflow, KTD-1). */
+  private listWorkflowOccupantTaskIds(workflowId: string, includeNullSelection: boolean): string[] {
+    const ids: string[] = [];
+    const selected = this.db
+      .prepare(
+        `SELECT s.taskId AS taskId FROM task_workflow_selection s
+           JOIN tasks t ON t.id = s.taskId
+          WHERE s.workflowId = ? AND t."deletedAt" IS NULL`,
+      )
+      .all(workflowId) as Array<{ taskId: string }>;
+    for (const row of selected) ids.push(row.taskId);
+    if (includeNullSelection) {
+      const unselected = this.db
+        .prepare(
+          `SELECT t.id AS id FROM tasks t
+            WHERE t."deletedAt" IS NULL
+              AND NOT EXISTS (SELECT 1 FROM task_workflow_selection s WHERE s.taskId = t.id)`,
+        )
+        .all() as Array<{ id: string }>;
+      for (const row of unselected) ids.push(row.id);
+    }
+    return ids;
+  }
+
+  /** Map column id → occupant count for the tasks selecting `workflowId`
+   *  (plus null-selection tasks when `includeNullSelection`). */
+  private occupantsByColumnForWorkflow(
+    workflowId: string,
+    includeNullSelection: boolean,
+  ): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (const taskId of this.listWorkflowOccupantTaskIds(workflowId, includeNullSelection)) {
+      const row = this.db.prepare(`SELECT "column" AS column FROM tasks WHERE id = ?`).get(taskId) as
+        | { column: string }
+        | undefined;
+      if (!row) continue;
+      counts.set(row.column, (counts.get(row.column) ?? 0) + 1);
+    }
+    return counts;
+  }
+
+  /** Re-home a single occupant to `targetColumn` via an engine-sourced,
+   *  guard-bypassing recovery move, aborting in-flight work first, and emit one
+   *  audit event. Best-effort per card: a failure is audited and skipped so one
+   *  stuck card never blocks the rest of the batch. */
+  private async rehomeOccupant(
+    taskId: string,
+    targetColumn: string,
+    reason: "workflow-switch" | "workflow-delete" | "workflow-edit-rehome",
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    const current = this.readTaskFromDb(taskId, { includeDeleted: false });
+    if (!current) return;
+    const fromColumn = current.column;
+    if (fromColumn === targetColumn) {
+      // Already in the target column — nothing to move, but still record the
+      // reconciliation decision for audit traceability.
+      this.recordRunAuditEvent({
+        taskId,
+        agentId: "system",
+        runId: `workflow-reconcile-${reason}-${taskId}-${Date.now()}`,
+        domain: "database",
+        mutationType: "task:workflow-reconcile",
+        target: taskId,
+        metadata: { ...metadata, reason, fromColumn, toColumn: targetColumn, moved: false },
+      });
+      return;
+    }
+    const abortRan = await runReconciliationAbort({ taskId, fromColumn, reason });
+    let moved = false;
+    let error: string | undefined;
+    try {
+      // Recovery-class move: engine source + bypassGuards (KTD-9). preserveProgress
+      // keeps the task's fields intact (R20 delete semantics). Capacity (KTD-10) is
+      // NOT bypassed — a full target column rejects, which we audit and skip.
+      await this.moveTask(taskId, targetColumn as Column, {
+        moveSource: "engine",
+        bypassGuards: true,
+        recoveryRehome: true,
+        preserveProgress: true,
+        preserveResumeState: true,
+        preserveWorktree: true,
+        allowDirectInReviewMove: true,
+      });
+      moved = true;
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+    this.recordRunAuditEvent({
+      taskId,
+      agentId: "system",
+      runId: `workflow-reconcile-${reason}-${taskId}-${Date.now()}`,
+      domain: "database",
+      mutationType: "task:workflow-reconcile",
+      target: taskId,
+      metadata: { ...metadata, reason, fromColumn, toColumn: targetColumn, abortRan, moved, error },
+    });
   }
 
   // ── Workflow selection (resolves a workflow to enabledWorkflowSteps) ────
@@ -11843,6 +12042,46 @@ ${stepsSection}`;
       }
       return ids;
     });
+  }
+
+  /**
+   * U5 (R20) workflow switch: select a workflow for a task and, when the
+   * `workflowColumns` flag is ON, reconcile the card's board column against the
+   * NEW workflow. Same-id column preserves position; otherwise the card re-homes
+   * to the new workflow's entry (intake-flagged, else first) column, aborting
+   * in-flight processing first (KTD-9). Returns the materialized step ids plus
+   * the switch outcome so the dashboard can surface the re-home.
+   *
+   * Reconciliation runs AFTER `selectTaskWorkflow` releases the per-task lock
+   * (moveTask takes its own lock; the per-task lock is non-reentrant).
+   */
+  async selectTaskWorkflowAndReconcile(
+    taskId: string,
+    workflowId: string,
+  ): Promise<{
+    enabledWorkflowSteps: string[];
+    reconciliation?: { preserved: boolean; fromColumn: string; toColumn: string };
+  }> {
+    const enabledWorkflowSteps = await this.selectTaskWorkflow(taskId, workflowId);
+    if (!(await this.workflowColumnsFlagOn())) {
+      return { enabledWorkflowSteps };
+    }
+    const newIr = this.resolveTaskWorkflowIrSync(taskId);
+    const current = this.readTaskFromDb(taskId, { includeDeleted: false });
+    if (!current) return { enabledWorkflowSteps };
+    const fromColumn = current.column;
+    const decision = resolveSwitchReconciliation(newIr, fromColumn);
+    if (!decision.preserved && decision.targetColumn !== fromColumn) {
+      await this.rehomeOccupant(taskId, decision.targetColumn, "workflow-switch", { workflowId });
+    }
+    return {
+      enabledWorkflowSteps,
+      reconciliation: {
+        preserved: decision.preserved,
+        fromColumn,
+        toColumn: decision.targetColumn,
+      },
+    };
   }
 
   /** Clear a task's workflow selection and its enabled steps. */

@@ -230,4 +230,81 @@ describe("workflow routes (U4)", () => {
     // consumes the marker itself on re-run.
     expect(detail.pausedReason).toBe("workflow-await-input:ask: please confirm");
   });
+
+  // ── U5: lifecycle reconciliation surfaced through the routes (flag ON) ───────
+  describe("U5 reconciliation (workflowColumns flag ON)", () => {
+    /** A v2 custom workflow with controlled column ids; linear so it compiles. */
+    function customV2(name: string, cols: string[]): WorkflowIr {
+      const entry = cols[0];
+      return {
+        version: "v2",
+        name,
+        columns: cols.map((id) => ({ id, name: id, traits: id === entry ? [{ trait: "intake" }] : [] })),
+        nodes: [
+          { id: "start", kind: "start", column: entry },
+          { id: "work", kind: "prompt", column: cols[1] ?? entry, config: { prompt: "do" } },
+          { id: "end", kind: "end", column: cols[cols.length - 1] },
+        ],
+        edges: [
+          { from: "start", to: "work", condition: "success" },
+          { from: "work", to: "end", condition: "success" },
+        ],
+      };
+    }
+
+    beforeEach(async () => {
+      await store.updateGlobalSettings({ experimentalFeatures: { workflowColumns: true } });
+    });
+
+    it("PATCH removing an occupied column 409s with per-column occupant counts", async () => {
+      const wf = await post("/api/workflows", { name: "edit", ir: customV2("edit", ["intake", "build", "done"]) });
+      const wfId = (wf.body as { id: string }).id;
+      const t = await store.createTask({ description: "occ" });
+      await store.selectTaskWorkflowAndReconcile(t.id, wfId);
+      await store.moveTask(t.id, "build", { moveSource: "user" });
+
+      const res = await request(
+        app,
+        "PATCH",
+        `/api/workflows/${wfId}`,
+        JSON.stringify({ ir: customV2("edit", ["intake", "done"]) }),
+        { "content-type": "application/json" },
+      );
+      expect(res.status).toBe(409);
+      const details = (res.body as { details?: { occupancies?: Array<{ columnId: string; count: number }> } }).details;
+      expect(details?.occupancies).toEqual([{ columnId: "build", count: 1 }]);
+    });
+
+    it("PATCH with rehomeTo saves and re-homes occupants", async () => {
+      const wf = await post("/api/workflows", { name: "rehome", ir: customV2("rehome", ["intake", "build", "done"]) });
+      const wfId = (wf.body as { id: string }).id;
+      const t = await store.createTask({ description: "occ" });
+      await store.selectTaskWorkflowAndReconcile(t.id, wfId);
+      await store.moveTask(t.id, "build", { moveSource: "user" });
+
+      const res = await request(
+        app,
+        "PATCH",
+        `/api/workflows/${wfId}`,
+        JSON.stringify({ ir: customV2("rehome", ["intake", "done"]), rehomeTo: "intake" }),
+        { "content-type": "application/json" },
+      );
+      expect(res.status).toBe(200);
+      expect((await store.getTask(t.id)).column).toBe("intake");
+    });
+
+    it("PUT selection re-homes the card and returns the reconciliation outcome", async () => {
+      const wf = await post("/api/workflows", { name: "sw", ir: customV2("sw", ["intake", "doing", "done"]) });
+      const wfId = (wf.body as { id: string }).id;
+      const t = await store.createTask({ description: "switcher" });
+      await store.moveTask(t.id, "todo", { moveSource: "user" });
+
+      const res = await put(`/api/tasks/${t.id}/workflow`, { workflowId: wfId });
+      expect(res.status).toBe(200);
+      const recon = (res.body as { reconciliation?: { preserved: boolean; toColumn: string } }).reconciliation;
+      expect(recon?.preserved).toBe(false);
+      expect(recon?.toColumn).toBe("intake");
+      expect((await store.getTask(t.id)).column).toBe("intake");
+    });
+  });
 });

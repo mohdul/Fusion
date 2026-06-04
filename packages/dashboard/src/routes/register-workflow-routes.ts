@@ -1,6 +1,6 @@
 import type { WorkflowIr } from "@fusion/core";
-import { WorkflowCompileError, WorkflowIrError, compileWorkflowToSteps } from "@fusion/core";
-import { ApiError, badRequest, notFound } from "../api-error.js";
+import { OccupiedColumnsError, WorkflowCompileError, WorkflowIrError, compileWorkflowToSteps } from "@fusion/core";
+import { ApiError, badRequest, conflict, notFound } from "../api-error.js";
 import type { ApiRoutesContext } from "./types.js";
 
 /**
@@ -65,17 +65,32 @@ export function registerWorkflowRoutes(ctx: ApiRoutesContext): void {
   router.patch("/workflows/:id", async (req, res) => {
     try {
       const { store } = await getProjectContext(req);
-      const { name, description, ir, layout } = req.body ?? {};
+      const { name, description, ir, layout, rehomeTo } = req.body ?? {};
       if (name !== undefined && (typeof name !== "string" || !name.trim())) {
         throw badRequest("name must be a non-empty string");
       }
       if (ir !== undefined && (typeof ir !== "object" || ir === null)) {
         throw badRequest("ir must be a workflow graph object");
       }
-      const updated = await store.updateWorkflowDefinition(req.params.id, { name, description, ir, layout });
+      if (rehomeTo !== undefined && typeof rehomeTo !== "string") {
+        throw badRequest("rehomeTo must be a string column id");
+      }
+      const updated = await store.updateWorkflowDefinition(req.params.id, {
+        name,
+        description,
+        ir,
+        layout,
+        ...(rehomeTo !== undefined ? { rehomeTo } : {}),
+      });
       res.json(updated);
     } catch (err: unknown) {
       if (err instanceof ApiError) throw err;
+      // U5 (R20): a flag-ON edit removing an occupied column blocks with a typed
+      // error. Surface it as a structured 409 carrying the per-column occupant
+      // counts so the client can prompt for a `rehomeTo` target and retry.
+      if (err instanceof OccupiedColumnsError) {
+        throw conflict(err.message, { workflowId: err.workflowId, occupancies: err.occupancies });
+      }
       if (err instanceof WorkflowIrError) throw badRequest(err.message);
       if (err instanceof Error && /not found/i.test(err.message)) throw notFound(err.message);
       rethrowAsApiError(err);
@@ -149,8 +164,15 @@ export function registerWorkflowRoutes(ctx: ApiRoutesContext): void {
         throw badRequest("workflowId must be a string or null");
       }
       let enabledWorkflowSteps: string[] = [];
+      // U5 (R20) switch reconciliation: when the workflowColumns flag is ON, the
+      // store re-homes the card to the new workflow's entry column (aborting
+      // in-flight work first) unless the new workflow defines its current column.
+      // The re-home outcome rides on the response so the UI can reflect the move.
+      let reconciliation: { preserved: boolean; fromColumn: string; toColumn: string } | undefined;
       try {
-        enabledWorkflowSteps = await store.selectTaskWorkflow(req.params.taskId, workflowId);
+        const result = await store.selectTaskWorkflowAndReconcile(req.params.taskId, workflowId);
+        enabledWorkflowSteps = result.enabledWorkflowSteps;
+        reconciliation = result.reconciliation;
       } catch (selectErr: unknown) {
         if (selectErr instanceof WorkflowCompileError || selectErr instanceof WorkflowIrError) {
           throw new ApiError(422, selectErr.message);
@@ -160,7 +182,7 @@ export function registerWorkflowRoutes(ctx: ApiRoutesContext): void {
         }
         throw selectErr;
       }
-      res.json({ workflowId, enabledWorkflowSteps });
+      res.json({ workflowId, enabledWorkflowSteps, ...(reconciliation ? { reconciliation } : {}) });
     } catch (err: unknown) {
       if (err instanceof ApiError) throw err;
       rethrowAsApiError(err);
