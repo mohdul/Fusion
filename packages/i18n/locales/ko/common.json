@@ -1,15 +1,23 @@
 {
+  "actions": {
+    "cancel": "취소",
+    "close": "닫기",
+    "save": "저장"
+  },
+  "archive": "보관",
+  "cancel": "취소",
+  "close": "닫기",
   "columns": {
-    "triage": "계획",
-    "todo": "할 일",
+    "archived": "보관됨",
+    "done": "완료",
     "in-progress": "진행 중",
     "in-review": "검토 중",
-    "done": "완료",
-    "archived": "보관됨"
+    "todo": "할 일",
+    "triage": "계획"
   },
-  "actions": {
-    "save": "저장",
-    "cancel": "취소",
-    "close": "닫기"
-  }
+  "delete": "삭제",
+  "refresh": "새로고침",
+  "retry": "재시도",
+  "skip": "건너뛰기",
+  "tryAgain": "다시 시도"
 }
