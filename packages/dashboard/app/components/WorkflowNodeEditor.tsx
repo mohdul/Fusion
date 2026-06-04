@@ -16,7 +16,7 @@ import {
 } from "@xyflow/react";
 import { X, Plus, Trash2, Save, MessageSquare, Terminal, Shield, GitMerge, Loader2, HelpCircle } from "lucide-react";
 import type { WorkflowDefinition } from "@fusion/core";
-import { getErrorMessage, isBuiltinWorkflowId } from "@fusion/core";
+import { getErrorMessage } from "@fusion/core";
 import {
   fetchWorkflows,
   createWorkflow,
@@ -38,6 +38,13 @@ import { irToFlow, flowToIr, emptyWorkflowIr, emptyWorkflowLayout } from "./work
 import { CustomModelDropdown } from "./CustomModelDropdown";
 
 type ExecutorKind = "model" | "agent" | "skill" | "cli";
+
+// Mirror of @fusion/core's isBuiltinWorkflowId / BUILTIN_WORKFLOW_ID_PREFIX.
+// Inlined because the dashboard app build aliases "@fusion/core" to its
+// types-only entry (which doesn't re-export builtin-workflows), and importing
+// the function would pull the eager BUILTIN_WORKFLOWS construction into the
+// browser bundle for a one-line prefix check.
+const isBuiltinWorkflowId = (id: string): boolean => id.startsWith("builtin:");
 
 function getModelDropdownValue(provider: string, modelId: string): string {
   return provider && modelId ? `${provider}/${modelId}` : "";
