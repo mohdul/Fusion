@@ -95,19 +95,25 @@ async function describeWorkflow(
   store: Pick<TaskStore, "getWorkflowDefinition">,
   workflowId: string,
 ): Promise<BoardWorkflowDefinition> {
-  const ir = await resolveWorkflowIr(store, workflowId);
   // The display name comes from the persisted definition when available,
   // otherwise the IR's own name (default workflow).
-  let name = ir.name;
   if (isBuiltinWorkflowId(workflowId)) {
-    name = getBuiltinWorkflow(workflowId)?.name ?? name;
-  } else {
-    try {
-      const def = await store.getWorkflowDefinition(workflowId);
-      if (def?.name) name = def.name;
-    } catch {
-      // fall through to IR name
+    const ir = await resolveWorkflowIr(store, workflowId);
+    const name = getBuiltinWorkflow(workflowId)?.name ?? ir.name;
+    return { id: workflowId, name, columns: describeColumns(ir) };
+  }
+  // Custom workflow: fetch the definition once and derive both IR and name from
+  // it (previously getWorkflowDefinition was called twice per workflow).
+  let ir: WorkflowIr = BUILTIN_CODING_WORKFLOW_IR;
+  let name = ir.name;
+  try {
+    const def = await store.getWorkflowDefinition(workflowId);
+    if (def) {
+      ir = typeof def.ir === "string" ? parseWorkflowIr(def.ir) : def.ir;
+      name = def.name || ir.name;
     }
+  } catch {
+    // fall through to the default IR/name
   }
   return { id: workflowId, name, columns: describeColumns(ir) };
 }

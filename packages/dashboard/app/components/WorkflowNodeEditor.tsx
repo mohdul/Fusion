@@ -42,7 +42,7 @@ import {
   emptyWorkflowLayout,
   columnsOf,
   columnsToBandNodes,
-  columnForY,
+  strictColumnForY,
   validateColumnsClient,
   unplacedNodeIds,
   isColumnBandNode,
@@ -120,9 +120,17 @@ function InnerEditor({
   // Trait catalog (for client-side composition validation; the panel fetches its
   // own copy for the picker, but the editor needs the flags to validate).
   useEffect(() => {
-    fetchTraits(projectId).then(setTraitCatalog).catch(() => {
-      // Non-fatal: validation degrades to server-side parse on save.
-    });
+    let cancelled = false;
+    fetchTraits(projectId)
+      .then((catalog) => {
+        if (!cancelled) setTraitCatalog(catalog);
+      })
+      .catch(() => {
+        // Non-fatal: validation degrades to server-side parse on save.
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [projectId]);
 
   // Composition violations (client mirror of validateColumnTraits).
@@ -194,7 +202,9 @@ function InnerEditor({
   const onNodeDragStop = useCallback(
     (_evt: unknown, node: FlowNode<WorkflowFlowNodeData>) => {
       if (isColumnBandNode(node.id) || columns.length === 0) return;
-      const column = columnForY(node.position.y, columns);
+      // strictColumnForY (not the clamping columnForY): a node dragged above or
+      // below all bands keeps no column rather than snapping to the nearest one.
+      const column = strictColumnForY(node.position.y, columns);
       if (!column) return;
       setNodes((ns) =>
         ns.map((n) => (n.id === node.id ? { ...n, data: { ...n.data, column } } : n)),

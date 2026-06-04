@@ -1,5 +1,5 @@
 import type { WorkflowIr } from "@fusion/core";
-import { ColumnTraitValidationError, OccupiedColumnsError, WorkflowCompileError, WorkflowIrError, compileWorkflowToSteps, listTraits } from "@fusion/core";
+import { ColumnTraitValidationError, OccupiedColumnsError, InvalidRehomeTargetError, WorkflowCompileError, WorkflowIrError, compileWorkflowToSteps, listTraits } from "@fusion/core";
 import { ApiError, badRequest, conflict, notFound } from "../api-error.js";
 import type { ApiRoutesContext } from "./types.js";
 
@@ -121,6 +121,11 @@ export function registerWorkflowRoutes(ctx: ApiRoutesContext): void {
       // counts so the client can prompt for a `rehomeTo` target and retry.
       if (err instanceof OccupiedColumnsError) {
         throw conflict(err.message, { workflowId: err.workflowId, occupancies: err.occupancies });
+      }
+      // A supplied rehomeTo naming a non-existent column is a bad request (400),
+      // not a 409 conflict.
+      if (err instanceof InvalidRehomeTargetError) {
+        throw badRequest(err.message, { workflowId: err.workflowId, rehomeTo: err.rehomeTo });
       }
       if (err instanceof WorkflowIrError) throw badRequest(err.message);
       if (err instanceof ColumnTraitValidationError) {

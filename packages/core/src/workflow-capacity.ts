@@ -29,6 +29,11 @@ import { getTraitRegistry } from "./trait-registry.js";
  *  `settings.maxConcurrent` (the legacy "N agents in-progress" gate). */
 const DEFAULT_WIP_COLUMN_ID = "in-progress";
 
+/** U6 (KTD-10): sentinel effective-workflow id for default-workflow
+ *  (null-selection) tasks, so they all share one per-column capacity pool. It
+ *  is not a real workflow row id (no `builtin:`/custom collision possible). */
+export const DEFAULT_WORKFLOW_POOL_ID = "__default-workflow__";
+
 /** Resolved capacity configuration for a single column. */
 export interface ColumnCapacity {
   /** True when the column carries a capacity (`wip`/`countsTowardWip`) trait. */

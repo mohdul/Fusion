@@ -149,15 +149,34 @@ export function computeRemovedOccupiedColumns(
 }
 
 /**
+ * Thrown when a supplied `rehomeTo` names a column that does not exist in the
+ * post-edit workflow. Distinct from {@link OccupiedColumnsError} (which signals
+ * a conflict needing a re-home target) — this is a bad-request input error and
+ * the dashboard maps it to a 400, not a 409.
+ */
+export class InvalidRehomeTargetError extends Error {
+  readonly workflowId: string;
+  readonly rehomeTo: string;
+  constructor(workflowId: string, rehomeTo: string) {
+    super(
+      `Workflow '${workflowId}' has no column '${rehomeTo}' to re-home occupants into.`,
+    );
+    this.name = "InvalidRehomeTargetError";
+    this.workflowId = workflowId;
+    this.rehomeTo = rehomeTo;
+  }
+}
+
+/**
  * Validate that `rehomeTo` (when supplied for an edit that removes occupied
  * columns) names a column that survives in `nextIr`. Throws when it does not, so
  * occupants are never re-homed into a column that won't exist either.
  */
 export function assertRehomeTargetValid(nextIr: WorkflowIr, rehomeTo: string): void {
   if (!workflowHasColumn(nextIr, rehomeTo)) {
-    throw new OccupiedColumnsError(
+    throw new InvalidRehomeTargetError(
       (nextIr as WorkflowIrV2).name ?? "(unknown)",
-      [],
+      rehomeTo,
     );
   }
 }

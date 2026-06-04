@@ -206,6 +206,38 @@ describe("U12 rollback safety — flag OFF after flag ON keeps legacy behavior",
     expect(caught).toBeInstanceOf(Error);
     expect((caught as Error).message).toMatch(/Invalid transition/);
   });
+
+  it("a card stranded in a custom column when the flag is toggled OFF degrades to a clean Invalid-transition error (no TypeError) and listTasks stays healthy", async () => {
+    // Flag ON: select a custom workflow whose entry column is custom, so the
+    // card is re-homed into a column that VALID_TRANSITIONS never keys.
+    await store.updateGlobalSettings({ experimentalFeatures: { workflowColumns: true } });
+    const wf = await store.createWorkflowDefinition({
+      name: "stranded",
+      ir: customIr("stranded", ["intake", "build", "ship"], "intake"),
+    });
+    const task = await store.createTask({ description: "stranded card" });
+    await store.selectTaskWorkflowAndReconcile(task.id, wf.id);
+    expect((await store.getTask(task.id)).column).toBe("intake");
+
+    // Toggle the flag OFF — the card stays in the custom "intake" column.
+    await store.updateGlobalSettings({ experimentalFeatures: { workflowColumns: false } });
+    expect((await store.getTask(task.id)).column).toBe("intake");
+
+    // listTasks must not throw with a task sitting in an unknown column.
+    await expect(store.listTasks()).resolves.toBeDefined();
+
+    // A move attempt degrades to the legacy "Invalid transition" error rather
+    // than a TypeError on the undefined VALID_TRANSITIONS lookup.
+    let caught: unknown;
+    try {
+      await store.moveTask(task.id, "in-progress", { moveSource: "user" });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toMatch(/Invalid transition/);
+    expect((caught as Error)).not.toBeInstanceOf(TypeError);
+  });
 });
 
 describe("Residual B: getBranchProgressByTask reads workflow_run_branches", () => {

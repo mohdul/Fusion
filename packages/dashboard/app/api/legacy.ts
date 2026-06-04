@@ -5075,8 +5075,18 @@ export function selectTaskWorkflow(
   taskId: string,
   workflowId: string | null,
   projectId?: string,
-): Promise<{ workflowId: string | null; enabledWorkflowSteps: string[] }> {
-  return api<{ workflowId: string | null; enabledWorkflowSteps: string[] }>(
+): Promise<{
+  workflowId: string | null;
+  enabledWorkflowSteps: string[];
+  // U5 (R20): present (flag ON) when the switch re-homed the card; `preserved`
+  // false means the card moved columns and the board needs a refresh.
+  reconciliation?: { preserved: boolean; fromColumn: string; toColumn: string };
+}> {
+  return api<{
+    workflowId: string | null;
+    enabledWorkflowSteps: string[];
+    reconciliation?: { preserved: boolean; fromColumn: string; toColumn: string };
+  }>(
     withProjectId(`/tasks/${encodeURIComponent(taskId)}/workflow`, projectId),
     {
       method: "PUT",

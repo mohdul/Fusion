@@ -51,6 +51,7 @@ import {
   type WorkflowIr,
   type WorkflowIrColumn,
 } from "@fusion/core";
+import { mergerLog } from "./logger.js";
 
 // ── Resolved merge policy ────────────────────────────────────────────────────
 
@@ -242,7 +243,7 @@ async function mergeOnEnter(store: TaskStore, task: Pick<Task, "id" | "priority"
     // the card is never stranded and the queue is never corrupted. The store
     // already audits the rejection.
     const message = err instanceof Error ? err.message : String(err);
-    void message;
+    mergerLog.warn(`merge enqueue skipped for task ${task.id}: ${message}`);
   }
 }
 

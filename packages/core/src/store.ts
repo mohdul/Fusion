@@ -16,7 +16,7 @@ import {
   resolveColumnPluginGates,
 } from "./plugin-gate-verdict.js";
 import { getTraitRegistry, assertColumnTraitsValid } from "./trait-registry.js";
-import { resolveColumnCapacity } from "./workflow-capacity.js";
+import { resolveColumnCapacity, DEFAULT_WORKFLOW_POOL_ID } from "./workflow-capacity.js";
 import {
   OccupiedColumnsError,
   assertRehomeTargetValid,
@@ -1150,8 +1150,10 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   private static readonly ACTIVE_TASKS_WHERE = '"deletedAt" IS NULL';
   /** U6: sentinel effective-workflow id for default-workflow (null-selection)
    *  tasks, so they all share one per-column capacity pool (KTD-10). It is not a
-   *  real workflow row id (no `builtin:`/custom collision possible). */
-  private static readonly DEFAULT_WORKFLOW_POOL_ID = "__default-workflow__";
+   *  real workflow row id (no `builtin:`/custom collision possible). Re-exposed
+   *  as a static member for internal call sites; the canonical const lives in
+   *  `workflow-capacity.ts` (`DEFAULT_WORKFLOW_POOL_ID`). */
+  private static readonly DEFAULT_WORKFLOW_POOL_ID = DEFAULT_WORKFLOW_POOL_ID;
 
   static async getOrCreateForProject(
     projectId?: string,
@@ -5050,12 +5052,6 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
 
       // Group by task; for each task keep only the branches of its most-recent
       // run (the runId of the row with the latest updatedAt).
-      const latestRunByTask = new Map<string, string>();
-      for (const row of rows) {
-        const known = latestRunByTask.get(row.taskId);
-        if (!known) latestRunByTask.set(row.taskId, row.runId);
-      }
-      // Re-derive the latest runId precisely from the max-updatedAt row.
       const maxByTask = new Map<string, { runId: string; updatedAt: string }>();
       for (const row of rows) {
         const cur = maxByTask.get(row.taskId);
@@ -5933,7 +5929,10 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       }
     } else {
       // ── Flag-OFF legacy path (unchanged) ───────────────────────────────────
-      const validTargets = VALID_TRANSITIONS[task.column];
+      // A task can sit in a custom column when the flag was toggled ON→OFF;
+      // `VALID_TRANSITIONS` only keys the legacy columns, so a missing entry
+      // degrades to the legacy "Invalid transition" error instead of a TypeError.
+      const validTargets = VALID_TRANSITIONS[task.column as Column] ?? [];
       if (!validTargets.includes(toColumn)) {
         throw new Error(
           `Invalid transition: '${task.column}' → '${toColumn}'. ` +

@@ -1971,6 +1971,18 @@ export function TaskDetailContent({
     }
   }, [task.id, projectId, workflowEnabledSteps, onTaskUpdated, addToast]);
 
+  // U5 (R20): a workflow switch re-homed the card to a new column. Refetch the
+  // task and push it up so the board reflects the move before the SSE catch-up.
+  const handleWorkflowReconciled = useCallback(async () => {
+    try {
+      const detail = await fetchTaskDetail(task.id, projectId);
+      setFullDetail(detail);
+      onTaskUpdated?.(detail);
+    } catch {
+      // Best-effort refresh; the SSE stream will catch the board up regardless.
+    }
+  }, [task.id, projectId, onTaskUpdated]);
+
   const loadAgents = useCallback(async () => {
     setAgentsLoading(true);
     try {
@@ -2761,6 +2773,7 @@ export function TaskDetailContent({
                   && task.status !== "awaiting-cli-approval"
                 }
                 onWorkflowStepsChange={handleWorkflowStepsChange}
+                onWorkflowReconciled={handleWorkflowReconciled}
                 taskStatus={task.status}
                 taskPausedReason={task.pausedReason}
               />

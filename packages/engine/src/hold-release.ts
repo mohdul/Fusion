@@ -41,6 +41,7 @@ import {
   resolveColumnCapacity,
   resolveColumnFlags,
   resolveColumnAdjacency,
+  DEFAULT_WORKFLOW_POOL_ID,
   TransitionRejectionError,
   BUILTIN_CODING_WORKFLOW_IR,
   getBuiltinWorkflow,
@@ -53,8 +54,6 @@ import {
   type WorkflowIrColumn,
 } from "@fusion/core";
 import { schedulerLog } from "./logger.js";
-
-const DEFAULT_WORKFLOW_POOL_ID = "__default-workflow__";
 
 /** A reservation handle returned by {@link HoldReleaseDeps.reserveSlot}. The
  *  sweep calls `release()` if the subsequent move rejects on capacity. */
@@ -95,7 +94,13 @@ export interface HoldReleaseResult {
 
 // ── Workflow IR resolution (read-only, mirrors store + merge-trait) ───────────
 
-async function resolveTaskWorkflowIr(store: TaskStore, taskId: string): Promise<WorkflowIr> {
+async function resolveTaskWorkflowIr(
+  store: TaskStore,
+  taskId: string,
+  // Optional per-sweep cache keyed by workflowId so each distinct workflow's IR
+  // is resolved (and its definition fetched) at most once per sweep.
+  irCache?: Map<string, WorkflowIr>,
+): Promise<WorkflowIr> {
   let workflowId: string | undefined;
   try {
     workflowId = store.getTaskWorkflowSelection(taskId)?.workflowId;
@@ -103,14 +108,20 @@ async function resolveTaskWorkflowIr(store: TaskStore, taskId: string): Promise<
     workflowId = undefined;
   }
   if (!workflowId) return BUILTIN_CODING_WORKFLOW_IR;
+  const cached = irCache?.get(workflowId);
+  if (cached) return cached;
   if (isBuiltinWorkflowId(workflowId)) {
     const builtin = getBuiltinWorkflow(workflowId);
-    return builtin?.ir ?? BUILTIN_CODING_WORKFLOW_IR;
+    const ir = builtin?.ir ?? BUILTIN_CODING_WORKFLOW_IR;
+    irCache?.set(workflowId, ir);
+    return ir;
   }
   try {
     const def = await store.getWorkflowDefinition(workflowId);
     if (!def) return BUILTIN_CODING_WORKFLOW_IR;
-    return typeof def.ir === "string" ? parseWorkflowIr(def.ir) : def.ir;
+    const ir = typeof def.ir === "string" ? parseWorkflowIr(def.ir) : def.ir;
+    irCache?.set(workflowId, ir);
+    return ir;
   } catch {
     return BUILTIN_CODING_WORKFLOW_IR;
   }
@@ -287,15 +298,17 @@ function resolveTimerDeadline(holdConfig: Record<string, unknown>, task: Task): 
  * arbitration is still the in-txn check, which rejects a losing racer.
  */
 function countCapacitySlot(
-  store: TaskStore,
   allTasks: Task[],
+  // Pre-built taskId → effective workflowId map (one pass per sweep) so this
+  // counting loop avoids a per-task `effectiveWorkflowId` DB call.
+  effectiveWorkflowIdByTask: Map<string, string>,
   targetColumn: string,
   workflowId: string,
   countPending: boolean,
 ): number {
   let count = 0;
   for (const t of allTasks) {
-    if (effectiveWorkflowId(store, t.id) !== workflowId) continue;
+    if ((effectiveWorkflowIdByTask.get(t.id) ?? DEFAULT_WORKFLOW_POOL_ID) !== workflowId) continue;
     if (t.column === targetColumn) {
       count += 1;
       continue;
@@ -325,6 +338,17 @@ export async function runHoldReleaseSweep(
 
   const allTasks = await store.listTasks({ includeArchived: false });
 
+  // Per-sweep caches. `allTasks` is a snapshot-stable read within a sweep, so we
+  // resolve each workflow's IR at most once (irCache) and pre-build the
+  // taskId → effective-workflowId map a single time rather than per-task DB
+  // calls inside the capacity counting loop. The authoritative in-txn capacity
+  // check is unaffected — this only trims the sweep pre-check cost.
+  const irCache = new Map<string, WorkflowIr>();
+  const effectiveWorkflowIdByTask = new Map<string, string>();
+  for (const t of allTasks) {
+    effectiveWorkflowIdByTask.set(t.id, effectiveWorkflowId(store, t.id));
+  }
+
   for (const task of allTasks) {
     // Skip paused / recovery-backoff tasks exactly as the legacy scheduler does.
     if (task.paused || task.userPaused) {
@@ -334,7 +358,7 @@ export async function runHoldReleaseSweep(
       continue;
     }
 
-    const ir = await resolveTaskWorkflowIr(store, task.id);
+    const ir = await resolveTaskWorkflowIr(store, task.id, irCache);
     if (!isHeldTask(ir, task)) continue;
 
     const column = findColumn(ir, task.column);
@@ -372,8 +396,8 @@ export async function runHoldReleaseSweep(
       }
       const capacity = resolveColumnCapacity(ir, target, settings);
       if (capacity.hasCapacity && Number.isFinite(capacity.limit)) {
-        const workflowId = effectiveWorkflowId(store, task.id);
-        const occupants = countCapacitySlot(store, allTasks, target, workflowId, capacity.countPending);
+        const workflowId = effectiveWorkflowIdByTask.get(task.id) ?? DEFAULT_WORKFLOW_POOL_ID;
+        const occupants = countCapacitySlot(allTasks, effectiveWorkflowIdByTask, target, workflowId, capacity.countPending);
         if (occupants >= capacity.limit) {
           result.held.push({ taskId: task.id, reason: "downstream-full" });
           continue;

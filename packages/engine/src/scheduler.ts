@@ -32,7 +32,7 @@ import type { AutoClaimSnapshotManager } from "./auto-claim-snapshot.js";
 import { StaleTaskReporter } from "./stale-task-reporter.js";
 import { BacklogPressureReporter } from "./backlog-pressure-reporter.js";
 import { createRunAuditor, generateSyntheticRunId } from "./run-audit.js";
-import { isWorkflowColumnsEnabled } from "@fusion/core";
+import { isWorkflowColumnsEnabled, DEFAULT_WORKFLOW_POOL_ID } from "@fusion/core";
 import { runHoldReleaseSweep, type SlotReservation } from "./hold-release.js";
 
 /**
@@ -1251,7 +1251,7 @@ export class Scheduler {
       // Additive: omitted flag-OFF so the three-gate report shape is unchanged.
       const perColumnGates = isWorkflowColumnsEnabled(settings)
         ? [{
-          workflowId: "__default-workflow__",
+          workflowId: DEFAULT_WORKFLOW_POOL_ID,
           columnId: "in-progress",
           used: agentSlots,
           limit: maxConcurrent,

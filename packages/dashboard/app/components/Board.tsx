@@ -282,19 +282,39 @@ export function Board({ tasks, projectId, maxConcurrent, onMoveTask, onPauseTask
     return new Set();
   });
 
+  // Fetch board workflow lanes for the project. Deliberately NOT keyed on
+  // `tasks` — that refetched on every SSE tick. Instead we refetch on project
+  // change and when the tab regains visibility/focus. A stale-response guard
+  // (monotonic sequence ref) drops out-of-order responses.
+  // TODO: replace the visibility/focus staleness stopgap with a
+  // `workflow:updated` SSE event when one exists.
+  const boardWorkflowsFetchSeqRef = useRef(0);
   useEffect(() => {
-    let cancelled = false;
-    fetchBoardWorkflows(projectId)
-      .then((payload) => {
-        if (!cancelled) setBoardWorkflows(payload);
-      })
-      .catch(() => {
-        if (!cancelled) setBoardWorkflows({ flagEnabled: false, defaultWorkflowId: "builtin:coding", workflows: [], taskWorkflowIds: {} });
-      });
-    return () => {
-      cancelled = true;
+    const runFetch = () => {
+      const seq = ++boardWorkflowsFetchSeqRef.current;
+      fetchBoardWorkflows(projectId)
+        .then((payload) => {
+          if (seq === boardWorkflowsFetchSeqRef.current) setBoardWorkflows(payload);
+        })
+        .catch(() => {
+          if (seq === boardWorkflowsFetchSeqRef.current) {
+            setBoardWorkflows({ flagEnabled: false, defaultWorkflowId: "builtin:coding", workflows: [], taskWorkflowIds: {} });
+          }
+        });
     };
-  }, [projectId, tasks]);
+    runFetch();
+    const onVisible = () => {
+      if (typeof document === "undefined" || document.visibilityState === "visible") runFetch();
+    };
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisible);
+    if (typeof window !== "undefined") window.addEventListener("focus", onVisible);
+    return () => {
+      // Advance the seq so any in-flight response is dropped on cleanup.
+      boardWorkflowsFetchSeqRef.current++;
+      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisible);
+      if (typeof window !== "undefined") window.removeEventListener("focus", onVisible);
+    };
+  }, [projectId]);
 
   const handleToggleLaneCollapse = useCallback((workflowId: string) => {
     setCollapsedLanes((prev) => {

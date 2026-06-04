@@ -2,6 +2,7 @@ import type { Settings, TaskDetail, WorkflowIrEdge, WorkflowIrNode } from "@fusi
 import { WorkflowIrError } from "@fusion/core";
 
 import type { WorkflowNodeOutcome, WorkflowNodeResult } from "./workflow-graph-executor.js";
+import { schedulerLog } from "./logger.js";
 
 /**
  * Concurrent fan-out/join branch execution (U13, KTD-11, R21).
@@ -38,6 +39,26 @@ export interface WorkflowBranchPersistence {
   saveBranchState?(state: WorkflowBranchRunState): void | Promise<void>;
   /** Load any persisted branch states for a run (used on resume). */
   loadBranchStates?(taskId: string, runId: string): WorkflowBranchRunState[] | Promise<WorkflowBranchRunState[]>;
+}
+
+/**
+ * Await a `saveBranchState` call inside a guard so a Promise-returning impl
+ * cannot escape as an unhandled rejection, and so a persistence failure never
+ * kills branch execution (log-and-continue). For a synchronous impl this
+ * preserves the prior behavior (the write completes before the caller proceeds).
+ */
+async function persistBranchState(
+  persistence: WorkflowBranchPersistence | undefined,
+  state: WorkflowBranchRunState,
+): Promise<void> {
+  try {
+    await persistence?.saveBranchState?.(state);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    schedulerLog.warn(
+      `saveBranchState failed for task ${state.taskId} run ${state.runId} branch ${state.branchId}: ${message}`,
+    );
+  }
 }
 
 /** Minimal semaphore shape — structurally compatible with AgentSemaphore. */
@@ -251,7 +272,7 @@ async function walkBranch(
     } else {
       const exec = async (): Promise<WorkflowNodeResult> => env.runBranchNode(node, signal);
       lastResult = env.semaphore ? await env.semaphore.run(exec) : await exec();
-      env.persistence?.saveBranchState?.({
+      await persistBranchState(env.persistence, {
         taskId: env.task.id,
         runId: env.runId,
         branchId: startNodeId,
@@ -266,7 +287,7 @@ async function walkBranch(
     }
 
     if (lastResult.outcome === "failure") {
-      env.persistence?.saveBranchState?.({
+      await persistBranchState(env.persistence, {
         taskId: env.task.id,
         runId: env.runId,
         branchId: startNodeId,
@@ -282,7 +303,7 @@ async function walkBranch(
       return { outcome: lastResult.outcome, lastNodeId: currentId };
     }
     if (next === joinId) {
-      env.persistence?.saveBranchState?.({
+      await persistBranchState(env.persistence, {
         taskId: env.task.id,
         runId: env.runId,
         branchId: startNodeId,

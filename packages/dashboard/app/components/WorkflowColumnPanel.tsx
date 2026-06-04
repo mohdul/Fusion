@@ -36,9 +36,17 @@ export function WorkflowColumnPanel({
   const [catalog, setCatalog] = useState<TraitCatalogEntry[]>([]);
 
   useEffect(() => {
+    let cancelled = false;
     fetchTraits(projectId)
-      .then(setCatalog)
-      .catch((err) => addToast(getErrorMessage(err) || t("workflowColumns.traitsLoadFailed", "Failed to load traits"), "error"));
+      .then((catalog) => {
+        if (!cancelled) setCatalog(catalog);
+      })
+      .catch((err) => {
+        if (!cancelled) addToast(getErrorMessage(err) || t("workflowColumns.traitsLoadFailed", "Failed to load traits"), "error");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [projectId, addToast, t]);
 
   const workflowWide = violations.filter((v) => v.columnId === null);
