@@ -10,6 +10,12 @@ import { DEFAULT_PROJECT_SETTINGS } from "./settings-schema.js";
 import { parseWorkflowIr, serializeWorkflowIr } from "./workflow-ir.js";
 import { isWorkflowColumnsEnabled } from "./workflow-columns-settings.js";
 import { resolveAllowedColumns, workflowHasColumn } from "./workflow-transitions.js";
+import {
+  type PluginGateVerdict,
+  findWorkflowColumn,
+  resolveColumnPluginGates,
+} from "./plugin-gate-verdict.js";
+import { getTraitRegistry } from "./trait-registry.js";
 import { resolveColumnCapacity } from "./workflow-capacity.js";
 import {
   OccupiedColumnsError,
@@ -1209,6 +1215,15 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   private watcher: FSWatcher | null = null;
   /** In-memory cache of tasks for diffing watcher events */
   private taskCache: Map<string, Task> = new Map();
+  /**
+   * U8 (KTD-2): pre-evaluated plugin gate verdicts, keyed `taskId` → `toColumn`
+   * → recorded verdicts (one per plugin gate trait). A plugin gate is evaluated
+   * OUTSIDE the lock by the engine's trait adapter; the verdict is recorded here
+   * and re-checked cheaply in-lock at move time so plugin code never blocks or
+   * wedges the task lock. Kept in-memory (minimal/surgical per U8); the
+   * `plugin-gate-verdict.ts` seam can later back this with SQLite.
+   */
+  private pluginGateVerdicts: Map<string, Map<string, PluginGateVerdict[]>> = new Map();
   /** Paths recently written by in-process mutations (suppresses duplicate events) */
   private recentlyWritten: Set<string> = new Set();
   /** Pending debounce timers keyed by task ID */
@@ -5777,6 +5792,48 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
             ),
             `Cannot move ${id} to done: ${guardReason}`,
           );
+        }
+        // 4. Plugin gate verdict re-check (U8, KTD-2). For each PLUGIN gate trait
+        //    on the target column, consume the pre-evaluated verdict (recorded by
+        //    the engine's trait adapter outside the lock). A blocking gate with
+        //    no recorded `allow` verdict fails closed (typed rejection); advisory
+        //    gates record-and-allow. Built-in gates are handled by their own
+        //    path; this guard is the plugin gate surface only.
+        const registry = getTraitRegistry();
+        const pluginGates = resolveColumnPluginGates(
+          findWorkflowColumn(workflowIr, toColumn),
+          (tid) => registry.getTrait(tid),
+        );
+        if (pluginGates.length > 0) {
+          const recorded = this.consumePluginGateVerdicts(id, toColumn);
+          const byTrait = new Map(recorded.map((v) => [v.traitId, v]));
+          for (const gate of pluginGates) {
+            if (gate.gateMode === "advisory") continue; // record-and-allow
+            // Degraded (force-disabled) plugin gate: its hook impl is gone, so
+            // the registry resolves it to a no-op + audit warning (KTD-7). A
+            // degraded gate is PASSIVE — the column never blocks the card; the
+            // registry's warning is the audit signal. Cards remain movable.
+            const resolved = registry.resolveTraitHook(gate.traitId, "gate");
+            if (resolved.warning) continue;
+            const verdict = byTrait.get(gate.traitId);
+            // Fail closed: a blocking gate with no recorded allow verdict rejects.
+            if (!verdict || !verdict.allow) {
+              const reason =
+                verdict?.detail ??
+                (verdict
+                  ? `Gate '${gate.traitId}' did not pass`
+                  : `Gate '${gate.traitId}' has not been evaluated for this move`);
+              throw new TransitionRejectionError(
+                makeTransitionRejection(
+                  "merge-blocked",
+                  "transition.rejected.gateBlocked",
+                  true,
+                  reason,
+                ),
+                `Cannot move ${id} to '${toColumn}': ${reason}`,
+              );
+            }
+          }
         }
       }
     } else {
@@ -11903,6 +11960,45 @@ ${stepsSection}`;
    * missing custom row falls back to the default workflow so a move is never
    * stranded by a corrupt definition (degraded, not crashed).
    */
+  /**
+   * U8 (KTD-2): record a pre-evaluated plugin gate verdict for a move into
+   * `toColumn`. Called by the engine's plugin trait adapter AFTER it evaluated
+   * the gate (prompt/script) outside the task lock. The flag-ON guard site in
+   * `moveTaskInternal` re-checks the recorded verdict in-lock. Verdicts are
+   * consumed (cleared) by `consumePluginGateVerdicts` once read so a stale
+   * verdict can't silently re-authorize a later move.
+   */
+  recordPluginGateVerdict(
+    taskId: string,
+    toColumn: string,
+    verdict: Omit<PluginGateVerdict, "recordedAt"> & { recordedAt?: number },
+  ): void {
+    let byColumn = this.pluginGateVerdicts.get(taskId);
+    if (!byColumn) {
+      byColumn = new Map();
+      this.pluginGateVerdicts.set(taskId, byColumn);
+    }
+    const list = byColumn.get(toColumn) ?? [];
+    // Replace any prior verdict for the same trait (latest evaluation wins).
+    const filtered = list.filter((v) => v.traitId !== verdict.traitId);
+    filtered.push({ ...verdict, recordedAt: verdict.recordedAt ?? Date.now() });
+    byColumn.set(toColumn, filtered);
+  }
+
+  /**
+   * U8: read AND clear the recorded plugin gate verdicts for a (task, column).
+   * Returns the recorded verdicts (possibly empty). Consuming clears them so the
+   * verdict authorizes exactly one move attempt.
+   */
+  consumePluginGateVerdicts(taskId: string, toColumn: string): PluginGateVerdict[] {
+    const byColumn = this.pluginGateVerdicts.get(taskId);
+    if (!byColumn) return [];
+    const list = byColumn.get(toColumn) ?? [];
+    byColumn.delete(toColumn);
+    if (byColumn.size === 0) this.pluginGateVerdicts.delete(taskId);
+    return list;
+  }
+
   private resolveTaskWorkflowIrSync(taskId: string): WorkflowIr {
     const selection = this.getTaskWorkflowSelection(taskId);
     const workflowId = selection?.workflowId;

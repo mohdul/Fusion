@@ -160,6 +160,33 @@ export class TraitRegistry {
     this.hookImpls.set(traitHookKey(traitId, hookKind), impl);
   }
 
+  /**
+   * Deregister a hook implementation for a (traitId, hookKind). After this, a
+   * trait that still DECLARES the hook resolves to a no-op + audit warning (the
+   * degraded path) rather than executing — this is exactly the "force-disable a
+   * plugin → columns degrade to passive" path (U8/KTD-7). Returns true if an
+   * impl was present and removed.
+   */
+  deregisterTraitHookImpl(traitId: string, hookKind: TraitHookKind): boolean {
+    return this.hookImpls.delete(traitHookKey(traitId, hookKind));
+  }
+
+  /**
+   * Remove a trait definition entirely (e.g. when a plugin is fully
+   * unregistered with no live dependents). Also drops any registered hook impls
+   * for that trait. Returns true if the trait was present. Built-in traits are
+   * never removed by this (they are not plugin-owned); callers should only pass
+   * plugin-namespaced ids.
+   */
+  unregisterTrait(traitId: string): boolean {
+    const def = this.traits.get(traitId);
+    if (!def || def.builtin) return false;
+    for (const hookKind of ["guard", "gate", "onEnter", "onExit", "releaseCondition"] as TraitHookKind[]) {
+      this.hookImpls.delete(traitHookKey(traitId, hookKind));
+    }
+    return this.traits.delete(traitId);
+  }
+
   /** Resolve a hook implementation. If the trait declares the hook but no impl
    *  is registered, returns a no-op plus an audit warning (degraded, not
    *  crashed). Returns `{ impl: undefined }` with no warning if the trait does

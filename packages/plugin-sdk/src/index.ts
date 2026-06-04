@@ -78,6 +78,9 @@ export type {
   PluginLogger,
   PluginSkillContribution,
   PluginWorkflowStepContribution,
+  PluginTraitContribution,
+  PluginTraitHookDescriptor,
+  PluginTraitFlags,
   PluginPromptSurface,
   PluginPromptContribution,
   PluginPromptContributions,
@@ -94,6 +97,15 @@ export type {
 } from "@fusion/core";
 
 import type { FusionPlugin } from "@fusion/core";
+
+// Re-export the trait contribution validator + constants so plugin authors can
+// validate their trait manifests with the same rules the engine enforces (U8).
+export {
+  validatePluginTraitContribution,
+  PLUGIN_TRAIT_RESTRICTED_FLAGS,
+  PLUGIN_TRAIT_ALLOWED_HOOK_POINTS,
+  PLUGIN_TRAIT_SCHEMA_VERSION,
+} from "@fusion/core";
 
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 

@@ -102,6 +102,10 @@ export {
   registerBuiltinTraits,
 } from "./builtin-traits.js";
 export type { BuiltinTraitId } from "./builtin-traits.js";
+export {
+  registerDefaultWorkflowHooks,
+  __resetDefaultWorkflowHooksForTests,
+} from "./default-workflow-hooks.js";
 // ── Typed transition contract + crash-safe marker (U3) ───────────────
 export type {
   TransitionRejection,
@@ -132,6 +136,12 @@ export {
 } from "./workflow-transitions.js";
 export type { ColumnAdjacency } from "./workflow-transitions.js";
 export { isWorkflowColumnsEnabled } from "./workflow-columns-settings.js";
+// ── U8: pre-evaluated plugin gate verdicts (KTD-2) ───────────────────────────
+export {
+  findWorkflowColumn,
+  resolveColumnPluginGates,
+} from "./plugin-gate-verdict.js";
+export type { PluginGateVerdict, ColumnPluginGate } from "./plugin-gate-verdict.js";
 // ── U6: workflow capacity (WIP) resolution shared by store + sweep ───────────
 export { resolveColumnCapacity } from "./workflow-capacity.js";
 export type { ColumnCapacity } from "./workflow-capacity.js";
@@ -672,6 +682,9 @@ export type {
   PluginLogger,
   PluginSkillContribution,
   PluginWorkflowStepContribution,
+  PluginTraitContribution,
+  PluginTraitHookDescriptor,
+  PluginTraitFlags,
   PluginPromptSurface,
   PluginPromptContribution,
   PluginPromptContributions,
@@ -686,7 +699,15 @@ export type {
   PluginState,
   PluginInstallation,
 } from "./plugin-types.js";
-export { validatePluginManifest, normalizePluginUiContributionSurface, normalizePluginUiContributionDefinition } from "./plugin-types.js";
+export {
+  validatePluginManifest,
+  validatePluginTraitContribution,
+  PLUGIN_TRAIT_RESTRICTED_FLAGS,
+  PLUGIN_TRAIT_ALLOWED_HOOK_POINTS,
+  PLUGIN_TRAIT_SCHEMA_VERSION,
+  normalizePluginUiContributionSurface,
+  normalizePluginUiContributionDefinition,
+} from "./plugin-types.js";
 export { PluginStore } from "./plugin-store.js";
 export type { PluginStoreEvents, PluginRegistrationInput, PluginUpdateInput } from "./plugin-store.js";
 export { PluginLoader } from "./plugin-loader.js";
