@@ -1,6 +1,6 @@
 # Residual Review Findings — `gsxdsm/custom-columns`
 
-Source: `ce-code-review mode:autofix` run `20260604-021808-25e15199` (13 reviewers + 9 validators) against merge-base `962b97ce8`, plan `docs/plans/2026-06-03-003-feat-workflow-custom-columns-traits-plan.md`. 14 safe fixes were applied and committed (`30e2fd7b0`); the findings below are the residual actionable work, each filed as a tracked issue.
+Source: `ce-code-review mode:autofix` run `20260604-021808-25e15199` (13 reviewers + 9 validators) against merge-base `962b97ce8`, plan `docs/plans/2026-06-03-003-feat-workflow-custom-columns-traits-plan.md`. 14 safe fixes were applied and committed (`30e2fd7b0`); the findings below were filed as tracked issues and have ALL been fixed on this branch (commits 571768f03..afc72b6bb); the issues close when PR #1418 merges (Fixes references in the PR body).
 
 ## Residual Review Findings
 
