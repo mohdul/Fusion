@@ -213,11 +213,16 @@ describe("WorkflowNodeEditor — U10 columns/traits/holds", () => {
     );
 
     render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={addToast} />);
+    // Wait for graph/column hydration before saving — clicking Save mid-hydration
+    // races the error→node-badge mapping (same flake class as the v1-save race).
+    expect(await screen.findByTestId("wf-column-panel")).toBeInTheDocument();
     fireEvent.click((await screen.findByText("Save")).closest("button")!);
 
     await waitFor(() => expect(updateWorkflow).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(screen.getByTestId("wf-node-error-badge")).toHaveTextContent(/forbidden inside a parallel branch/i),
+    await waitFor(
+      () =>
+        expect(screen.getByTestId("wf-node-error-badge")).toHaveTextContent(/forbidden inside a parallel branch/i),
+      { timeout: 5000 },
     );
   });
 
