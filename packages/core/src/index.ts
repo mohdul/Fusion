@@ -260,6 +260,14 @@ export {
   resolveWorkflowIrById,
   type WorkflowIrResolverStore,
 } from "./workflow-ir-resolver.js";
+export {
+  resolveEffectiveSettings,
+  resolveEffectiveSettingsDetailed,
+  resolveEffectiveSettingsById,
+  type WorkflowSettingsResolverStore,
+  type EffectiveSettingsResult,
+  type EffectiveSettingsTaskRef,
+} from "./workflow-settings-resolver.js";
 
 // ── Engine wiring (set by @fusion/engine at module load) ────────────
 export {

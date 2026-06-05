@@ -10,6 +10,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import type { TaskStore, Task, TaskDetail, TaskTokenUsage, StepStatus, Settings, WorkflowStep, MissionStore, Slice, AgentState, AgentCapability, RunMutationContext, AgentHeartbeatConfig, Agent, AgentMemoryInclusionMode, ProjectSettings, MergeResult, WorkflowIrNode } from "@fusion/core";
 import { RetryStormError, TaskDeletedError, serializeRetryStormError, isExperimentalFeatureEnabled, resolveWorkflowIrForTask } from "@fusion/core";
+import { mergeEffectiveSettings } from "./effective-settings.js";
 import type { TaskStep, WorkflowIr, WorkflowFieldDefinition } from "@fusion/core";
 import {
   buildWorkflowObservationFromTask,
@@ -2144,8 +2145,10 @@ export class TaskExecutor {
             }
 
             // After injecting comments, check for review handoff intent
-            // Only detect handoff in agent-authored comments when policy is enabled
-            const settings = await this.store.getSettings();
+            // Only detect handoff in agent-authored comments when policy is enabled.
+            // Merge per-task effective workflow settings (U3, KTD-3) so
+            // reviewHandoffPolicy resolves from the workflow. Behavior-inert by default.
+            const settings = await mergeEffectiveSettings(this.store, task, await this.store.getSettings());
             if (settings.reviewHandoffPolicy === "comment-triggered") {
               const agentComments = newComments.filter(c => c.author !== "user");
               for (const comment of agentComments) {
@@ -4273,7 +4276,9 @@ export class TaskExecutor {
         const worktreePath = active.worktreePath || detail.worktree || this.rootDir;
         const stepName = detail.steps[stepIndex]?.name ?? `Step ${stepIndex + 1}`;
         const promptContent = detail.prompt ?? "";
-        const settings = await this.store.getSettings();
+        // Merge per-task effective workflow settings (U3, KTD-3) so the validator
+        // model-lane reads below pick up workflow values. Behavior-inert by default.
+        const settings = await mergeEffectiveSettings(this.store, detail, await this.store.getSettings());
 
         const sem = this.options.semaphore;
         const invokeReviewer = () =>
@@ -4730,8 +4735,14 @@ export class TaskExecutor {
 
     executorLog.log(`Starting ${task.id}: ${task.title || task.description.slice(0, 60)}`);
 
-    // Fetch settings early — needed for worktree naming and later configuration
-    const settings = await this.store.getSettings();
+    // Fetch settings early — needed for worktree naming and later configuration.
+    // Merge per-task effective workflow settings (U3, KTD-3) OVER the project/global
+    // base so the ~20 flat `settings.<key>` read sites threaded from here (workflow
+    // step timeout, scope enforcement, runStepsInNewSessions, model lanes,
+    // reviewHandoffPolicy, …) pick up workflow values with zero read-site changes.
+    // Behavior-inert when nothing is customized (declaration defaults === legacy
+    // defaults; absent-default lanes never override).
+    const settings = await mergeEffectiveSettings(this.store, task, await this.store.getSettings());
 
     // Keep runtime plugin workflow step templates synchronized into TaskStore.
     // TaskStore resolves plugin-prefixed workflow IDs from this injected cache
@@ -8166,7 +8177,10 @@ export class TaskExecutor {
           };
         }
 
-        const settings = await store.getSettings();
+        // Merge per-task effective workflow settings (U3, KTD-3) so the
+        // planOnlyScopeLeakEnforcement read in evaluateTaskDoneScopeLeak picks up
+        // workflow values. Behavior-inert by default.
+        const settings = await mergeEffectiveSettings(store, task, await store.getSettings());
         const scopeLeakCheck = await this.evaluateTaskDoneScopeLeak(task, worktreePath, promptContent, settings, audit)
           .catch((error: unknown) => {
             const errorMessage = error instanceof Error ? error.message : String(error);
@@ -8322,7 +8336,10 @@ export class TaskExecutor {
         }
 
         try {
-          const settings = await store.getSettings();
+          // Merge per-task effective workflow settings (U3, KTD-3) so the
+          // validator model-lane reads below pick up workflow values; this tool
+          // closure re-fetches independently. Behavior-inert by default.
+          const settings = await mergeEffectiveSettings(store, detail, await store.getSettings());
           // Run the reviewer via semaphore.runNested so its slot accounting
           // is honest: activeCount transiently bumps to reflect the second
           // agent session, but the reviewer doesn't enter the wait queue

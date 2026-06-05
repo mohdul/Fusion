@@ -6986,10 +6986,11 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   /** Resolve the setting DECLARATIONS for a workflow id (built-in or custom). The
    *  built-in path mirrors the IR resolver (`resolveWorkflowIrById`): built-in ids
    *  resolve through the same code path so value writes target the same schema the
-   *  engine resolver sees. For built-in ids whose resolved IR does not yet carry
-   *  `settings` (the linear `BUILTIN_WORKFLOWS` graphs predate the settings
-   *  declarations), fall back to the canonical built-in declaration catalog
-   *  (`BUILTIN_WORKFLOW_SETTINGS`) so built-in VALUE writes succeed (R4/KTD-2).
+   *  engine resolver sees. As of U3 every built-in workflow IR embeds
+   *  `BUILTIN_WORKFLOW_SETTINGS` (attached in `builtin-workflows.ts` /
+   *  `builtin-coding-workflow-ir.ts`), so the `declared` branch below now handles
+   *  built-ins too. The built-in catalog fallback is kept as a cheap defensive belt
+   *  in case a future built-in graph is constructed without the embed (R4/KTD-2).
    *  Returns `undefined` when the workflow is missing or declares no settings. */
   private async resolveWorkflowSettingDeclarations(
     workflowId: string,
@@ -6997,10 +6998,24 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     const ir = await resolveWorkflowIrById(this, workflowId);
     const declared = ir.version === "v2" ? ir.settings : undefined;
     if (declared && declared.length > 0) return declared;
-    // Built-in workflows declare the full moved-key catalog (the migration parity
-    // anchor); their selectable graphs may not embed it yet.
+    // Defensive belt: built-in ids always have a declaration catalog even if a
+    // particular built-in graph somehow lacks the embed.
     if (isBuiltinWorkflowId(workflowId)) return BUILTIN_WORKFLOW_SETTINGS;
     return declared;
+  }
+
+  /** The stable project id this store scopes `workflow_settings` value rows by
+   *  (U3). A single store instance is bound to one project (its `rootDir`); the
+   *  durable project-identity id is that project's key. Falls back to the store's
+   *  `rootDir` when no identity row exists yet (fresh project pre-identity), which
+   *  is still stable per store instance. The engine's per-task effective-settings
+   *  resolver uses this so reads/writes share one project key. */
+  getWorkflowSettingsProjectId(): string {
+    try {
+      return this.db.getProjectIdentity()?.id ?? this.rootDir;
+    } catch {
+      return this.rootDir;
+    }
   }
 
   /** Read the raw stored setting-value map for `(workflowId, projectId)`. Returns

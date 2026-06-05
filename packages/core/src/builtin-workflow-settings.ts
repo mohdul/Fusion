@@ -161,20 +161,12 @@ export const BUILTIN_WORKFLOW_SETTINGS: WorkflowSettingDefinition[] = [
     default: false,
     description: "Enable periodic reflection passes over completed work.",
   },
-  {
-    id: "reflectionIntervalMs",
-    name: "Reflection interval (ms)",
-    type: "number",
-    default: 3_600_000,
-    description: "How often to run a reflection pass when reflection is enabled.",
-  },
-  {
-    id: "reflectionAfterTask",
-    name: "Reflect after each task",
-    type: "boolean",
-    default: true,
-    description: "Run a reflection pass after each task completes.",
-  },
+  // NOTE (U3 catalog-shrink, item 5): `reflectionIntervalMs` and
+  // `reflectionAfterTask` were REMOVED from this catalog — neither has any engine
+  // read site (verified by grep across packages/engine/src), so per the plan's
+  // catalog-shrink rule they stay plain project settings and are NOT moved to
+  // workflow settings. `reflectionEnabled` is kept because executor.ts reads it
+  // (gate for reflection tools).
 
   // ── Per-phase model lanes ──────────────────────────────────────────────
   // Legacy defaults are all `undefined`; `default` is omitted so resolution
