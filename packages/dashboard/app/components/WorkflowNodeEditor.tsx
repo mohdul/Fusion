@@ -14,8 +14,8 @@ import {
   type Edge as FlowEdge,
 } from "@xyflow/react";
 import { useTranslation } from "react-i18next";
-import { X, Plus, Trash2, Save, MessageSquare, Terminal, Shield, GitMerge, Loader2, HelpCircle, PauseCircle, Split, Merge, Repeat, ClipboardCheck, ListChecks, Code2, LayoutGrid, Workflow, Download, Upload } from "lucide-react";
-import type { WorkflowDefinition, WorkflowIrColumn, TraitViolation } from "@fusion/core";
+import { X, Plus, Trash2, Save, MessageSquare, Terminal, Shield, GitMerge, Loader2, HelpCircle, PauseCircle, Split, Merge, Repeat, ClipboardCheck, ListChecks, Code2, LayoutGrid, Workflow, Download, Upload, ChevronDown, ChevronRight, Library } from "lucide-react";
+import type { WorkflowDefinition, WorkflowIrColumn, TraitViolation, WorkflowStepTemplate } from "@fusion/core";
 import { getErrorMessage } from "@fusion/core";
 import {
   fetchWorkflows,
@@ -30,6 +30,8 @@ import {
   fetchModels,
   fetchAgents,
   fetchDiscoveredSkills,
+  fetchWorkflowStepTemplates,
+  fetchPluginWorkflowStepTemplates,
   type ModelInfo,
 } from "../api";
 import type { Agent } from "../api";
@@ -47,6 +49,8 @@ import {
   emptyWorkflowIr,
   emptyWorkflowLayout,
   copyIrWithFreshIds,
+  insertFragment,
+  fragmentSeamConflicts,
   columnsOf,
   fieldsOf,
   columnsToBandNodes,
@@ -153,6 +157,38 @@ const PALETTE: Array<{ kind: WorkflowEditorNodeKind; label: string; icon: typeof
   { kind: "parse-steps", label: "Parse steps", icon: ListChecks, presetConfig: { artifact: "PROMPT.md", parser: "step-headings" } },
   { kind: "code", label: "Code", icon: Code2, presetConfig: { source: "" } },
 ];
+
+/** Map a step template to a single pre-configured editor node (kind + config),
+ *  mirroring the U1 `stepInputToNode` converter's field mapping (mode → kind;
+ *  prompt/scriptName/toolMode/gateMode/model overrides → config). Inserting one
+ *  template thus produces the same node the steps→IR migration would. */
+function stepTemplateToNode(tpl: WorkflowStepTemplate): {
+  kind: WorkflowEditorNodeKind;
+  label: string;
+  config: Record<string, unknown>;
+} {
+  const config: Record<string, unknown> = {
+    name: tpl.name,
+    // Always carry gateMode so a materialized node round-trips both modes.
+    gateMode: tpl.gateMode ?? "advisory",
+  };
+  if (tpl.description) config.description = tpl.description;
+
+  if (tpl.mode === "script") {
+    if (tpl.scriptName) config.scriptName = tpl.scriptName;
+    return { kind: "script", label: tpl.name, config };
+  }
+
+  // prompt mode (default)
+  config.prompt = tpl.prompt ?? "";
+  config.toolMode = tpl.toolMode === "coding" ? "coding" : "readonly";
+  // Model overrides only round-trip when BOTH are present (compiler requirement).
+  if (tpl.modelProvider && tpl.modelId) {
+    config.modelProvider = tpl.modelProvider;
+    config.modelId = tpl.modelId;
+  }
+  return { kind: "prompt", label: tpl.name, config };
+}
 
 // Node kinds a user authors from the palette. Structural/derived nodes
 // (start/end and column bands — which map to data.kind "start") are excluded, so
@@ -497,6 +533,26 @@ function InnerEditor({
   // built-in pair so the select is never empty; replaced by the live catalog
   // (built-ins + plugin parsers) once GET /api/step-parsers resolves.
   const [stepParsers, setStepParsers] = useState<string[]>([...BUILTIN_STEP_PARSERS]);
+
+  // U9/R8: palette Templates section sources. Built-in + plugin step templates
+  // (fetched once on open) and the fragment definitions (derived from the loaded
+  // workflow list, kind === "fragment"). The collapsed state persists in
+  // localStorage; the inline conflict error is the persistent seam-duplication
+  // notice rendered inside the section.
+  const [stepTemplates, setStepTemplates] = useState<WorkflowStepTemplate[]>([]);
+  const [pluginTemplates, setPluginTemplates] = useState<
+    Array<{ pluginId: string; template: WorkflowStepTemplate }>
+  >([]);
+  const templatesCollapsedStorageKey = "fusion:wf-templates-collapsed";
+  const [templatesCollapsed, setTemplatesCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(templatesCollapsedStorageKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [templateFilter, setTemplateFilter] = useState("");
+  const [templateConflict, setTemplateConflict] = useState<string | null>(null);
   // Wrapper around <ReactFlow> so keyboard deletion can return focus to the
   // canvas container (R6) instead of leaving it on a now-removed node.
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -564,6 +620,73 @@ function InnerEditor({
       cancelled = true;
     };
   }, [projectId]);
+
+  // U9/R8: built-in + plugin step templates for the palette Templates section.
+  // Fetched once on open; non-fatal on failure (the subsections simply stay
+  // empty and hide). Fragments come from the workflow list, not a separate fetch.
+  useEffect(() => {
+    let cancelled = false;
+    fetchWorkflowStepTemplates()
+      .then((res) => {
+        if (!cancelled) setStepTemplates(res.templates ?? []);
+      })
+      .catch(() => {
+        // Non-fatal: Built-in steps subsection stays empty.
+      });
+    fetchPluginWorkflowStepTemplates()
+      .then((res) => {
+        if (!cancelled) setPluginTemplates(res.templates ?? []);
+      })
+      .catch(() => {
+        // Non-fatal: Plugin steps subsection stays empty.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Persist the Templates section collapsed state.
+  useEffect(() => {
+    try {
+      localStorage.setItem(templatesCollapsedStorageKey, templatesCollapsed ? "1" : "0");
+    } catch {
+      // localStorage unavailable (private mode / SSR): non-fatal.
+    }
+  }, [templatesCollapsed]);
+
+  // U9/R8: fragment definitions surface from the loaded workflow list (kind ===
+  // "fragment"); they are excluded from the sidebar workflow list elsewhere.
+  const fragments = useMemo(
+    () => workflows.filter((w) => w.kind === "fragment"),
+    [workflows],
+  );
+
+  // U9/R8: alphabetical, filtered subsection entries. The filter (a single text
+  // input) matches across all groups by name and only appears once the combined
+  // entry count exceeds 8. Empty subsections are hidden by the render.
+  const templateGroups = useMemo(() => {
+    const q = templateFilter.trim().toLowerCase();
+    const matches = (name: string) => !q || name.toLowerCase().includes(q);
+    const byName = <T extends { name: string }>(a: T, b: T) =>
+      a.name.localeCompare(b.name);
+
+    const fragmentEntries = [...fragments]
+      .sort(byName)
+      .filter((f) => matches(f.name));
+    const stepEntries = [...stepTemplates]
+      .sort(byName)
+      .filter((s) => matches(s.name));
+    const pluginEntries = [...pluginTemplates]
+      .sort((a, b) => a.template.name.localeCompare(b.template.name))
+      .filter((p) => matches(p.template.name));
+
+    return { fragmentEntries, stepEntries, pluginEntries };
+  }, [fragments, stepTemplates, pluginTemplates, templateFilter]);
+
+  // Total entries available (pre-filter) — drives whether the filter input shows.
+  const templateTotalCount =
+    fragments.length + stepTemplates.length + pluginTemplates.length;
+  const hasAnyTemplate = templateTotalCount > 0;
 
   // Composition violations (client mirror of validateColumnTraits).
   const columnViolations: TraitViolation[] = useMemo(
@@ -854,6 +977,46 @@ function InnerEditor({
       setSelectedNodeId(id);
     },
     [setNodes, t],
+  );
+
+  // U9/R8: insert a step template (built-in or plugin) as ONE pre-configured
+  // node, mapping its fields the same way the U1 converter does. Reuses the
+  // addNode path so layout/selection/dirty all behave identically.
+  const handleInsertStepTemplate = useCallback(
+    (tpl: WorkflowStepTemplate) => {
+      if (isBuiltin) return;
+      const { kind, label, config } = stepTemplateToNode(tpl);
+      addNode(kind, label, config);
+    },
+    [isBuiltin, addNode],
+  );
+
+  // U9/R8: insert a fragment definition's body into the active graph. Pre-validates
+  // seam duplication via fragmentSeamConflicts; on conflict, surfaces a persistent
+  // inline error inside the Templates section and does NOT insert. Otherwise
+  // insertFragment remaps ids + rewires internal edges, landing nodes at a fixed
+  // offset from the canvas origin.
+  const handleInsertFragment = useCallback(
+    (fragment: WorkflowDefinition) => {
+      if (isBuiltin) return;
+      const conflicts = fragmentSeamConflicts(fragment.ir, nodes);
+      if (conflicts.length > 0) {
+        setTemplateConflict(conflicts.join(", "));
+        return;
+      }
+      setTemplateConflict(null);
+      const result = insertFragment(
+        nodes,
+        edges,
+        fragment.ir,
+        { x: 240, y: 200 + (nodes.length % 4) * 40 },
+        fragment.layout,
+      );
+      setNodes(result.nodes);
+      setEdges(result.edges);
+      setSelectedNodeId(result.insertedNodeIds[0] ?? null);
+    },
+    [isBuiltin, nodes, edges, setNodes, setEdges],
   );
 
   // Auto-layout: one-click left-to-right tidy (U5, R8). Recomputes positions
@@ -1603,6 +1766,149 @@ function InnerEditor({
                       </button>
                     </div>
                   </div>
+                )}
+
+                {hasAnyTemplate && (
+                  <section
+                    className="wf-templates"
+                    data-testid="wf-palette-templates"
+                    aria-label={t("workflowNodes.templatesSection", "Templates")}
+                  >
+                    <div className="wf-templates-header">
+                      <button
+                        type="button"
+                        className="wf-templates-toggle"
+                        aria-expanded={!templatesCollapsed}
+                        data-testid="wf-templates-toggle"
+                        onClick={() => setTemplatesCollapsed((c) => !c)}
+                      >
+                        {templatesCollapsed ? (
+                          <ChevronRight size={13} />
+                        ) : (
+                          <ChevronDown size={13} />
+                        )}
+                        <Library size={13} />{" "}
+                        {t("workflowNodes.templatesSection", "Templates")}
+                      </button>
+                      {!templatesCollapsed && templateTotalCount > 8 && (
+                        <input
+                          type="text"
+                          className="wf-templates-filter"
+                          data-testid="wf-template-filter"
+                          value={templateFilter}
+                          onChange={(e) => setTemplateFilter(e.target.value)}
+                          placeholder={t(
+                            "workflowNodes.templateFilterPlaceholder",
+                            "Filter templates",
+                          )}
+                          aria-label={t(
+                            "workflowNodes.templateFilterLabel",
+                            "Filter templates",
+                          )}
+                        />
+                      )}
+                    </div>
+
+                    {!templatesCollapsed && (
+                      <div className="wf-templates-body">
+                        {templateConflict && (
+                          <div
+                            className="wf-templates-conflict"
+                            role="alert"
+                            data-testid="wf-tpl-conflict"
+                          >
+                            {t(
+                              "workflowNodes.templateSeamConflict",
+                              'This fragment duplicates the "{{seam}}" seam already on the canvas, so it can\'t be inserted.',
+                              { seam: templateConflict },
+                            )}
+                          </div>
+                        )}
+
+                        {templateGroups.fragmentEntries.length > 0 && (
+                          <div className="wf-templates-group">
+                            <h4 className="wf-templates-group-title">
+                              {t("workflowNodes.templatesFragments", "Fragments")}
+                            </h4>
+                            <div className="wf-templates-entries">
+                              {templateGroups.fragmentEntries.map((f) => (
+                                <button
+                                  key={f.id}
+                                  type="button"
+                                  className="wf-templates-entry"
+                                  data-testid={`wf-tpl-fragment-${f.id}`}
+                                  disabled={isBuiltin}
+                                  aria-label={t(
+                                    "workflowNodes.insertTemplate",
+                                    "Insert template {{name}}",
+                                    { name: f.name },
+                                  )}
+                                  onClick={() => handleInsertFragment(f)}
+                                >
+                                  {f.name}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {templateGroups.stepEntries.length > 0 && (
+                          <div className="wf-templates-group">
+                            <h4 className="wf-templates-group-title">
+                              {t("workflowNodes.templatesBuiltinSteps", "Built-in steps")}
+                            </h4>
+                            <div className="wf-templates-entries">
+                              {templateGroups.stepEntries.map((s) => (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  className="wf-templates-entry"
+                                  data-testid={`wf-tpl-step-${s.id}`}
+                                  disabled={isBuiltin}
+                                  aria-label={t(
+                                    "workflowNodes.insertTemplate",
+                                    "Insert template {{name}}",
+                                    { name: s.name },
+                                  )}
+                                  onClick={() => handleInsertStepTemplate(s)}
+                                >
+                                  {s.name}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {templateGroups.pluginEntries.length > 0 && (
+                          <div className="wf-templates-group">
+                            <h4 className="wf-templates-group-title">
+                              {t("workflowNodes.templatesPluginSteps", "Plugin steps")}
+                            </h4>
+                            <div className="wf-templates-entries">
+                              {templateGroups.pluginEntries.map(({ pluginId, template }) => (
+                                <button
+                                  key={`${pluginId}:${template.id}`}
+                                  type="button"
+                                  className="wf-templates-entry"
+                                  data-testid={`wf-tpl-plugin-${template.id}`}
+                                  disabled={isBuiltin}
+                                  aria-label={t(
+                                    "workflowNodes.insertTemplate",
+                                    "Insert template {{name}}",
+                                    { name: template.name },
+                                  )}
+                                  onClick={() => handleInsertStepTemplate(template)}
+                                >
+                                  {template.name}
+                                  <span className="wf-templates-badge">{pluginId}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </section>
                 )}
 
                 {validationError && (

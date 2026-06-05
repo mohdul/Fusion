@@ -302,6 +302,116 @@
   letter-spacing: 0.04em;
 }
 
+/* U9/R8: palette Templates section — collapsible, grouped, filterable. */
+.wf-templates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  border-bottom: 1px solid var(--border);
+}
+
+.wf-templates-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.wf-templates-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wf-templates-toggle:hover {
+  background: var(--bg-tertiary);
+}
+
+.wf-templates-filter {
+  flex: 0 1 220px;
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.wf-templates-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.wf-templates-conflict {
+  padding: var(--space-xs) var(--space-sm);
+  background: color-mix(in srgb, var(--ws-error) 8%, var(--bg-secondary));
+  border: 1px solid var(--ws-error);
+  border-radius: var(--radius-sm);
+  color: var(--ws-error);
+  font-size: 0.8rem;
+}
+
+.wf-templates-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.wf-templates-group-title {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+}
+
+.wf-templates-entries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.wf-templates-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.wf-templates-entry:hover {
+  background: var(--bg-tertiary);
+}
+
+.wf-templates-entry:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.wf-templates-badge {
+  padding: 0 var(--space-xs);
+  background: var(--accent-subtle, rgba(59, 130, 246, 0.12));
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
 /* Neutralize the fieldset wrapper so it only gates interactivity, not layout. */
 .wf-inspector-fields {
   display: contents;

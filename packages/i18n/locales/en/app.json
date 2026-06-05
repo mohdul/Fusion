@@ -6791,6 +6791,7 @@
     "foreachWorktree": "Per-step worktree",
     "gateBlocks": "Gate (blocks)",
     "gateMode": "Gate mode",
+    "insertTemplate": "Insert template {{name}}",
     "interpreterOnly": "This workflow branches, so it runs on the graph interpreter — it can't compile to the linear step engine, but it will still run.",
     "joinAll": "All branches",
     "joinAny": "Any branch",
@@ -6820,6 +6821,13 @@
     "summaryHoldRelease": "Release: {{release}}",
     "summaryNotConfigured": "Not configured",
     "summaryReviewType": "{{type}} review",
+    "templateFilterLabel": "Filter templates",
+    "templateFilterPlaceholder": "Filter templates",
+    "templateSeamConflict": "This fragment duplicates the \"{{seam}}\" seam already on the canvas, so it can't be inserted.",
+    "templatesBuiltinSteps": "Built-in steps",
+    "templatesFragments": "Fragments",
+    "templatesPluginSteps": "Plugin steps",
+    "templatesSection": "Templates",
     "trivialGraphHint": "This workflow only runs start → end. Add steps from the palette above to build it out."
   },
   "workflows": {

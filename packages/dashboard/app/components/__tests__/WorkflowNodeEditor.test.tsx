@@ -26,11 +26,16 @@ vi.mock("../../api", () => ({
   fetchModels: vi.fn(),
   fetchAgents: vi.fn(),
   fetchDiscoveredSkills: vi.fn(),
+  // Default to resolved empty lists so editors mounted by tests that don't
+  // exercise the Templates section don't reject the on-open prefetch.
+  fetchWorkflowStepTemplates: vi.fn().mockResolvedValue({ templates: [] }),
+  fetchPluginWorkflowStepTemplates: vi.fn().mockResolvedValue({ templates: [] }),
 }));
 
 import { fireEvent } from "@testing-library/react";
-import { fetchWorkflows, fetchTraits, fetchStepParsers, updateWorkflow, compileWorkflow, createWorkflow, deleteWorkflow, fetchModels, migrateLegacyWorkflowSteps, exportWorkflow, importWorkflow, ApiRequestError } from "../../api";
+import { fetchWorkflows, fetchTraits, fetchStepParsers, updateWorkflow, compileWorkflow, createWorkflow, deleteWorkflow, fetchModels, migrateLegacyWorkflowSteps, exportWorkflow, importWorkflow, ApiRequestError, fetchWorkflowStepTemplates, fetchPluginWorkflowStepTemplates } from "../../api";
 import type { TraitCatalogEntry } from "../../api";
+import type { WorkflowStepTemplate } from "@fusion/core";
 import { WorkflowNodeEditor } from "../WorkflowNodeEditor";
 import { ConfirmDialogProvider } from "../../hooks/useConfirm";
 
@@ -1395,5 +1400,232 @@ describe("WorkflowNodeEditor — U5 import/export", () => {
         "warning",
       ),
     );
+  });
+});
+
+describe("WorkflowNodeEditor — U9 palette Templates section", () => {
+  // A clean prompt-mode built-in step template + a script-mode one.
+  function stepTpl(over: Partial<WorkflowStepTemplate> = {}): WorkflowStepTemplate {
+    return {
+      id: "qa-check",
+      name: "QA Check",
+      description: "Run lint and tests",
+      category: "Quality",
+      prompt: "You are a QA tester.",
+      ...over,
+    };
+  }
+
+  function pluginTpl(): { pluginId: string; template: WorkflowStepTemplate } {
+    return {
+      pluginId: "acme-plugin",
+      template: stepTpl({ id: "acme-scan", name: "Acme Scan", prompt: "Scan it." }),
+    };
+  }
+
+  // A clean fragment (no seam) — one gate node.
+  function cleanFragment(over: Partial<WorkflowDefinition> = {}): WorkflowDefinition {
+    return {
+      id: "WF-FRAG-A",
+      kind: "fragment",
+      name: "Lint fragment",
+      description: "A single lint step",
+      ir: {
+        version: "v1",
+        name: "Lint fragment",
+        nodes: [
+          { id: "start", kind: "start" },
+          { id: "lint", kind: "gate", config: { name: "Lint", scriptName: "lint", gateMode: "gate" } },
+          { id: "end", kind: "end" },
+        ],
+        edges: [
+          { from: "start", to: "lint", condition: "success" },
+          { from: "lint", to: "end", condition: "success" },
+        ],
+      },
+      layout: {},
+      createdAt: "2026-06-03T00:00:00.000Z",
+      updatedAt: "2026-06-03T00:00:00.000Z",
+      ...over,
+    };
+  }
+
+  // A fragment that carries a "merge" seam (collides with def()'s merge node).
+  function mergeFragment(): WorkflowDefinition {
+    return {
+      id: "WF-FRAG-MERGE",
+      kind: "fragment",
+      name: "Boundary fragment",
+      description: "Carries a merge seam",
+      ir: {
+        version: "v1",
+        name: "Boundary fragment",
+        nodes: [
+          { id: "start", kind: "start" },
+          { id: "m", kind: "prompt", config: { seam: "merge" } },
+          { id: "end", kind: "end" },
+        ],
+        edges: [
+          { from: "start", to: "m", condition: "success" },
+          { from: "m", to: "end", condition: "success" },
+        ],
+      },
+      layout: {},
+      createdAt: "2026-06-03T00:00:00.000Z",
+      updatedAt: "2026-06-03T00:00:00.000Z",
+    };
+  }
+
+  beforeEach(() => {
+    vi.mocked(fetchTraits).mockResolvedValue(TRAIT_CATALOG);
+    vi.mocked(fetchStepParsers).mockResolvedValue(["step-headings", "json-steps"]);
+    vi.mocked(fetchModels).mockResolvedValue({ models: [] });
+    vi.mocked(migrateLegacyWorkflowSteps).mockResolvedValue({ migrated: 0, skipped: 0 });
+    vi.mocked(fetchWorkflowStepTemplates).mockResolvedValue({ templates: [] });
+    vi.mocked(fetchPluginWorkflowStepTemplates).mockResolvedValue({ templates: [] });
+    try {
+      localStorage.removeItem("fusion:wf-templates-collapsed");
+    } catch {
+      // ignore
+    }
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("renders three subsections — alphabetical, with plugin owner badge", async () => {
+    vi.mocked(fetchWorkflows).mockResolvedValue([
+      def(),
+      cleanFragment({ id: "WF-FRAG-B", name: "Zeta fragment" }),
+      cleanFragment({ id: "WF-FRAG-A", name: "Alpha fragment" }),
+    ]);
+    vi.mocked(fetchWorkflowStepTemplates).mockResolvedValue({
+      templates: [stepTpl({ id: "zed", name: "Zed Step" }), stepTpl({ id: "qa-check", name: "QA Check" })],
+    });
+    vi.mocked(fetchPluginWorkflowStepTemplates).mockResolvedValue({ templates: [pluginTpl()] });
+
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+
+    const section = await screen.findByTestId("wf-palette-templates");
+    // Three subsection headers present.
+    expect(within(section).getByText("Fragments")).toBeInTheDocument();
+    expect(within(section).getByText("Built-in steps")).toBeInTheDocument();
+    expect(within(section).getByText("Plugin steps")).toBeInTheDocument();
+
+    // Fragments alphabetical: Alpha before Zeta.
+    expect(screen.getByTestId("wf-tpl-fragment-WF-FRAG-A")).toBeInTheDocument();
+    const fragBtns = within(section)
+      .getAllByText(/fragment/i)
+      .map((n) => n.textContent);
+    const alphaIdx = fragBtns.findIndex((t) => /Alpha/.test(t ?? ""));
+    const zetaIdx = fragBtns.findIndex((t) => /Zeta/.test(t ?? ""));
+    expect(alphaIdx).toBeLessThan(zetaIdx);
+
+    // Plugin entry shows the owner badge.
+    const pluginEntry = screen.getByTestId("wf-tpl-plugin-acme-scan");
+    expect(pluginEntry).toHaveTextContent("acme-plugin");
+  });
+
+  it("clicking a step-template entry adds a pre-configured node", async () => {
+    vi.mocked(fetchWorkflows).mockResolvedValue([def()]);
+    vi.mocked(fetchWorkflowStepTemplates).mockResolvedValue({
+      templates: [stepTpl({ id: "qa-check", name: "QA Check", prompt: "test it" })],
+    });
+
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+    await screen.findByTestId("wf-palette-templates");
+
+    const before = screen.queryAllByTestId("wf-node-prompt").length;
+    fireEvent.click(screen.getByTestId("wf-tpl-step-qa-check"));
+    await waitFor(() =>
+      expect(screen.queryAllByTestId("wf-node-prompt").length).toBe(before + 1),
+    );
+  });
+
+  it("clicking a fragment with a duplicate merge seam surfaces the inline conflict; no insertion", async () => {
+    vi.mocked(fetchWorkflows).mockResolvedValue([def(), mergeFragment()]);
+
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+    await screen.findByTestId("wf-palette-templates");
+
+    const beforeNodes = document.querySelectorAll('[data-testid^="wf-node-"]').length;
+    fireEvent.click(screen.getByTestId("wf-tpl-fragment-WF-FRAG-MERGE"));
+
+    const conflict = await screen.findByTestId("wf-tpl-conflict");
+    expect(conflict).toHaveAttribute("role", "alert");
+    expect(conflict).toHaveTextContent(/merge/);
+    // No node added.
+    expect(document.querySelectorAll('[data-testid^="wf-node-"]').length).toBe(beforeNodes);
+  });
+
+  it("clicking a clean fragment inserts its non-start/end nodes", async () => {
+    vi.mocked(fetchWorkflows).mockResolvedValue([def(), cleanFragment()]);
+
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+    await screen.findByTestId("wf-palette-templates");
+
+    const beforeGates = screen.queryAllByTestId("wf-node-gate").length;
+    fireEvent.click(screen.getByTestId("wf-tpl-fragment-WF-FRAG-A"));
+    // cleanFragment has exactly one body node (the gate) after start/end strip.
+    await waitFor(() =>
+      expect(screen.getAllByTestId("wf-node-gate").length).toBe(beforeGates + 1),
+    );
+  });
+
+  it("filter input is absent with ≤8 entries and present with >8; filtering narrows entries", async () => {
+    // 1 fragment + 8 built-in steps = 9 entries (> 8).
+    const manySteps = Array.from({ length: 8 }, (_, i) =>
+      stepTpl({ id: `s-${i}`, name: `Step ${i}` }),
+    );
+    vi.mocked(fetchWorkflows).mockResolvedValue([def(), cleanFragment()]);
+    vi.mocked(fetchWorkflowStepTemplates).mockResolvedValue({ templates: manySteps });
+
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+    await screen.findByTestId("wf-palette-templates");
+
+    const filter = await screen.findByTestId("wf-template-filter");
+    // All 8 step entries present pre-filter.
+    expect(screen.getAllByTestId(/^wf-tpl-step-/).length).toBe(8);
+    // Filter to "Step 3" → only that step survives.
+    fireEvent.change(filter, { target: { value: "Step 3" } });
+    await waitFor(() => expect(screen.getAllByTestId(/^wf-tpl-step-/).length).toBe(1));
+    expect(screen.getByTestId("wf-tpl-step-s-3")).toBeInTheDocument();
+    // Fragment (name "Lint fragment") no longer matches.
+    expect(screen.queryByTestId("wf-tpl-fragment-WF-FRAG-A")).not.toBeInTheDocument();
+  });
+
+  it("filter input absent with ≤8 entries", async () => {
+    vi.mocked(fetchWorkflows).mockResolvedValue([def(), cleanFragment()]);
+    vi.mocked(fetchWorkflowStepTemplates).mockResolvedValue({
+      templates: [stepTpl(), stepTpl({ id: "two", name: "Two" })],
+    });
+
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+    await screen.findByTestId("wf-palette-templates");
+    expect(screen.queryByTestId("wf-template-filter")).not.toBeInTheDocument();
+  });
+
+  it("hides the Fragments subsection when no fragments exist", async () => {
+    vi.mocked(fetchWorkflows).mockResolvedValue([def()]);
+    vi.mocked(fetchWorkflowStepTemplates).mockResolvedValue({ templates: [stepTpl()] });
+
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+    const section = await screen.findByTestId("wf-palette-templates");
+    expect(within(section).queryByText("Fragments")).not.toBeInTheDocument();
+    expect(within(section).getByText("Built-in steps")).toBeInTheDocument();
+  });
+
+  it("disables all entries when the active workflow is a built-in", async () => {
+    vi.mocked(fetchWorkflows).mockResolvedValue([builtinDef(), cleanFragment()]);
+    vi.mocked(fetchWorkflowStepTemplates).mockResolvedValue({ templates: [stepTpl()] });
+    vi.mocked(fetchPluginWorkflowStepTemplates).mockResolvedValue({ templates: [pluginTpl()] });
+
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+    await screen.findByTestId("wf-palette-templates");
+
+    expect(screen.getByTestId("wf-tpl-fragment-WF-FRAG-A")).toBeDisabled();
+    expect(screen.getByTestId("wf-tpl-step-qa-check")).toBeDisabled();
+    expect(screen.getByTestId("wf-tpl-plugin-acme-scan")).toBeDisabled();
   });
 });
