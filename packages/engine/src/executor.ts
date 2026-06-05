@@ -28,6 +28,7 @@ import type {
 import { observeWorkflowParity, WORKFLOW_INTERPRETER_DUAL_OBSERVE_FLAG } from "./workflow-parity-observer.js";
 import {
   FOREACH_ACTIVE_CONTEXT_KEY,
+  SEAM_GOVERNING_NODE_CONTEXT_KEY,
   type ForeachActiveContext,
   type WorkflowLegacySeams,
 } from "./workflow-node-handlers.js";
@@ -3259,6 +3260,22 @@ export class TaskExecutor {
     return `${taskId}:${instanceId}`;
   }
 
+  /** Column-agent seam wiring (column-agent plan U4, R2/R3/R4). Per-run binding
+   *  resolver keyed by task id: maps a governing node id to its column-agent
+   *  binding (if any), computed once per run in maybeExecuteWorkflowGraph from the
+   *  resolved IR. The execute / step-execute seams consume it to decide whether the
+   *  coding/step session runs as a column agent. Cleared in the run's finally. */
+  private graphColumnAgentResolver = new Map<string, (nodeId: string) => WorkflowColumnAgent | undefined>();
+
+  /** Column-agent seam wiring (column-agent plan U4). The governing graph node id
+   *  for the implementation pass currently in flight for a task — the execute-seam
+   *  prompt node's id (execute seam), or the foreach instance node id (step-execute
+   *  seam, which the core resolver maps through template inheritance). Stamped by
+   *  the seam from the reserved {@link SEAM_GOVERNING_NODE_CONTEXT_KEY} context key
+   *  right before it drives the implementation phase, read inside execute()'s
+   *  session build, and cleared by the seam afterward. Keyed by task id. */
+  private graphSeamGoverningNodeId = new Map<string, string>();
+
   /** Tasks currently being orchestrated by the graph runner. Process-wide for
    *  the same reason as executingTaskLock (FN-4811): duplicate execute()
    *  invocations can arrive from different TaskExecutor instances in one
@@ -3334,6 +3351,11 @@ export class TaskExecutor {
       }
       const resolveBindingForNode = (nodeId: string): WorkflowColumnAgent | undefined =>
         columnAgentIr ? resolveColumnAgentBinding(columnAgentIr, nodeId) : undefined;
+      // Column-agent seam wiring (U4): expose the same per-run resolver to the
+      // execute / step-execute seams (which key off a governing node id stamped
+      // into context), so the coding/step session runs as the column agent under
+      // the SAME binding lookup the custom-node seam uses (KTD-2 single resolver).
+      this.graphColumnAgentResolver.set(task.id, resolveBindingForNode);
 
       const runner = new WorkflowGraphTaskRunner({
         store: this.store,
@@ -3401,6 +3423,10 @@ export class TaskExecutor {
       // Clear per-run step-inversion pins (KTD-8: pinned only for the run's life).
       this.graphStepSessionPinned.delete(task.id);
       this.graphStepRunOnce.delete(task.id);
+      // Clear per-run column-agent seam wiring (U4): the resolver and any dangling
+      // governing-node-id are scoped to this run only.
+      this.graphColumnAgentResolver.delete(task.id);
+      this.graphSeamGoverningNodeId.delete(task.id);
       // Per-instance keys: clear every instance slot owned by this task.
       const ctxPrefix = `${task.id}:`;
       for (const key of this.graphStepActiveContext.keys()) {
@@ -4157,8 +4183,22 @@ export class TaskExecutor {
       // so planning is a no-op for already-specified tasks. Custom planning
       // behavior is expressed as a custom prompt node before the execute seam.
       planning: async () => ({ outcome: "success", value: "pre-specified" }),
-      execute: async (seamTask) => {
-        const result = await this.runImplementationPhase(seamTask);
+      execute: async (seamTask, context) => {
+        // Column-agent seam wiring (U4, R4): record the governing node id (the
+        // execute-seam prompt node, stamped into context by createPromptLikeHandler)
+        // so execute()'s session build can resolve the column-agent binding for the
+        // node's DECLARED column. Cleared after the pass so a later seam without a
+        // binding cannot inherit a stale node id.
+        const governingNodeId = context?.[SEAM_GOVERNING_NODE_CONTEXT_KEY];
+        if (typeof governingNodeId === "string") {
+          this.graphSeamGoverningNodeId.set(seamTask.id, governingNodeId);
+        }
+        let result: { taskDone: boolean; modifiedFiles: string[] };
+        try {
+          result = await this.runImplementationPhase(seamTask);
+        } finally {
+          this.graphSeamGoverningNodeId.delete(seamTask.id);
+        }
         if (result.taskDone) {
           return { outcome: "success", value: "implemented" };
         }
@@ -4236,6 +4276,17 @@ export class TaskExecutor {
         // Stamp the active instance so `runGraphTaskStep` can honor
         // `deferDoneToReview` when judging a non-terminal step (FIX 3).
         this.graphStepActiveContext.set(this.graphActiveContextKey(seamTask.id, active.instanceId), active);
+        // Column-agent seam wiring (U4, R4): record the governing node id — the
+        // foreach INSTANCE node id (`<foreachId>#<i>:<templateNodeId>`) stamped into
+        // context by createPromptLikeHandler — so the (once-per-run, KTD-2/KTD-8)
+        // step-session implementation pass resolves the column-agent binding for the
+        // step-execute node's effective column (template-node column, else inherited
+        // foreach column). All instances share the same template node and thus the
+        // same binding, so the first instance to drive the pass sets it correctly.
+        const stepGoverningNodeId = context[SEAM_GOVERNING_NODE_CONTEXT_KEY];
+        if (typeof stepGoverningNodeId === "string" && !this.graphSeamGoverningNodeId.has(seamTask.id)) {
+          this.graphSeamGoverningNodeId.set(seamTask.id, stepGoverningNodeId);
+        }
         const result = await runTaskStep(
           {
             store: this.store,
@@ -4568,6 +4619,75 @@ export class TaskExecutor {
       );
       return undefined;
     }
+  }
+
+  /**
+   * Resolve the effective COLUMN AGENT governing the coding/step session currently
+   * being built for a task (column-agent plan U4, R2/R3/R4/R8).
+   *
+   * Reads the governing node id stamped by the active seam ({@link
+   * graphSeamGoverningNodeId}) and the per-run binding resolver ({@link
+   * graphColumnAgentResolver}), both scoped to a graph-owned run. Feeds the task's
+   * OWN settings (`assignedAgentId` + complete `modelProvider`/`modelId` pair) into
+   * the shared core resolver (`resolveEffectiveAgent`, KTD-2/KTD-5) so defer/override
+   * precedence is never reimplemented here. When the verdict is `column-agent`,
+   * fetches the full Agent best-effort and audits the adoption; on a missing/deleted
+   * agent it logs and returns undefined so the caller falls back to the
+   * `assignedAgentId` path (R8). Returns undefined for the legacy/no-binding path so
+   * the session build is byte-identical (characterization parity).
+   *
+   * Exposes the resolved Agent object (not just an id) so U5 can consume the same
+   * effective principal for gating/heartbeat/restart without re-resolving.
+   */
+  private async resolveSeamColumnAgent(
+    task: Task,
+    detail: TaskDetail,
+  ): Promise<{ agent: Agent; mode: WorkflowColumnAgent["mode"] | undefined } | undefined> {
+    const governingNodeId = this.graphSeamGoverningNodeId.get(task.id);
+    const resolveBinding = this.graphColumnAgentResolver.get(task.id);
+    if (!governingNodeId || !resolveBinding) return undefined;
+
+    const binding = resolveBinding(governingNodeId);
+    if (!binding) return undefined;
+
+    // The task's OWN settings: its assigned agent identity and a COMPLETE model
+    // pair (an incomplete pair does not count — KTD-5, mirrors
+    // resolveExecutorSessionModel's both-present rule).
+    const ownAgentId = typeof detail.assignedAgentId === "string" && detail.assignedAgentId.trim()
+      ? detail.assignedAgentId.trim()
+      : undefined;
+    const ownModelComplete = Boolean(detail.modelProvider && detail.modelId);
+    const effective = resolveEffectiveAgent({
+      binding,
+      ownAgentId,
+      ownModelProvider: ownModelComplete ? detail.modelProvider : undefined,
+      ownModelId: ownModelComplete ? detail.modelId : undefined,
+    });
+    if (effective.source !== "column-agent") return undefined;
+
+    // Column agent governs: fetch the full Agent (best-effort, R8 fallback).
+    let agent: Agent | null = null;
+    try {
+      agent = (await this.options.agentStore?.getAgent(effective.agentId)) ?? null;
+    } catch {
+      agent = null;
+    }
+    if (!agent) {
+      await this.store.logEntry(
+        task.id,
+        `Workflow seam node '${governingNodeId}': column agent '${effective.agentId}' not found — falling back to assigned-agent resolution`,
+        undefined,
+        this.getRunContextFor(task.id),
+      );
+      return undefined;
+    }
+    await this.store.logEntry(
+      task.id,
+      `Workflow seam node '${governingNodeId}': running as column agent '${effective.agentId}' (${binding.mode})`,
+      undefined,
+      this.getRunContextFor(task.id),
+    );
+    return { agent, mode: binding.mode };
   }
 
   /** Run a custom (non-seam) graph node on the proven WorkflowStep machinery.
@@ -5289,7 +5409,17 @@ export class TaskExecutor {
         const stepSessionAgent = detail.assignedAgentId && this.options.agentStore
           ? await this.options.agentStore.getAgent(detail.assignedAgentId).catch(() => null)
           : null;
-        const stepSessionRuntimeHint = extractRuntimeHint(stepSessionAgent?.runtimeConfig);
+
+        // Column-agent SESSION IDENTITY (U4, R2/R3/R4/R8): when the governing
+        // step-execute node's declared column binds an agent that supersedes the
+        // task's assigned agent, the per-step session's MODEL, runtime hint, and
+        // attribution adopt the column agent. The core resolver decides defer vs
+        // override (KTD-2); a missing agent logs + falls back (R8). Gating contexts
+        // still key off the ASSIGNED agent here — principal substitution for
+        // gating/heartbeat is U5 (kept out of this unit deliberately).
+        const stepColumnAgent = await this.resolveSeamColumnAgent(task, detail);
+        const stepIdentityAgent = stepColumnAgent?.agent ?? stepSessionAgent;
+        const stepSessionRuntimeHint = extractRuntimeHint(stepIdentityAgent?.runtimeConfig);
 
         let accumulatedStepTokenUsage = detail.tokenUsage;
         const tokenUsageRecordedSteps = new Set<number>();
@@ -5304,7 +5434,10 @@ export class TaskExecutor {
           stuckTaskDetector: this.options.stuckTaskDetector,
           pluginRunner: this.options.pluginRunner,
           runtimeHint: stepSessionRuntimeHint,
-          assignedAgentRuntimeConfig: (stepSessionAgent?.runtimeConfig ?? undefined) as Record<string, unknown> | undefined,
+          assignedAgentRuntimeConfig: (stepIdentityAgent?.runtimeConfig ?? undefined) as Record<string, unknown> | undefined,
+          // Attribute the per-step run auditor to the column agent when it governs
+          // (U4); absent → StepSessionExecutor falls back to assignedAgentId.
+          effectiveAgentId: stepColumnAgent?.agent.id,
           actionGateContext: this.buildActionGateContext(task.id, stepSessionAgent, settings.defaultAgentPermissionPolicy),
           permanentAgentGating: this.buildPermanentAgentGatingContext(task.id, stepSessionAgent, settings.defaultAgentPermissionPolicy),
           // Pass skill selection context from the main executor session
@@ -5784,7 +5917,18 @@ export class TaskExecutor {
       const assignedAgent = assignedAgentId && this.options.agentStore
         ? await this.options.agentStore.getAgent(assignedAgentId).catch(() => null)
         : null;
-      const executorRuntimeHint = extractRuntimeHint(assignedAgent?.runtimeConfig);
+
+      // Column-agent SESSION IDENTITY (U4, R2/R3/R4/R8): when the governing execute
+      // seam node's declared column binds an agent that supersedes the task's
+      // assigned agent, the coding session's MODEL, runtime hint, persona, and
+      // memory tools adopt the column agent. The core resolver decides defer vs
+      // override (KTD-2); a missing agent logs + falls back (R8). No binding →
+      // `columnAgentSeam` is undefined and every line below is byte-identical to the
+      // assigned-agent path (characterization parity). Gating contexts still key off
+      // the ASSIGNED agent — principal substitution for gating/heartbeat is U5.
+      const columnAgentSeam = await this.resolveSeamColumnAgent(task, detail);
+      const identityAgent = columnAgentSeam?.agent ?? assignedAgent;
+      const executorRuntimeHint = extractRuntimeHint(identityAgent?.runtimeConfig);
 
       // Log fast mode status
       if (executionMode === "fast") {
@@ -5831,11 +5975,11 @@ export class TaskExecutor {
           })
           : []),
         createWebFetchTool(),
-        ...createMemoryTools(this.rootDir, settings, assignedAgent ? {
+        ...createMemoryTools(this.rootDir, settings, identityAgent ? {
           agentMemory: {
-            agentId: assignedAgent.id,
-            agentName: assignedAgent.name,
-            memory: assignedAgent.memory,
+            agentId: identityAgent.id,
+            agentName: identityAgent.name,
+            memory: identityAgent.memory,
           },
         } : undefined),
         // Conditionally add agent self-reflection when enabled and task has an assigned agent.
@@ -5890,11 +6034,14 @@ export class TaskExecutor {
         // 3. Global execution lane pair (executionGlobalProvider + executionGlobalModelId)
         // 4. Project default override pair (defaultProviderOverride + defaultModelIdOverride)
         // 5. Global default pair (defaultProvider + defaultModelId)
+        // Column-agent session identity (U4): the model precedence input is the
+        // EFFECTIVE identity agent's runtimeConfig (column agent when it governs,
+        // else the assigned agent — byte-identical no-binding path).
         const { provider: executorProvider, modelId: executorModelId } = resolveExecutorSessionModel(
           detail.modelProvider,
           detail.modelId,
           settings,
-          (assignedAgent?.runtimeConfig ?? undefined) as Record<string, unknown> | undefined,
+          (identityAgent?.runtimeConfig ?? undefined) as Record<string, unknown> | undefined,
         );
         const executorFallbackProvider = settings.fallbackProvider;
         const executorFallbackModelId = settings.fallbackModelId;
@@ -5928,8 +6075,15 @@ export class TaskExecutor {
 
         executorLog.log(`${task.id}: creating agent session (provider=${executorProvider ?? "default"}, model=${executorModelId ?? "default"}, resuming=${isResuming})`);
 
-        // Resolve per-agent custom instructions for the executor role
-        const executorInstructions = await this.resolveInstructionsForRole("executor", settings);
+        // Resolve per-agent custom instructions for the executor role.
+        // Column-agent session identity (U4, R3/KTD-6): when a column agent governs,
+        // its TYPED persona (soul/instructionsText, via buildAgentPersona — the same
+        // source the custom-node path uses) supersedes the role-resolved executor
+        // instructions, so the coding session speaks AS the column agent. No binding
+        // → role instructions unchanged (characterization parity).
+        const columnAgentPersona = columnAgentSeam ? this.buildAgentPersona(columnAgentSeam.agent) : undefined;
+        const executorInstructions = columnAgentPersona
+          ?? (await this.resolveInstructionsForRole("executor", settings));
 
         // Build structured layers for cross-session prompt caching.
         const executorPluginContributions = buildPluginPromptSection(
