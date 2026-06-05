@@ -32,6 +32,7 @@ import type { Agent } from "../api";
 import type { DiscoveredSkill } from "../api";
 import type { ToastType } from "../hooks/useToast";
 import { useOverlayDismiss } from "../hooks/useOverlayDismiss";
+import { useConfirm } from "../hooks/useConfirm";
 import { useModalResizePersist } from "../hooks/useModalResizePersist";
 import { workflowNodeTypes, type WorkflowFlowNodeData, type WorkflowEditorNodeKind } from "./nodes/WorkflowNodeTypes";
 import { WorkflowEditorCatalogContext } from "./nodes/WorkflowEditorCatalogContext";
@@ -86,6 +87,29 @@ function parseModelDropdownValue(value: string): { provider: string; modelId: st
   return { provider: value.slice(0, slashIndex), modelId: value.slice(slashIndex + 1) };
 }
 
+/** Normalized serialization of the editor's authoring state for dirty tracking
+ *  (U4). Serializes nodes/edges through flowToIr (so mapping-layer defaults are
+ *  materialized identically on the loaded and live sides) plus the editor-owned
+ *  name/description and the resulting layout (auto-layout/drag position changes
+ *  count as dirty). Returns a stable JSON string for cheap equality. */
+function serializeGraph(
+  name: string,
+  description: string,
+  nodes: FlowNode<WorkflowFlowNodeData>[],
+  edges: FlowEdge[],
+  columns: WorkflowIrColumn[],
+  fields: WorkflowFieldDefinition[],
+): string {
+  const { ir, layout } = flowToIr(
+    name,
+    nodes,
+    edges,
+    columns.length ? columns : undefined,
+    fields.length ? fields : undefined,
+  );
+  return JSON.stringify({ name, description, ir, layout });
+}
+
 interface WorkflowNodeEditorProps {
   isOpen: boolean;
   onClose: () => void;
@@ -124,6 +148,128 @@ const PALETTE: Array<{ kind: WorkflowEditorNodeKind; label: string; icon: typeof
   { kind: "code", label: "Code", icon: Code2, presetConfig: { source: "" } },
 ];
 
+/** Local create-workflow dialog (KTD-7). Built on the shared `.modal` primitives
+ *  (precedent: NewTaskModal). Owns its own name/description/error state; the
+ *  parent supplies an async `onCreate` that performs the createWorkflow call and
+ *  throws on failure so the dialog can surface server rejections inline without
+ *  losing the typed input. Escape/overlay close (no dirty state of its own). */
+function CreateWorkflowDialog({
+  onCreate,
+  onClose,
+}: {
+  onCreate: (name: string, description: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation("app");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    nameRef.current?.focus();
+  }, []);
+
+  const overlayProps = useOverlayDismiss(onClose);
+
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      const trimmed = name.trim();
+      if (!trimmed) {
+        setError(t("workflows.createNameRequired", "Enter a workflow name"));
+        return;
+      }
+      setSubmitting(true);
+      setError(null);
+      try {
+        await onCreate(trimmed, description.trim());
+        // Success path closes the dialog from the parent.
+      } catch (err) {
+        setError(getErrorMessage(err) || t("workflows.createFailed", "Failed to create workflow"));
+        setSubmitting(false);
+      }
+    },
+    [name, description, onCreate, t],
+  );
+
+  return (
+    <div className="modal-overlay open wf-create-overlay" {...overlayProps}>
+      <div
+        className="modal wf-create-modal"
+        data-testid="wf-create-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("workflows.createTitle", "New workflow")}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            onClose();
+          }
+        }}
+      >
+        <div className="modal-header">
+          <h3>{t("workflows.createTitle", "New workflow")}</h3>
+          <button
+            type="button"
+            className="modal-close"
+            onClick={onClose}
+            aria-label={t("actions.close", "Close")}
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body">
+            <label className="wf-field">
+              <span>{t("workflows.createName", "Name")}</span>
+              <input
+                ref={nameRef}
+                data-testid="wf-create-name"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (error) setError(null);
+                }}
+              />
+            </label>
+            <label className="wf-field">
+              <span>{t("workflows.createDescription", "Description (optional)")}</span>
+              <textarea
+                rows={2}
+                data-testid="wf-create-description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </label>
+            {error && (
+              <p className="wf-create-error" role="alert" data-testid="wf-create-error">
+                {error}
+              </p>
+            )}
+          </div>
+          <div className="modal-actions">
+            <button type="button" className="btn" onClick={onClose}>
+              {t("common.cancel", "Cancel")}
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              data-testid="wf-create-submit"
+              disabled={submitting}
+            >
+              {submitting ? <Loader2 size={13} className="wf-spin" /> : null}{" "}
+              {t("workflows.createSubmit", "Create")}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function InnerEditor({
   onClose,
   addToast,
@@ -144,6 +290,23 @@ function InnerEditor({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const { t } = useTranslation("app");
+  const { confirm } = useConfirm();
+  // Create-workflow dialog (KTD-7) open state + focus-return ref to the
+  // "New workflow" button (NewTaskModal focus pattern).
+  const [createOpen, setCreateOpen] = useState(false);
+  const newWorkflowBtnRef = useRef<HTMLButtonElement>(null);
+  // Inline-editable name/description (KTD-10). `name`/`description` mirror the
+  // active workflow and are persisted through handleSave; `editingName`/
+  // `editingDescription` flag the active inline input.
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [editingName, setEditingName] = useState(false);
+  const [editingDescription, setEditingDescription] = useState(false);
+  // Snapshot of the workflow as loaded, serialized through flowToIr AFTER
+  // irToFlow so mapping-layer defaults (e.g. condition: "success", config
+  // materialization) are present on both sides of the dirty comparison. Set by
+  // the load effect; compared against the live serialization in `isDirty`.
+  const loadedSnapshotRef = useRef<string | null>(null);
   // v2 columns the editor is authoring for the active workflow.
   const [columns, setColumns] = useState<WorkflowIrColumn[]>([]);
   // v2 custom field definitions the editor is authoring (KTD-13/14, U13).
@@ -202,6 +365,18 @@ function InnerEditor({
   const unplaced = useMemo(() => unplacedNodeIds(nodes, columns), [nodes, columns]);
   const blockingViolationCount = columnViolations.filter((v) => v.severity === "error").length;
 
+  // Dirty = the normalized live serialization differs from the loaded snapshot
+  // (U4). Built-ins are never dirty (read-only). Memoized over the inputs that
+  // feed serializeGraph; the loaded snapshot is a ref set by the load effect.
+  const isDirty = useMemo(() => {
+    if (isBuiltin) return false;
+    if (!activeWorkflow || loadedSnapshotRef.current === null) return false;
+    return (
+      serializeGraph(name, description, nodes, edges, columns, fields) !==
+      loadedSnapshotRef.current
+    );
+  }, [isBuiltin, activeWorkflow, name, description, nodes, edges, columns, fields]);
+
   const loadWorkflows = useCallback(async () => {
     setLoading(true);
     try {
@@ -226,13 +401,32 @@ function InnerEditor({
       setEdges([]);
       setColumns([]);
       setFields([]);
+      setName("");
+      setDescription("");
+      loadedSnapshotRef.current = null;
       return;
     }
     const flow = irToFlow(activeWorkflow);
     setNodes(flow.nodes);
     setEdges(flow.edges);
-    setColumns(columnsOf(activeWorkflow));
-    setFields(fieldsOf(activeWorkflow));
+    const loadedColumns = columnsOf(activeWorkflow);
+    const loadedFields = fieldsOf(activeWorkflow);
+    setColumns(loadedColumns);
+    setFields(loadedFields);
+    setName(activeWorkflow.name);
+    setDescription(activeWorkflow.description ?? "");
+    setEditingName(false);
+    setEditingDescription(false);
+    // Compute the normalized loaded snapshot from the materialized flow (so
+    // mapping defaults match the live side) plus name/description.
+    loadedSnapshotRef.current = serializeGraph(
+      activeWorkflow.name,
+      activeWorkflow.description ?? "",
+      flow.nodes,
+      flow.edges,
+      loadedColumns,
+      loadedFields,
+    );
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
     setValidationError(null);
@@ -462,35 +656,55 @@ function InnerEditor({
     canvasRef.current?.focus();
   }, []);
 
-  const handleCreateWorkflow = useCallback(async () => {
-    const name = window.prompt("New workflow name");
-    if (!name?.trim()) return;
-    try {
+  // Close the create dialog and return focus to its trigger (NewTaskModal
+  // focus-return pattern). Used by both the success and cancel paths.
+  const closeCreateDialog = useCallback(() => {
+    setCreateOpen(false);
+    newWorkflowBtnRef.current?.focus();
+  }, []);
+
+  // Perform the createWorkflow call. Throws on failure so the dialog surfaces
+  // the server error (e.g. duplicate name) inline without losing the input.
+  const handleCreateWorkflow = useCallback(
+    async (workflowName: string, workflowDescription: string) => {
       const created = await createWorkflow(
-        { name: name.trim(), ir: emptyWorkflowIr(name.trim()), layout: emptyWorkflowLayout() },
+        {
+          name: workflowName,
+          description: workflowDescription || undefined,
+          ir: emptyWorkflowIr(workflowName),
+          layout: emptyWorkflowLayout(),
+        },
         projectId,
       );
       setWorkflows((ws) => [...ws, created]);
       setActiveId(created.id);
-      addToast(`Created workflow "${created.name}"`, "success");
-    } catch (err) {
-      addToast(getErrorMessage(err) || "Failed to create workflow", "error");
-    }
-  }, [projectId, addToast]);
+      addToast(t("workflows.created", 'Created workflow "{{name}}"', { name: created.name }), "success");
+      closeCreateDialog();
+    },
+    [projectId, addToast, t, closeCreateDialog],
+  );
 
   const handleDeleteWorkflow = useCallback(async () => {
     if (!activeWorkflow) return;
     if (isBuiltinWorkflowId(activeWorkflow.id)) return; // built-ins are read-only
-    if (!window.confirm(`Delete workflow "${activeWorkflow.name}"?`)) return;
+    const ok = await confirm({
+      title: t("workflows.deleteTitle", "Delete workflow?"),
+      message: t("workflows.deleteMessage", 'Delete workflow "{{name}}"? This cannot be undone.', {
+        name: activeWorkflow.name,
+      }),
+      confirmLabel: t("common.delete", "Delete"),
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await deleteWorkflow(activeWorkflow.id, projectId);
       setWorkflows((ws) => ws.filter((w) => w.id !== activeWorkflow.id));
       setActiveId(null);
-      addToast("Workflow deleted", "success");
+      addToast(t("workflows.deleted", "Workflow deleted"), "success");
     } catch (err) {
-      addToast(getErrorMessage(err) || "Failed to delete workflow", "error");
+      addToast(getErrorMessage(err) || t("workflows.deleteFailed", "Failed to delete workflow"), "error");
     }
-  }, [activeWorkflow, projectId, addToast]);
+  }, [activeWorkflow, projectId, addToast, confirm, t]);
 
   const handleDuplicate = useCallback(async () => {
     if (!activeWorkflow) return;
@@ -544,15 +758,41 @@ function InnerEditor({
     setInterpreterOnly(false);
     setServerNodeError(null);
     try {
+      const trimmedName = name.trim() || activeWorkflow.name;
       const { ir, layout } = flowToIr(
-        activeWorkflow.name,
+        trimmedName,
         nodes,
         edges,
         columns.length ? columns : undefined,
         fields.length ? fields : undefined,
       );
-      const updated = await updateWorkflow(activeWorkflow.id, { ir, layout }, projectId);
+      // Include name/description in the PATCH only when they changed from the
+      // loaded workflow (KTD-10 inline rename/description persist here).
+      const nameChanged = trimmedName !== activeWorkflow.name;
+      const descChanged = description !== (activeWorkflow.description ?? "");
+      const updated = await updateWorkflow(
+        activeWorkflow.id,
+        {
+          ir,
+          layout,
+          ...(nameChanged ? { name: trimmedName } : {}),
+          ...(descChanged ? { description } : {}),
+        },
+        projectId,
+      );
       setWorkflows((ws) => ws.map((w) => (w.id === updated.id ? updated : w)));
+      // Re-baseline the dirty snapshot to the just-saved state so the editor is
+      // clean immediately after a successful save.
+      loadedSnapshotRef.current = serializeGraph(
+        updated.name,
+        updated.description ?? "",
+        nodes,
+        edges,
+        columns,
+        fields,
+      );
+      setName(updated.name);
+      setDescription(updated.description ?? "");
       // Validate by compiling — surfaces non-linear graphs as a banner.
       try {
         await compileWorkflow(updated.id, projectId);
@@ -586,7 +826,7 @@ function InnerEditor({
     } finally {
       setSaving(false);
     }
-  }, [activeWorkflow, nodes, edges, columns, fields, unplaced, blockingViolationCount, projectId, addToast, t]);
+  }, [activeWorkflow, name, description, nodes, edges, columns, fields, unplaced, blockingViolationCount, projectId, addToast, t]);
 
   // Stamp the shared error-state badge onto offending nodes: unplaced step
   // nodes and any node the server flagged (seam-in-branch). One component
@@ -722,22 +962,86 @@ function InnerEditor({
     skills.length,
   ]);
 
-  const overlayProps = useOverlayDismiss(onClose);
+  // ── Dirty-state dismissal guard (U4, R7) ────────────────────────────────────
+  // One synchronous decision point for every dismissal path. If the editor is
+  // clean (or built-in), the action runs immediately; if dirty, the discard
+  // confirm opens and the action runs only in the .then(true) callback. Used by
+  // the X button, overlay click (via useOverlayDismiss), the Escape keydown
+  // handler, and the sidebar workflow switch.
+  const guardedDismiss = useCallback(
+    (proceed: () => void) => {
+      if (!isDirty) {
+        proceed();
+        return;
+      }
+      void confirm({
+        title: t("workflows.discardTitle", "Discard unsaved changes?"),
+        message: t(
+          "workflows.discardMessage",
+          "You have unsaved changes to this workflow. Discard them?",
+        ),
+        confirmLabel: t("workflows.discardConfirm", "Discard"),
+        danger: true,
+      }).then((ok) => {
+        if (ok) proceed();
+      });
+    },
+    [isDirty, confirm, t],
+  );
+
+  const requestClose = useCallback(() => {
+    guardedDismiss(onClose);
+  }, [guardedDismiss, onClose]);
+
+  // Sidebar workflow switch: route through the guard so dirty edits prompt
+  // before the active workflow changes (cancel keeps the current selection).
+  const requestSwitch = useCallback(
+    (id: string) => {
+      if (id === activeId) return;
+      guardedDismiss(() => setActiveId(id));
+    },
+    [guardedDismiss, activeId],
+  );
+
+  const overlayProps = useOverlayDismiss(requestClose);
 
   return (
     <div className="modal-overlay open wf-editor-overlay" {...overlayProps}>
-      <div className="modal wf-editor-modal" ref={modalRef} onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal wf-editor-modal"
+        ref={modalRef}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          // Dedicated Escape handler (useOverlayDismiss does not cover Escape).
+          // Ignore Escape originating from inputs/textareas/selects so inline
+          // editors (name/description) keep their own Escape-to-cancel behavior.
+          if (e.key !== "Escape") return;
+          // The create dialog (rendered as a child) owns its own Escape; if it's
+          // open, let it handle the event (it stops propagation already).
+          if (createOpen) return;
+          const target = e.target as HTMLElement;
+          const tag = target.tagName;
+          if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+          e.stopPropagation();
+          requestClose();
+        }}
+      >
         <header className="wf-editor-header">
           <h2>Workflows</h2>
-          <button className="wf-editor-close" onClick={onClose} aria-label="Close workflow editor">
+          <button className="wf-editor-close" onClick={requestClose} aria-label="Close workflow editor">
             <X size={18} />
           </button>
         </header>
 
         <div className="wf-editor-body">
           <aside className="wf-editor-sidebar">
-            <button className="wf-editor-new" onClick={handleCreateWorkflow}>
-              <Plus size={14} /> New workflow
+            <button
+              className="wf-editor-new"
+              ref={newWorkflowBtnRef}
+              data-testid="wf-new-workflow"
+              onClick={() => setCreateOpen(true)}
+            >
+              <Plus size={14} /> {t("workflows.newWorkflow", "New workflow")}
             </button>
             {loading ? (
               <div className="wf-editor-empty">
@@ -751,7 +1055,7 @@ function InnerEditor({
                   <li key={w.id}>
                     <button
                       className={`wf-editor-list-item${w.id === activeId ? " active" : ""}`}
-                      onClick={() => setActiveId(w.id)}
+                      onClick={() => requestSwitch(w.id)}
                     >
                       {w.name}
                     </button>
@@ -764,6 +1068,88 @@ function InnerEditor({
           <section className="wf-editor-canvas-wrap">
             {activeWorkflow ? (
               <>
+                {/* Inline name + description strip (KTD-10). Built-ins render as
+                    plain text (no click affordance); user-owned workflows are
+                    click-to-edit (Enter commits, Escape cancels, blur commits). */}
+                <div className="wf-name-strip">
+                  {isBuiltin ? (
+                    <span className="wf-workflow-name wf-workflow-name--readonly" data-testid="wf-workflow-name">
+                      {activeWorkflow.name}
+                    </span>
+                  ) : editingName ? (
+                    <input
+                      className="wf-workflow-name-input"
+                      data-testid="wf-workflow-name-input"
+                      autoFocus
+                      value={name}
+                      aria-label={t("workflows.nameLabel", "Workflow name")}
+                      onChange={(e) => setName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          if (!name.trim()) setName(activeWorkflow.name);
+                          setEditingName(false);
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          setName(activeWorkflow.name);
+                          setEditingName(false);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (!name.trim()) setName(activeWorkflow.name);
+                        setEditingName(false);
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="wf-workflow-name"
+                      data-testid="wf-workflow-name"
+                      onClick={() => setEditingName(true)}
+                      title={t("workflows.clickToRename", "Click to rename")}
+                    >
+                      {name || activeWorkflow.name}
+                    </button>
+                  )}
+                  {isBuiltin ? (
+                    activeWorkflow.description ? (
+                      <span className="wf-workflow-description wf-workflow-description--readonly" data-testid="wf-workflow-description">
+                        {activeWorkflow.description}
+                      </span>
+                    ) : null
+                  ) : editingDescription ? (
+                    <input
+                      className="wf-workflow-description-input"
+                      data-testid="wf-workflow-description-input"
+                      autoFocus
+                      value={description}
+                      aria-label={t("workflows.descriptionLabel", "Workflow description")}
+                      placeholder={t("workflows.descriptionPlaceholder", "Add a description")}
+                      onChange={(e) => setDescription(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          setEditingDescription(false);
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          setDescription(activeWorkflow.description ?? "");
+                          setEditingDescription(false);
+                        }
+                      }}
+                      onBlur={() => setEditingDescription(false)}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="wf-workflow-description"
+                      data-testid="wf-workflow-description"
+                      onClick={() => setEditingDescription(true)}
+                      title={t("workflows.clickToEditDescription", "Click to edit description")}
+                    >
+                      {description || t("workflows.descriptionPlaceholder", "Add a description")}
+                    </button>
+                  )}
+                </div>
                 {isBuiltin ? (
                   // Read-only built-in: a banner *replaces* the save/edit toolbar
                   // (not an overlay); the canvas below stays inspectable.
@@ -1551,6 +1937,9 @@ function InnerEditor({
             </aside>
           )}
         </div>
+        {createOpen && (
+          <CreateWorkflowDialog onCreate={handleCreateWorkflow} onClose={closeCreateDialog} />
+        )}
       </div>
     </div>
   );

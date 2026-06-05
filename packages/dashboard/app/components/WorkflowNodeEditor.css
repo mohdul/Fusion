@@ -533,6 +533,84 @@
   color: var(--bg);
 }
 
+/* Inline name + description strip (KTD-10). */
+.wf-name-strip {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.wf-workflow-name,
+.wf-workflow-name--readonly {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-xs);
+  cursor: pointer;
+  text-align: left;
+}
+
+.wf-workflow-name:hover {
+  background: var(--bg-tertiary);
+}
+
+.wf-workflow-name--readonly {
+  cursor: default;
+}
+
+.wf-workflow-name-input {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-xs);
+}
+
+.wf-workflow-description,
+.wf-workflow-description--readonly {
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-xs);
+  cursor: pointer;
+  text-align: left;
+}
+
+.wf-workflow-description:hover {
+  background: var(--bg-tertiary);
+}
+
+.wf-workflow-description--readonly {
+  cursor: default;
+}
+
+.wf-workflow-description-input {
+  font-size: 0.78rem;
+  color: var(--text);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-xs);
+  min-width: 220px;
+}
+
+/* Create-workflow dialog (KTD-7). */
+.wf-create-error {
+  margin: var(--space-xs) 0 0;
+  font-size: 0.8rem;
+  color: var(--ws-error);
+}
+
 .wf-column-panel {
   display: flex;
   flex-direction: column;

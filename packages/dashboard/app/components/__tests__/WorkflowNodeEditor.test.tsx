@@ -18,9 +18,10 @@ vi.mock("../../api", () => ({
 }));
 
 import { fireEvent } from "@testing-library/react";
-import { fetchWorkflows, fetchTraits, fetchStepParsers, updateWorkflow, compileWorkflow, createWorkflow, fetchModels } from "../../api";
+import { fetchWorkflows, fetchTraits, fetchStepParsers, updateWorkflow, compileWorkflow, createWorkflow, deleteWorkflow, fetchModels } from "../../api";
 import type { TraitCatalogEntry } from "../../api";
 import { WorkflowNodeEditor } from "../WorkflowNodeEditor";
+import { ConfirmDialogProvider } from "../../hooks/useConfirm";
 
 const TRAIT_CATALOG: TraitCatalogEntry[] = [
   { id: "intake", name: "Intake", builtin: true, flags: { intake: true } },
@@ -739,5 +740,223 @@ describe("WorkflowNodeEditor — U2 interpreter-only banner", () => {
     const banner = await screen.findByRole("alert");
     expect(banner).toHaveTextContent(/no outgoing edge/i);
     expect(screen.queryByTestId("wf-interpreter-only-banner")).not.toBeInTheDocument();
+  });
+});
+
+// ── U4: dialogs, inline rename/description, dirty guard ─────────────────────
+
+/** Render the editor wrapped in a ConfirmDialogProvider so confirm()/discard
+ *  prompts mount their ConfirmDialog (the app mounts this provider globally in
+ *  App.tsx). The ConfirmDialog's primary button carries the supplied label. */
+function renderWithConfirm(ui: import("react").ReactElement) {
+  return render(<ConfirmDialogProvider>{ui}</ConfirmDialogProvider>);
+}
+
+describe("WorkflowNodeEditor — U4 create dialog / delete / inline rename / dirty guard", () => {
+  beforeEach(() => {
+    vi.mocked(fetchTraits).mockResolvedValue(TRAIT_CATALOG);
+    vi.mocked(fetchStepParsers).mockResolvedValue(["step-headings", "json-steps"]);
+    vi.mocked(fetchModels).mockResolvedValue({ models: [] });
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  // ── Create dialog (KTD-7) ──────────────────────────────────────────────────
+
+  it("opens the create dialog and blocks an empty name with an inline error", async () => {
+    vi.mocked(fetchWorkflows).mockResolvedValue([]);
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+    fireEvent.click(await screen.findByTestId("wf-new-workflow"));
+    expect(await screen.findByTestId("wf-create-dialog")).toBeInTheDocument();
+
+    // Submitting with a whitespace-only name shows the inline error and does NOT
+    // call createWorkflow or close the dialog.
+    fireEvent.change(screen.getByTestId("wf-create-name"), { target: { value: "  " } });
+    fireEvent.click(screen.getByTestId("wf-create-submit"));
+    expect(await screen.findByTestId("wf-create-error")).toBeInTheDocument();
+    expect(createWorkflow).not.toHaveBeenCalled();
+    expect(screen.getByTestId("wf-create-dialog")).toBeInTheDocument();
+  });
+
+  it("creates and activates a workflow on a valid submit", async () => {
+    const addToast = vi.fn();
+    vi.mocked(fetchWorkflows).mockResolvedValue([]);
+    vi.mocked(createWorkflow).mockResolvedValue({ ...v2Def(), id: "WF-NEW", name: "Pipeline" });
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={addToast} />);
+    fireEvent.click(await screen.findByTestId("wf-new-workflow"));
+    fireEvent.change(await screen.findByTestId("wf-create-name"), { target: { value: "Pipeline" } });
+    fireEvent.click(screen.getByTestId("wf-create-submit"));
+
+    await waitFor(() => expect(createWorkflow).toHaveBeenCalled());
+    const [input] = vi.mocked(createWorkflow).mock.calls[0];
+    expect((input as { name: string }).name).toBe("Pipeline");
+    // Dialog closes and the new workflow is active (its name shows in the strip).
+    await waitFor(() => expect(screen.queryByTestId("wf-create-dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("wf-workflow-name")).toHaveTextContent("Pipeline"));
+    expect(addToast).toHaveBeenCalledWith(expect.stringMatching(/Pipeline/), "success");
+  });
+
+  it("surfaces a server rejection inline and keeps the dialog open with input preserved", async () => {
+    vi.mocked(fetchWorkflows).mockResolvedValue([]);
+    vi.mocked(createWorkflow).mockRejectedValue(new Error("A workflow named 'Dup' already exists"));
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+    fireEvent.click(await screen.findByTestId("wf-new-workflow"));
+    const nameInput = await screen.findByTestId("wf-create-name");
+    fireEvent.change(nameInput, { target: { value: "Dup" } });
+    fireEvent.click(screen.getByTestId("wf-create-submit"));
+
+    await waitFor(() => expect(screen.getByTestId("wf-create-error")).toHaveTextContent(/already exists/i));
+    // Dialog stays open; the typed name is preserved.
+    expect(screen.getByTestId("wf-create-dialog")).toBeInTheDocument();
+    expect((nameInput as HTMLInputElement).value).toBe("Dup");
+  });
+
+  // ── Delete confirm ─────────────────────────────────────────────────────────
+
+  it("does not delete when no ConfirmDialogProvider is mounted (fallback cancels)", async () => {
+    vi.mocked(fetchWorkflows).mockResolvedValue([v2Def()]);
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+    fireEvent.click((await screen.findByText("Delete")).closest("button")!);
+    // The no-op fallback resolves false → deleteWorkflow is never called.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(deleteWorkflow).not.toHaveBeenCalled();
+  });
+
+  it("deletes after confirming in the ConfirmDialog (with provider)", async () => {
+    vi.mocked(fetchWorkflows).mockResolvedValue([v2Def()]);
+    vi.mocked(deleteWorkflow).mockResolvedValue(undefined);
+    renderWithConfirm(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+    fireEvent.click((await screen.findByText("Delete")).closest("button")!);
+    // The confirm dialog's primary (danger) button carries the "Delete" label.
+    const dialog = await screen.findByRole("dialog", { name: /Delete workflow\?/i });
+    const confirmBtn = within(dialog).getByRole("button", { name: "Delete" });
+    fireEvent.click(confirmBtn);
+    await waitFor(() => expect(deleteWorkflow).toHaveBeenCalledWith("WF-002", undefined));
+  });
+
+  // ── Inline rename (KTD-10) ─────────────────────────────────────────────────
+
+  it("renames the workflow inline: click → input prefilled → Enter commits", async () => {
+    vi.mocked(fetchWorkflows).mockResolvedValue([v2Def()]);
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+    const nameBtn = await screen.findByTestId("wf-workflow-name");
+    expect(nameBtn).toHaveTextContent("Custom");
+    fireEvent.click(nameBtn);
+    const input = (await screen.findByTestId("wf-workflow-name-input")) as HTMLInputElement;
+    expect(input.value).toBe("Custom");
+    fireEvent.change(input, { target: { value: "Renamed" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.getByTestId("wf-workflow-name")).toHaveTextContent("Renamed"));
+  });
+
+  it("cancels an inline rename on Escape (value reverts)", async () => {
+    vi.mocked(fetchWorkflows).mockResolvedValue([v2Def()]);
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+    fireEvent.click(await screen.findByTestId("wf-workflow-name"));
+    const input = (await screen.findByTestId("wf-workflow-name-input")) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Throwaway" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    await waitFor(() => expect(screen.getByTestId("wf-workflow-name")).toHaveTextContent("Custom"));
+  });
+
+  it("shows a built-in workflow name as plain text (no rename input on click)", async () => {
+    vi.mocked(fetchWorkflows).mockResolvedValue([builtinDef()]);
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+    const nameEl = await screen.findByTestId("wf-workflow-name");
+    // Built-in renders a plain <span>, not a clickable button.
+    expect(nameEl.tagName).toBe("SPAN");
+    fireEvent.click(nameEl);
+    expect(screen.queryByTestId("wf-workflow-name-input")).not.toBeInTheDocument();
+  });
+
+  it("persists a renamed name through the save PATCH", async () => {
+    vi.mocked(fetchWorkflows).mockResolvedValue([v2Def()]);
+    vi.mocked(updateWorkflow).mockImplementation(async (_id, updates) => ({ ...v2Def(), ...(updates as object) }));
+    vi.mocked(compileWorkflow).mockResolvedValue({ steps: [] });
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+    await screen.findByText("Save");
+    await waitFor(() => expect(screen.getAllByLabelText(/Column name/i).length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByTestId("wf-workflow-name"));
+    const input = await screen.findByTestId("wf-workflow-name-input");
+    fireEvent.change(input, { target: { value: "Renamed" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.click(screen.getByText("Save").closest("button")!);
+    await waitFor(() => expect(updateWorkflow).toHaveBeenCalled());
+    const [, updates] = vi.mocked(updateWorkflow).mock.calls[0];
+    expect((updates as { name?: string }).name).toBe("Renamed");
+  });
+
+  // ── Dirty guard ────────────────────────────────────────────────────────────
+
+  it("closes immediately with no confirm when there are no edits", async () => {
+    const onClose = vi.fn();
+    vi.mocked(fetchWorkflows).mockResolvedValue([v2Def()]);
+    renderWithConfirm(<WorkflowNodeEditor isOpen onClose={onClose} addToast={() => {}} />);
+    // Wait for the workflow to load (clean snapshot established).
+    await screen.findByTestId("wf-workflow-name");
+    fireEvent.click(screen.getByLabelText("Close workflow editor"));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    // No discard confirm dialog appeared.
+    expect(screen.queryByRole("dialog", { name: /Discard unsaved changes/i })).not.toBeInTheDocument();
+  });
+
+  it("load → immediately close produces no spurious dirty prompt", async () => {
+    // Regression for mapping-default asymmetry: the loaded snapshot is computed
+    // through flowToIr(irToFlow(...)) so default-materialization matches the live
+    // side and a freshly-loaded workflow is never dirty.
+    const onClose = vi.fn();
+    vi.mocked(fetchWorkflows).mockResolvedValue([stepwiseDef()]);
+    renderWithConfirm(<WorkflowNodeEditor isOpen onClose={onClose} addToast={() => {}} />);
+    await screen.findByTestId("wf-node-foreach");
+    fireEvent.click(screen.getByLabelText("Close workflow editor"));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("dialog", { name: /Discard unsaved changes/i })).not.toBeInTheDocument();
+  });
+
+  it("prompts to discard on close when dirty; confirming closes, cancelling keeps it open", async () => {
+    const onClose = vi.fn();
+    vi.mocked(fetchWorkflows).mockResolvedValue([v2Def()]);
+    renderWithConfirm(<WorkflowNodeEditor isOpen onClose={onClose} addToast={() => {}} />);
+    // Make an edit: inline rename.
+    fireEvent.click(await screen.findByTestId("wf-workflow-name"));
+    const input = await screen.findByTestId("wf-workflow-name-input");
+    fireEvent.change(input, { target: { value: "Edited" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    // Close → discard confirm appears. Cancel keeps the editor open.
+    fireEvent.click(screen.getByLabelText("Close workflow editor"));
+    const dialog = await screen.findByRole("dialog", { name: /Discard unsaved changes/i });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Cancel/i }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Discard unsaved changes/i })).not.toBeInTheDocument());
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Close again → confirm → onClose fires.
+    fireEvent.click(screen.getByLabelText("Close workflow editor"));
+    const dialog2 = await screen.findByRole("dialog", { name: /Discard unsaved changes/i });
+    fireEvent.click(within(dialog2).getByRole("button", { name: /Discard/i }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it("prompts to discard when switching workflows while dirty", async () => {
+    vi.mocked(fetchWorkflows).mockResolvedValue([
+      v2Def(),
+      { ...v2Def(), id: "WF-OTHER", name: "Other" },
+    ]);
+    renderWithConfirm(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+    // Edit the active workflow.
+    fireEvent.click(await screen.findByTestId("wf-workflow-name"));
+    const input = await screen.findByTestId("wf-workflow-name-input");
+    fireEvent.change(input, { target: { value: "Edited" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    // Switch to the other workflow in the sidebar → discard confirm.
+    fireEvent.click(screen.getByText("Other"));
+    const dialog = await screen.findByRole("dialog", { name: /Discard unsaved changes/i });
+    // Cancel keeps the current workflow (name still "Edited").
+    fireEvent.click(within(dialog).getByRole("button", { name: /Cancel/i }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Discard unsaved changes/i })).not.toBeInTheDocument());
+    expect(screen.getByTestId("wf-workflow-name")).toHaveTextContent("Edited");
   });
 });
