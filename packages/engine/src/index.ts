@@ -623,7 +623,19 @@ export {
   getNativePrebuildName,
   resetPtyModuleCacheForTests,
 } from "./pty-native.js";
-// CLI Agent Executor — telemetry hub (U3) consumed by the dashboard hook route (U17).
+// CLI agent executor — session manager (U2), telemetry hub (U3), state machine (U3),
+// hook scripts (U17); consumed by the dashboard hook route (U17) and transport (U10).
+export {
+  CliSessionManager,
+  CliConcurrencyLimitError,
+  UnknownCliSessionError,
+  neutralizeInjection,
+  DEFAULT_SCROLLBACK_BYTES,
+  DEFAULT_CONCURRENCY_CEILING,
+  type CliSessionAttachment,
+  type CliSessionManagerOptions,
+  type SpawnCliSessionOptions,
+} from "./cli-agent/session-manager.js";
 export {
   TelemetryHub,
   stripAnsiControl,
@@ -636,6 +648,16 @@ export {
   type SanitizedTelemetryEvent,
   type NotificationDispatch,
 } from "./cli-agent/telemetry-hub.js";
+export {
+  CliSessionStateMachine,
+  classifyTermination,
+  isResumeEligible,
+  toPersistedState,
+  type CliMachineState,
+  type CliStateChange,
+  type CliStateChangeListener,
+  type CliStateMachineOptions,
+} from "./cli-agent/state-machine.js";
 // CLI Agent Executor — per-session hook scripts / notify shim (U17).
 export {
   writeSessionHookScripts,
