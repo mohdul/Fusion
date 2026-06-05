@@ -13,6 +13,12 @@ User-level settings persisted server-side that apply across all Surfaces and all
 ### Workflow Setting
 A typed setting declared by a workflow in its IR (id, type, default, options), mirroring the custom-task-field shape. Declarations describe the schema; *values* persist per workflow + project through a single validating store authority, so built-in workflows can carry values without their IR being editable. The engine consumes **effective settings** — stored value falling back to declaration default, with values that no longer validate against the current declaration dropped (never fed to execution).
 
+### Effective Settings
+The per-task, flat `Partial<Settings>`-shaped value map the engine reads at executor entry, composed from the task's resolved workflow: for each declared Workflow Setting, the stored `(workflowId, projectId)` value falls back to the declaration default, with stored values that no longer validate against the current declaration dropped. Resolution never throws — a missing or corrupt workflow degrades to the built-in coding declarations — so every read site receives a usable value. Because built-in declaration defaults are byte-equal to the legacy project-settings defaults, an untuned project resolves to identical behavior across the settings hard-move.
+
+### Moved Settings Keys
+The tombstone allowlist (`MOVED_SETTINGS_KEYS`) of the step-execution, review/approval, and per-phase model-lane keys that the one-time hard-move migration relocated from project/global settings into Workflow Settings. It is the single record of the old names and shields every surface that can encounter a legacy payload — cross-node sync diffs, v1 settings imports, and stale writers — from resurrecting a moved key. A consistency test enforces that a key lives in exactly one regime (project settings *or* the tombstone list, never both).
+
 ### Three-Tier Setting
 The named persistence pattern for a user preference on the dashboard: a device-local cache for instant reads, a write-through to Global Settings so other Surfaces see it, and a hydrate-on-mount from the server when no local value exists. A local or in-flight user choice always wins over server hydration, and changes propagate to other open tabs.
 
