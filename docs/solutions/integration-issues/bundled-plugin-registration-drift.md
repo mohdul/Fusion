@@ -63,6 +63,10 @@ await bundlePluginEntry({
 });
 ```
 
+## Follow-up failure: directory registered as plugin path
+
+Fixing the fallback surfaced a second, independent bug: both dashboard install routes registered the **manifest directory** as the plugin path, but since FN-4128 the loader requires a loadable entry **file** (Node ESM cannot import directories) — enable then failed with `Plugin entry must be a file, got directory: <dir>`. Only the CLI startup path had been migrated to `resolvePluginEntryPath` (`bundled.js` → `dist/index.js` → `src/index.ts`), which is why CLI-auto-installed plugins worked and Settings-installed ones never did. Fix: the install routes now resolve and register the entry file (helper added to `@fusion/core`), and the enable route heals legacy directory-path rows in place — mirroring the CLI's startup heal.
+
 ## Why This Works
 
 The Settings card sends a relative `./plugins/<id>` path. The server resolves it against `process.cwd()` — normally the user's project dir, not the Fusion repo — so it 404s and falls back to `extractBundledPluginId()`, which only recognizes ids in routes.ts's `BUNDLED_PLUGIN_IDS`. Adding the id makes the fallback resolve the staged bundled copy; the tsup staging block guarantees that copy exists in packaged installs.

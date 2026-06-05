@@ -24,7 +24,7 @@ import type {
   PluginStore,
   PluginContext,
 } from "@fusion/core";
-import { validatePluginManifest } from "@fusion/core";
+import { resolvePluginEntryPath, validatePluginManifest } from "@fusion/core";
 import {
   ApiError,
   badRequest,
@@ -251,7 +251,16 @@ export function createPluginRouter(
     if (source.path) {
       const resolved = await resolvePluginManifest(source.path);
       manifest = resolved.manifest;
-      installPath = resolved.manifestDir;
+      // Register the loadable entry FILE, not the package directory — Node
+      // ESM cannot import directories, so the loader rejects directory paths.
+      const entryPath = resolvePluginEntryPath(resolved.manifestDir);
+      if (!entryPath) {
+        throw badRequest(
+          `Plugin at ${resolved.manifestDir} has no loadable entry file `
+          + "(expected bundled.js, dist/index.js, or src/index.ts)",
+        );
+      }
+      installPath = entryPath;
     } else if (source.package) {
       // npm packages not yet supported
       throw badRequest("Installing plugins from npm packages is not yet implemented");
