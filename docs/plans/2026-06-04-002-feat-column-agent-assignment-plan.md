@@ -1,7 +1,7 @@
 ---
 title: "feat: Per-column agent assignment — permanent agents for workflow columns"
 type: feat
-status: active
+status: completed
 date: 2026-06-04
 depth: standard
 origin: none (solo planning bootstrap; extends docs/plans/2026-06-03-003-feat-workflow-custom-columns-traits-plan.md)
