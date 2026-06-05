@@ -207,6 +207,20 @@ A workflow-declared, typed task field (`string | text | number | boolean | enum 
 
 ### Schema-Version Sweep
 The named process performed atomically with any bump of the core schema-version counter: a repo-wide hunt for hard-coded assertions of the old version number, updated in the same commit as the bump. The sweep's scope is every workspace that can embed the core database — packages *and* plugins — because any package instantiating the core store observes the current version; scoping the hunt to one workspace silently strands assertions in the others. Downstream consumers should prefer asserting against the exported version constant instead of a literal, which removes them from the sweep entirely.
+## CLI executor
+
+### CLI Executor
+The executor type `cli-agent`: a Fusion agent session (task execute step, planning, validator, CE plugin session, or chat) driven by an interactive CLI coding agent running in a Fusion-owned PTY. Distinct from the pre-existing non-interactive `cli` executor kind (the named-script/raw-command runner). Selected on the workflow node for task surfaces (per-task override) and per session for chat/CE. The board lifecycle is unchanged — the terminal is the execution surface, not a separate workflow.
+*Avoid:* `cli` as the executor identifier — that name is taken by the script-runner kind.
+
+### CLI Adapter
+The per-CLI integration that launches and understands one CLI agent. Native-telemetry adapters (Claude Code, Codex, Droid, Pi) tap the CLI's own hooks/session logs for precise agent state, structured transcript, and native session identity; the generic adapter runs any CLI command with heuristic idle detection and a raw-terminal-only view. Adapters carry their own launch configuration (command, args, permission mode) with shipped defaults.
+
+### CLI Session
+A server-owned PTY bound to a task or chat entity. It survives client disconnects, supports concurrent attach from any surface, and carries an agent state (starting, ready, busy, waiting-on-input, done, dead). Its CLI-native session ID is persisted so a dead PTY or engine restart resumes via the CLI's own resume mechanism — needs-attention is the fallback when resume fails, never the first response.
+
+### Waiting-on-input
+The CLI Session state where the agent is blocked on the human (permission prompt, clarifying question), as distinct from idle-because-done. Entering it fires the notification configured on the workflow node; the task neither advances nor fails while in it.
 ## Testing
 
 ### Merge Gate
