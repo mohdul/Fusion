@@ -163,3 +163,114 @@
   background: var(--card);
   border-color: var(--border);
 }
+
+/* ── Mobile input model (U13) ──────────────────────────────────────────────
+ * Visible input field + accessory key bar. xterm's hidden-textarea input is
+ * unreliable on mobile (KTD), so the bar is the primary input surface. The
+ * bar is a fixed footer that lifts above the virtual keyboard when it opens
+ * (driven by useMobileKeyboard's keyboardOverlap, applied inline).
+ */
+.cli-session-terminal__mobile-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm)
+    calc(var(--space-sm) + env(safe-area-inset-bottom, 0px));
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+.cli-session-terminal__mobile-bar--keyboard-open {
+  position: fixed;
+  left: 0;
+  right: 0;
+  /* `bottom` is set inline to keyboardOverlap so the bar clears the keyboard. */
+  padding-bottom: var(--space-sm);
+}
+
+.cli-session-terminal__key-row {
+  display: flex;
+  gap: var(--space-xs);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.cli-session-terminal__key-row::-webkit-scrollbar {
+  display: none;
+}
+
+.cli-terminal-key {
+  flex: 0 0 auto;
+  min-width: 40px;
+  min-height: 36px;
+  padding: var(--space-xs) var(--space-sm);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.cli-terminal-key:active {
+  background: var(--card-hover);
+}
+
+.cli-terminal-key--ctrl.cli-terminal-key--active {
+  color: var(--accent-text, var(--button-primary-text));
+  background: var(--accent, var(--color-primary));
+  border-color: var(--accent, var(--color-primary));
+}
+
+.cli-terminal-key--ctrlc {
+  color: var(--warning, var(--color-warning));
+  border-color: var(--warning, var(--color-warning));
+}
+
+.cli-session-terminal__input-row {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.cli-session-terminal__mobile-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 38px;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: 16px; /* >=16px avoids iOS focus zoom */
+  color: var(--text);
+  background: var(--input-bg, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.cli-session-terminal__mobile-input:focus {
+  outline: none;
+  border-color: var(--accent, var(--color-primary));
+}
+
+.cli-session-terminal__mobile-send {
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: var(--space-xs) var(--space-md);
+  font-size: 0.8125rem;
+  color: var(--button-primary-text, var(--accent-text));
+  background: var(--button-primary-bg, var(--accent));
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* On mobile the terminal viewport is read-mostly; the bar drives input. */
+@media (max-width: 768px), (max-height: 480px) {
+  .cli-session-terminal__viewport {
+    -webkit-overflow-scrolling: touch;
+  }
+}

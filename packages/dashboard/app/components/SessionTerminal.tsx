@@ -6,6 +6,7 @@ import { Terminal as TerminalIcon, ShieldAlert, Settings, Eye } from "lucide-rea
 import type { Terminal as XTerm, ITerminalAddon } from "@xterm/xterm";
 import { appendTokenQuery } from "../auth";
 import { api } from "../api";
+import { useMobileKeyboard } from "../hooks/useMobileKeyboard";
 
 /**
  * SessionTerminal (CLI Agent Executor, U11) — shared xterm terminal for a CLI
@@ -25,6 +26,70 @@ import { api } from "../api";
 /** ACK cadence — ACK roughly every 32KB of consumed output. */
 const ACK_THRESHOLD_BYTES = 32 * 1024;
 const RESIZE_DEBOUNCE_MS = 100;
+
+/**
+ * Canonical mobile breakpoint (matches the repo CSS convention). Landscape
+ * phones exceed 768px wide, so the height clause covers them too.
+ */
+const MOBILE_MEDIA_QUERY = "(max-width: 768px), (max-height: 480px)";
+
+/**
+ * Control sequences emitted by the accessory key bar (U13). These are
+ * deliberate user keystrokes routed straight to the session input path —
+ * exempt from U2's injected-text neutralization (which governs composed /
+ * injected strings, not real keystrokes).
+ */
+const SEQ_ESC = "\x1b"; // 0x1B
+const SEQ_TAB = "\x09"; // 0x09
+const SEQ_CTRL_C = "\x03"; // 0x03
+const SEQ_ARROW_UP = "\x1b[A"; // CSI A
+const SEQ_ARROW_DOWN = "\x1b[B"; // CSI B
+const SEQ_ARROW_RIGHT = "\x1b[C"; // CSI C
+const SEQ_ARROW_LEFT = "\x1b[D"; // CSI D
+
+/**
+ * Resolve the control byte for a sticky-Ctrl + key combination. Ctrl maps a
+ * letter to its control code (A→0x01 … Z→0x1A): code = (toUpper(ch) & 0x1f).
+ * Returns null for keys that have no meaningful Ctrl combination.
+ */
+function ctrlCombo(key: string): string | null {
+  if (key.length !== 1) return null;
+  const upper = key.toUpperCase();
+  const code = upper.charCodeAt(0);
+  if (code >= 0x40 && code <= 0x5f) {
+    // @ A-Z [ \ ] ^ _  → 0x00-0x1F
+    return String.fromCharCode(code & 0x1f);
+  }
+  return null;
+}
+
+/** Reactive mobile-viewport detection via the repo breakpoint convention. */
+function useIsMobileViewport(): boolean {
+  const [isMobile, setIsMobile] = useState<boolean>(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return false;
+    }
+    return window.matchMedia(MOBILE_MEDIA_QUERY).matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+    const mql = window.matchMedia(MOBILE_MEDIA_QUERY);
+    const onChange = () => setIsMobile(mql.matches);
+    onChange();
+    // Safari < 14 only has addListener/removeListener.
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", onChange);
+      return () => mql.removeEventListener("change", onChange);
+    }
+    mql.addListener(onChange);
+    return () => mql.removeListener(onChange);
+  }, []);
+
+  return isMobile;
+}
 
 /** The posture surfaced on the session record (denormalized at launch, U15). */
 export interface SessionTerminalPosture {
@@ -108,6 +173,86 @@ export function SessionTerminal({
   const [postureTooltipOpen, setPostureTooltipOpen] = useState(false);
   const [advanceDismissed, setAdvanceDismissed] = useState(false);
   const [advancePending, setAdvancePending] = useState(false);
+
+  // ── Mobile input model (U13) ───────────────────────────────────────────────
+  const isMobile = useIsMobileViewport();
+  // Only arm keyboard tracking on mobile (the hook no-ops off-mobile anyway).
+  const { keyboardOpen, keyboardOverlap } = useMobileKeyboard({ enabled: isMobile });
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [mobileInput, setMobileInput] = useState("");
+  // Sticky Ctrl: tap Ctrl, then the next tapped key combines into a control
+  // sequence (Ctrl-C → 0x03, Ctrl-D → 0x04, Ctrl-Z → 0x1A).
+  const [ctrlSticky, setCtrlSticky] = useState(false);
+
+  /** Write raw bytes to the session input path (mobile bar + submit). */
+  const sendInput = useCallback((data: string) => {
+    if (!data) return;
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "input", data }));
+    }
+  }, []);
+
+  /**
+   * Emit one accessory-bar key. If sticky Ctrl is active and the key has a
+   * Ctrl combination, send the combined control byte and clear the modifier;
+   * otherwise send the literal sequence. Keeps the input focused (the caller's
+   * pointerdown preventDefault stops the blur).
+   */
+  const emitBarKey = useCallback(
+    (seq: string) => {
+      if (ctrlSticky) {
+        const combined = ctrlCombo(seq);
+        setCtrlSticky(false);
+        if (combined) {
+          sendInput(combined);
+          return;
+        }
+      }
+      sendInput(seq);
+    },
+    [ctrlSticky, sendInput],
+  );
+
+  /** iOS composer pattern: keep focus on the visible input when tapping a key. */
+  const keepFocus = useCallback((e: { preventDefault: () => void }) => {
+    e.preventDefault();
+  }, []);
+
+  const handleMobileSubmit = useCallback(
+    (e?: { preventDefault?: () => void }) => {
+      e?.preventDefault?.();
+      // User-typed text + Enter — deliberate input, no neutralization.
+      if (mobileInput) sendInput(mobileInput);
+      sendInput("\r");
+      setMobileInput("");
+    },
+    [mobileInput, sendInput],
+  );
+
+  /**
+   * Input onChange. When sticky Ctrl is armed, the next typed character is
+   * captured as a Ctrl combination (Ctrl-D `0x04`, Ctrl-Z `0x1A`, …) instead of
+   * landing in the field — this is how Ctrl-letter chords beyond the bar's
+   * dedicated Ctrl-C are reached on mobile. Otherwise the value updates
+   * normally for free-text + Enter submit.
+   */
+  const handleMobileInputChange = useCallback(
+    (next: string) => {
+      if (ctrlSticky && next.length > mobileInput.length) {
+        // The newly-typed character is the last one appended.
+        const ch = next.slice(mobileInput.length, mobileInput.length + 1);
+        const combined = ctrlCombo(ch);
+        setCtrlSticky(false);
+        if (combined) {
+          sendInput(combined);
+          return; // swallow — do not echo the raw key into the field
+        }
+      }
+      setMobileInput(next);
+    },
+    [ctrlSticky, mobileInput, sendInput],
+  );
 
   // Re-arm the strip whenever a fresh idle window is offered.
   useEffect(() => {
@@ -323,7 +468,15 @@ export function SessionTerminal({
   const flagSummary = posture?.elevatedFlags?.join(", ");
 
   return (
-    <div className="cli-session-terminal" data-mode={mode} data-read-only={readOnly}>
+    <div
+      className={`cli-session-terminal${isMobile ? " cli-session-terminal--mobile" : ""}${
+        isMobile && keyboardOpen ? " cli-session-terminal--keyboard-open" : ""
+      }`}
+      data-mode={mode}
+      data-read-only={readOnly}
+      data-mobile={isMobile}
+      data-keyboard-open={isMobile && keyboardOpen}
+    >
       <header className="cli-session-terminal__header">
         {posture && (
           <div className="cli-session-terminal__posture-wrap">
@@ -422,6 +575,154 @@ export function SessionTerminal({
               {t("cliTerminal.notYet", "Not yet")}
             </button>
           </div>
+        </div>
+      )}
+
+      {isMobile && !readOnly && (
+        <div
+          className={`cli-session-terminal__mobile-bar${
+            keyboardOpen ? " cli-session-terminal__mobile-bar--keyboard-open" : ""
+          }`}
+          data-testid="cli-terminal-mobile-bar"
+          style={
+            // Lift the fixed footer above the virtual keyboard when it's open.
+            keyboardOpen ? { bottom: `${keyboardOverlap}px` } : undefined
+          }
+        >
+          <div
+            className="cli-session-terminal__key-row"
+            data-testid="cli-terminal-key-bar"
+          >
+            <button
+              type="button"
+              className={`cli-terminal-key cli-terminal-key--ctrl${
+                ctrlSticky ? " cli-terminal-key--active" : ""
+              }`}
+              data-testid="cli-key-ctrl"
+              aria-label={t("cliTerminal.mobileKeyCtrl", "Sticky Ctrl modifier")}
+              aria-pressed={ctrlSticky}
+              onPointerDown={keepFocus}
+              onMouseDown={keepFocus}
+              onClick={() => setCtrlSticky((v) => !v)}
+            >
+              Ctrl
+            </button>
+            <button
+              type="button"
+              className="cli-terminal-key"
+              data-testid="cli-key-esc"
+              aria-label={t("cliTerminal.mobileKeyEsc", "Send Escape")}
+              onPointerDown={keepFocus}
+              onMouseDown={keepFocus}
+              onClick={() => emitBarKey(SEQ_ESC)}
+            >
+              Esc
+            </button>
+            <button
+              type="button"
+              className="cli-terminal-key"
+              data-testid="cli-key-tab"
+              aria-label={t("cliTerminal.mobileKeyTab", "Send Tab")}
+              onPointerDown={keepFocus}
+              onMouseDown={keepFocus}
+              onClick={() => emitBarKey(SEQ_TAB)}
+            >
+              Tab
+            </button>
+            <button
+              type="button"
+              className="cli-terminal-key cli-terminal-key--ctrlc"
+              data-testid="cli-key-ctrl-c"
+              aria-label={t("cliTerminal.mobileKeyCtrlC", "Send Ctrl-C")}
+              onPointerDown={keepFocus}
+              onMouseDown={keepFocus}
+              onClick={() => {
+                // Dedicated shortcut: always Ctrl-C, regardless of sticky state.
+                setCtrlSticky(false);
+                sendInput(SEQ_CTRL_C);
+              }}
+            >
+              ^C
+            </button>
+            <button
+              type="button"
+              className="cli-terminal-key"
+              data-testid="cli-key-arrow-up"
+              aria-label={t("cliTerminal.mobileKeyArrowUp", "Cursor up")}
+              onPointerDown={keepFocus}
+              onMouseDown={keepFocus}
+              onClick={() => emitBarKey(SEQ_ARROW_UP)}
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              className="cli-terminal-key"
+              data-testid="cli-key-arrow-down"
+              aria-label={t("cliTerminal.mobileKeyArrowDown", "Cursor down")}
+              onPointerDown={keepFocus}
+              onMouseDown={keepFocus}
+              onClick={() => emitBarKey(SEQ_ARROW_DOWN)}
+            >
+              ↓
+            </button>
+            <button
+              type="button"
+              className="cli-terminal-key"
+              data-testid="cli-key-arrow-left"
+              aria-label={t("cliTerminal.mobileKeyArrowLeft", "Cursor left")}
+              onPointerDown={keepFocus}
+              onMouseDown={keepFocus}
+              onClick={() => emitBarKey(SEQ_ARROW_LEFT)}
+            >
+              ←
+            </button>
+            <button
+              type="button"
+              className="cli-terminal-key"
+              data-testid="cli-key-arrow-right"
+              aria-label={t("cliTerminal.mobileKeyArrowRight", "Cursor right")}
+              onPointerDown={keepFocus}
+              onMouseDown={keepFocus}
+              onClick={() => emitBarKey(SEQ_ARROW_RIGHT)}
+            >
+              →
+            </button>
+          </div>
+          <form
+            className="cli-session-terminal__input-row"
+            onSubmit={handleMobileSubmit}
+          >
+            <input
+              ref={inputRef}
+              type="text"
+              className="cli-session-terminal__mobile-input"
+              data-testid="cli-terminal-mobile-input"
+              value={mobileInput}
+              placeholder={t(
+                "cliTerminal.mobileInputPlaceholder",
+                "Type to send to the session…",
+              )}
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(e) => handleMobileInputChange(e.target.value)}
+            />
+            <button
+              type="submit"
+              className="cli-session-terminal__mobile-send"
+              data-testid="cli-terminal-mobile-send"
+              aria-label={t("cliTerminal.mobileSend", "Send")}
+              // iOS pattern: act on click, preventDefault on pointer/mouse down
+              // so the input doesn't blur (which dismisses the keyboard).
+              onPointerDown={keepFocus}
+              onMouseDown={keepFocus}
+              onClick={() => handleMobileSubmit()}
+            >
+              {t("cliTerminal.mobileSend", "Send")}
+            </button>
+          </form>
         </div>
       )}
     </div>

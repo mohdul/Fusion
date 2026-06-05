@@ -6914,6 +6914,16 @@
     "adapterSettings": "Adapter settings",
     "advancePrompt": "This session looks idle — advance to review?",
     "advance": "Advance",
-    "notYet": "Not yet"
+    "notYet": "Not yet",
+    "mobileInputPlaceholder": "Type to send to the session…",
+    "mobileSend": "Send",
+    "mobileKeyEsc": "Send Escape",
+    "mobileKeyTab": "Send Tab",
+    "mobileKeyCtrlC": "Send Ctrl-C",
+    "mobileKeyCtrl": "Sticky Ctrl modifier",
+    "mobileKeyArrowUp": "Cursor up",
+    "mobileKeyArrowDown": "Cursor down",
+    "mobileKeyArrowLeft": "Cursor left",
+    "mobileKeyArrowRight": "Cursor right"
   }
 }
