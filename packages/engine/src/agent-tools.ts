@@ -11,7 +11,7 @@ import { appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/p
 import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join, relative, resolve } from "node:path";
-import type { AgentState, AgentCapability, AgentUpdateInput, TaskDocument, TaskDocumentCreateInput, TaskStore, RunMutationContext, MessageStore, Message, SourceType, Settings, ResearchRun, ResearchRunStatus, TaskCreateInput, ReflectionStore, ApprovalRequestStore, ProjectSettings, ChatStore, WorkflowSettingDefinition } from "@fusion/core";
+import type { AgentState, AgentCapability, AgentUpdateInput, TaskDocument, TaskDocumentCreateInput, TaskStore, RunMutationContext, MessageStore, Message, SourceType, Settings, ResearchRun, ResearchRunStatus, TaskCreateInput, ReflectionStore, ApprovalRequestStore, ProjectSettings, ChatStore, WorkflowSettingDefinition, GoalStatus } from "@fusion/core";
 import { listTraits, isBuiltinWorkflowId, AgentStore, validateColumnAgentBindings, ColumnAgentBindingError, stripApprovalBypassFlags, WorkflowSettingRejectionError, resolveEffectiveSettingsById, resolveWorkflowIrById, findOrphanedSettingValues, BUILTIN_WORKFLOW_SETTINGS } from "@fusion/core";
 import { promoteHeldTask } from "./hold-release.js";
 import { DASHBOARD_USER_ID, canAgentTakeImplementationTaskForExplicitRouting, dailyMemoryPath, ensureOpenClawMemoryFiles, extractAgentProvisioningRequest, formatRoleMismatchReason, getMemoryBackendCapabilities, getProjectMemory, isEphemeralAgent, memoryLongTermPath, normalizeMessageParticipant, reconcileDeterministicDuplicate, resolveAgentProvisioningPolicy, resolveMemoryBackend, resolveResearchSettings, resolveTaskGithubTracking, resolveTitleSummarizerSettingsModel, runDeterministicDuplicateGuard, scheduleQmdProjectMemoryRefresh, searchProjectMemory, shouldSkipBackgroundQmdRefresh, summarizeTitle } from "@fusion/core";
@@ -26,6 +26,7 @@ import { fetchWebContent, WebFetchError } from "./web-fetch.js";
 import type { RunAuditor } from "./run-audit.js";
 import { computeApprovalDedupeKey } from "./agent-action-gate.js";
 import { MessageDeliveryAutoRecoveryHandler } from "./auto-recovery-handlers/message-delivery.js";
+import { emitGoalRetrievalAudit } from "./goal-anchoring-audit.js";
 import { recordRetry } from "./retry-burned-logger.js";
 
 // ── Tool parameter schemas (canonical definitions) ────────────────────────
@@ -177,6 +178,20 @@ export const updateIdentityParams = Type.Object({
   soul: Type.Optional(Type.String({ description: "Updated soul/personality text" })),
   instructionsText: Type.Optional(Type.String({ description: "Updated operating instructions" })),
   memory: Type.Optional(Type.String({ description: "Updated agent memory text" })),
+});
+
+export const goalListParams = Type.Object({
+  status: Type.Optional(
+    Type.Union([
+      Type.Literal("active"),
+      Type.Literal("archived"),
+      Type.Literal("all"),
+    ], { description: "Filter by goal status (default: active)" }),
+  ),
+});
+
+export const goalShowParams = Type.Object({
+  id: Type.String({ description: "Goal ID (G-…)" }),
 });
 
 export const listAgentsParams = Type.Object({
@@ -1904,6 +1919,169 @@ export function createMemoryTools(rootDir: string, settings?: MemoryToolSettings
     tools.push(createMemoryAppendTool(rootDir, settings, options));
   }
   return tools;
+}
+
+const GOAL_LIST_HARD_LIMIT = 5;
+const GOAL_LIST_SOFT_WARNING_THRESHOLD = 3;
+const GOAL_SNIPPET_MAX_CHARS = 80;
+
+type GoalAuditContext = {
+  runId?: string;
+  agentId?: string;
+  taskId?: string;
+};
+
+type GoalListDetailsEntry = {
+  id: string;
+  title: string;
+  status: GoalStatus;
+  snippet?: string;
+};
+
+function buildGoalSnippet(description?: string): string | undefined {
+  const firstLine = description?.split(/\r?\n/, 1)[0]?.replace(/\s+/g, " ").trim();
+  if (!firstLine) return undefined;
+  if (firstLine.length <= GOAL_SNIPPET_MAX_CHARS) return firstLine;
+  return `${firstLine.slice(0, GOAL_SNIPPET_MAX_CHARS - 1).trimEnd()}…`;
+}
+
+function buildGoalListDetailsEntry(goal: { id: string; title: string; status: GoalStatus; description?: string }): GoalListDetailsEntry {
+  const snippet = buildGoalSnippet(goal.description);
+  return snippet
+    ? { id: goal.id, title: goal.title, status: goal.status, snippet }
+    : { id: goal.id, title: goal.title, status: goal.status };
+}
+
+function formatGoalListLine(goal: GoalListDetailsEntry): string {
+  return `- ${goal.id} [${goal.status}] ${goal.title}${goal.snippet ? ` — ${goal.snippet}` : ""}`;
+}
+
+function resolveGoalAuditContext(
+  ctx: unknown,
+  runContext?: RunMutationContext,
+  taskId?: string,
+): GoalAuditContext {
+  const candidate = typeof ctx === "object" && ctx !== null ? ctx as Record<string, unknown> : {};
+  const runId = typeof candidate.runId === "string" ? candidate.runId : runContext?.runId;
+  const agentId = typeof candidate.agentId === "string" ? candidate.agentId : runContext?.agentId;
+  const resolvedTaskId = typeof candidate.taskId === "string" ? candidate.taskId : taskId;
+  return { runId, agentId, taskId: resolvedTaskId };
+}
+
+export function createGoalListTool(
+  store: TaskStore,
+  options?: { runContext?: RunMutationContext; taskId?: string },
+): ToolDefinition {
+  return {
+    name: "fn_goal_list",
+    label: "List Goals",
+    description: "List goals by status with active-goal warning details.",
+    parameters: goalListParams,
+    execute: async (_id: string, params: Static<typeof goalListParams>, _signal, _onUpdate, ctx) => {
+      const goalStore = store.getGoalStore();
+      const status = params.status ?? "active";
+      const goals = status === "all" ? goalStore.listGoals() : goalStore.listGoals({ status });
+      const activeCount = goalStore.listGoals({ status: "active" }).length;
+      const softWarning = activeCount >= GOAL_LIST_SOFT_WARNING_THRESHOLD;
+      const goalEntries = goals.map(buildGoalListDetailsEntry);
+
+      emitGoalRetrievalAudit(
+        store,
+        resolveGoalAuditContext(ctx, options?.runContext, options?.taskId),
+        {
+          toolName: "fn_goal_list",
+          resultCount: goals.length,
+          goalIds: goals.map((goal) => goal.id),
+        },
+      );
+
+      const lines: string[] = [
+        `Goals (${goals.length}) [filter: ${status}]`,
+        `Active: ${activeCount}/${GOAL_LIST_HARD_LIMIT}`,
+      ];
+      if (softWarning) {
+        lines.push(`⚠  ${GOAL_LIST_SOFT_WARNING_THRESHOLD}/${GOAL_LIST_HARD_LIMIT} active goals — soft warning at ${GOAL_LIST_SOFT_WARNING_THRESHOLD}, hard cap at ${GOAL_LIST_HARD_LIMIT}`);
+      }
+      lines.push("");
+      if (goalEntries.length === 0) {
+        lines.push("No goals found.");
+      } else {
+        lines.push(...goalEntries.map(formatGoalListLine));
+      }
+
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+        details: {
+          goals: goalEntries,
+          activeCount,
+          softWarning,
+          hardLimit: GOAL_LIST_HARD_LIMIT,
+        },
+      };
+    },
+  };
+}
+
+export function createGoalShowTool(
+  store: TaskStore,
+  options?: { runContext?: RunMutationContext; taskId?: string },
+): ToolDefinition {
+  return {
+    name: "fn_goal_show",
+    label: "Show Goal",
+    description: "Show full details for a single goal by ID.",
+    parameters: goalShowParams,
+    execute: async (_id: string, params: Static<typeof goalShowParams>, _signal, _onUpdate, ctx) => {
+      const goalStore = store.getGoalStore();
+      const goal = goalStore.getGoal(params.id);
+      const auditContext = resolveGoalAuditContext(ctx, options?.runContext, options?.taskId);
+
+      if (!goal) {
+        emitGoalRetrievalAudit(store, auditContext, {
+          toolName: "fn_goal_show",
+          resultCount: 0,
+          goalId: params.id,
+          goalIds: [],
+          notFound: true,
+        });
+        return {
+          isError: true,
+          content: [{ type: "text" as const, text: `Goal ${params.id} not found` }],
+          details: { code: "GOAL_NOT_FOUND", goalId: params.id },
+        };
+      }
+
+      const lines = [
+        `${goal.id}: ${goal.title}`,
+        `Status: ${goal.status}`,
+        `Created: ${goal.createdAt}`,
+        `Updated: ${goal.updatedAt}`,
+        ...(goal.description ? [`Description: ${goal.description}`] : []),
+      ];
+
+      emitGoalRetrievalAudit(store, auditContext, {
+        toolName: "fn_goal_show",
+        resultCount: 1,
+        goalId: params.id,
+        goalIds: [params.id],
+      });
+
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+        details: { goal },
+      };
+    },
+  };
+}
+
+export function createGoalRetrievalTools(
+  store: TaskStore,
+  options?: { runContext?: RunMutationContext; taskId?: string },
+): ToolDefinition[] {
+  return [
+    createGoalListTool(store, options),
+    createGoalShowTool(store, options),
+  ];
 }
 
 /**

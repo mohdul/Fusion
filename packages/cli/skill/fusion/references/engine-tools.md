@@ -15,6 +15,8 @@ These tools are **not** part of the user-invokable extension surface. They are i
 | `fn_task_log` | executor, heartbeat | Write significant task log entries | `message` (string), `outcome?` (string) |
 | `fn_task_document_write` | triage, executor, heartbeat | Save/update a named task document revision | `key` (string), `content` (string), `author?` (string) |
 | `fn_task_document_read` | triage, executor, heartbeat | Read one task document or list all | `key?` (string) |
+| `fn_goal_list` | triage, executor, heartbeat | List goals with concise citation-ready snippets and active-goal warning details | `status?` (`active` \| `archived` \| `all`) |
+| `fn_goal_show` | triage, executor, heartbeat | Show one goal's full detail on demand, including the full description body | `id` (string) |
 | `fn_workflow_list` | executor | List the project's custom workflows (read-only built-ins plus user definitions) | none |
 | `fn_workflow_get` | executor | Fetch one workflow definition by id — name, description, builtin flag, and the full IR (nodes/edges/columns/artifacts/fields/settings) as JSON | `workflow_id` (string) |
 | `fn_workflow_select` | executor | Assign a custom workflow to a task (defaults to the current task) | `workflow_id` (string), `task_id?` (string) |

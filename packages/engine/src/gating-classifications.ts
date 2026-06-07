@@ -133,6 +133,8 @@ export const COORDINATION_EXEMPT_TOOLS = [
   "fn_heartbeat_done",
   "fn_task_create",
   "fn_delegate_task",
+  "fn_goal_list",
+  "fn_goal_show",
   "fn_list_agents",
   "fn_agent_show",
   "fn_agent_org_chart",

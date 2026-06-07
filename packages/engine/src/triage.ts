@@ -70,6 +70,7 @@ import {
   createDelegateTaskTool,
   createListAgentsTool,
   createMemoryTools,
+  createGoalRetrievalTools,
   createResearchTools,
   createWebFetchTool,
   createTaskDocumentReadTool,
@@ -1133,6 +1134,15 @@ export class TriageProcessor {
           ? await this.options.agentStore.getAgent(task.assignedAgentId).catch(() => null)
           : null;
 
+        const triageRunContext = {
+          runId: generateSyntheticRunId("triage", task.id),
+          agentId: assignedAgent?.id ?? "triage",
+          taskId: task.id,
+          taskLineageId: task.lineageId,
+          phase: "plan",
+          source: "triage",
+        } as const;
+
         const customTools = [
           ...this.createTriageTools({
             parentTaskId: task.id,
@@ -1148,6 +1158,13 @@ export class TriageProcessor {
               getSettings: async () => this.store.getSettings(),
             })
             : []),
+          ...createGoalRetrievalTools(this.store, {
+            runContext: {
+              runId: triageRunContext.runId,
+              agentId: triageRunContext.agentId,
+            },
+            taskId: task.id,
+          }),
           ...createMemoryTools(this.rootDir, settings, assignedAgent
             ? {
               agentMemory: {
@@ -1215,15 +1232,6 @@ export class TriageProcessor {
         if (triagePluginContributions) {
           planLog.log(`${task.id}: applied plugin prompt contributions for triage surface`);
         }
-
-        const triageRunContext = {
-          runId: generateSyntheticRunId("triage", task.id),
-          agentId: assignedAgent?.id ?? "triage",
-          taskId: task.id,
-          taskLineageId: task.lineageId,
-          phase: "plan",
-          source: "triage",
-        } as const;
 
         const runAuditor = createRunAuditor(this.store, triageRunContext);
         const triageGoalResolution = await resolveAndEmitGoalContext({

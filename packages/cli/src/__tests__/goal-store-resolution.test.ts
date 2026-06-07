@@ -78,7 +78,7 @@ describe("extension goal tools store resolution", () => {
       expect.objectContaining({
         id: goal.id,
         title: "Canonical goal",
-        description: "Created in the project root store",
+        snippet: "Created in the project root store",
         status: "active",
       }),
     ]);

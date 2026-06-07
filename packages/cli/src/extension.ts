@@ -2398,6 +2398,28 @@ export default function kbExtension(pi: ExtensionAPI) {
   // ── Goal Tools ───────────────────────────────────────────────
   // Author-facing goal management
 
+  const GOAL_LIST_HARD_LIMIT = 5;
+  const GOAL_LIST_SOFT_WARNING_THRESHOLD = 3;
+  const GOAL_SNIPPET_MAX_CHARS = 80;
+
+  const buildGoalSnippet = (description?: string): string | undefined => {
+    const firstLine = description?.split(/\r?\n/, 1)[0]?.replace(/\s+/g, " ").trim();
+    if (!firstLine) return undefined;
+    if (firstLine.length <= GOAL_SNIPPET_MAX_CHARS) return firstLine;
+    return `${firstLine.slice(0, GOAL_SNIPPET_MAX_CHARS - 1).trimEnd()}…`;
+  };
+
+  const buildGoalListEntry = (goal: { id: string; title: string; status: string; description?: string }) => {
+    const snippet = buildGoalSnippet(goal.description);
+    return snippet
+      ? { id: goal.id, title: goal.title, status: goal.status, snippet }
+      : { id: goal.id, title: goal.title, status: goal.status };
+  };
+
+  const formatGoalListLine = (goal: { id: string; title: string; status: string; snippet?: string }) => (
+    `- ${goal.id} [${goal.status}] ${goal.title}${goal.snippet ? ` — ${goal.snippet}` : ""}`
+  );
+
   pi.registerTool({
     name: "fn_goal_list",
     label: "fn: List Goals",
@@ -2429,7 +2451,8 @@ export default function kbExtension(pi: ExtensionAPI) {
       const status = params.status ?? "active";
       const goals = status === "all" ? goalStore.listGoals() : goalStore.listGoals({ status });
       const activeCount = goalStore.listGoals({ status: "active" }).length;
-      const softWarning = activeCount >= 3;
+      const softWarning = activeCount >= GOAL_LIST_SOFT_WARNING_THRESHOLD;
+      const goalEntries = goals.map(buildGoalListEntry);
 
       emitGoalRetrievalAudit(store, fnCtx, {
         toolName: "fn_goal_list",
@@ -2439,23 +2462,20 @@ export default function kbExtension(pi: ExtensionAPI) {
 
       const lines: string[] = [];
       lines.push(`Goals (${goals.length}) [filter: ${status}]`);
-      lines.push(`Active: ${activeCount}/5`);
+      lines.push(`Active: ${activeCount}/${GOAL_LIST_HARD_LIMIT}`);
       if (softWarning) {
-        lines.push("⚠  3/5 active goals — soft warning at 3, hard cap at 5");
+        lines.push(`⚠  ${GOAL_LIST_SOFT_WARNING_THRESHOLD}/${GOAL_LIST_HARD_LIMIT} active goals — soft warning at ${GOAL_LIST_SOFT_WARNING_THRESHOLD}, hard cap at ${GOAL_LIST_HARD_LIMIT}`);
       }
       lines.push("");
-      if (goals.length === 0) {
+      if (goalEntries.length === 0) {
         lines.push("No goals found.");
       } else {
-        for (const goal of goals) {
-          const description = goal.description ? ` — ${goal.description}` : "";
-          lines.push(`- ${goal.id} [${goal.status}] ${goal.title}${description}`);
-        }
+        lines.push(...goalEntries.map(formatGoalListLine));
       }
 
       return {
         content: [{ type: "text", text: lines.join("\n") }],
-        details: { goals, activeCount, softWarning, hardLimit: 5 },
+        details: { goals: goalEntries, activeCount, softWarning, hardLimit: GOAL_LIST_HARD_LIMIT },
       };
     },
   });

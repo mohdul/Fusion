@@ -161,6 +161,7 @@ import {
   createGetAgentConfigTool,
   createListAgentsTool,
   createMemoryTools,
+  createGoalRetrievalTools,
   createWebFetchTool,
   createReadMessagesTool,
   createReflectOnPerformanceTool,
@@ -6639,6 +6640,13 @@ export class TaskExecutor {
             getSettings: async () => this.store.getSettings(),
           })
           : []),
+        ...createGoalRetrievalTools(this.store, {
+          runContext: {
+            runId: engineRunContext.runId,
+            agentId: engineRunContext.agentId,
+          },
+          taskId: task.id,
+        }),
         createWebFetchTool(),
         ...createMemoryTools(this.rootDir, settings, identityAgent ? {
           agentMemory: {

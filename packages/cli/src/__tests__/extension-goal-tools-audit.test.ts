@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { TaskStore } from "@fusion/core";
+import { TaskStore, collectCitedGoalIdsFromAudit } from "@fusion/core";
 import kbExtension from "../extension.js";
 import { GOAL_RETRIEVAL_INVOKED } from "@fusion/engine";
 
@@ -61,5 +61,11 @@ describe("extension goal tools retrieval audit", () => {
     expect(goalAuditCalls[0]).toMatchObject({ metadata: expect.objectContaining({ toolName: "fn_goal_list", count: 1, goalIds: [goalId] }) });
     expect(goalAuditCalls[1]).toMatchObject({ target: goalId, metadata: expect.objectContaining({ toolName: "fn_goal_show", count: 1, goalIds: [goalId], notFound: false }) });
     expect(goalAuditCalls[2]).toMatchObject({ target: "G-404", metadata: expect.objectContaining({ toolName: "fn_goal_show", count: 0, goalIds: [], notFound: true }) });
+    const citedGoalCalls = goalAuditCalls.filter((event) => event.metadata?.notFound !== true);
+    expect(collectCitedGoalIdsFromAudit(citedGoalCalls as any)).toEqual({
+      injectedGoalIds: [],
+      retrievedGoalIds: [goalId],
+      citedGoalIds: [goalId],
+    });
   });
 });

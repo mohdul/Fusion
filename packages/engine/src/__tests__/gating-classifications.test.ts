@@ -69,6 +69,8 @@ describe("gating-classifications parity", () => {
         "fn_agent_org_chart",
         "fn_agent_show",
         "fn_delegate_task",
+        "fn_goal_list",
+        "fn_goal_show",
         "fn_heartbeat_done",
         "fn_list_agents",
         "fn_memory_append",
@@ -109,6 +111,8 @@ describe("gating-classifications parity", () => {
   it("includes goal retrieval tools on readonly path only", () => {
     expect(READONLY_FN_TOOLS.has("fn_goal_list")).toBe(true);
     expect(READONLY_FN_TOOLS.has("fn_goal_show")).toBe(true);
+    expect((COORDINATION_EXEMPT_TOOLS as readonly string[]).includes("fn_goal_list")).toBe(true);
+    expect((COORDINATION_EXEMPT_TOOLS as readonly string[]).includes("fn_goal_show")).toBe(true);
     expect(READONLY_FN_TOOLS.has("fn_goal_create")).toBe(false);
     expect(READONLY_FN_TOOLS.has("fn_goal_archive")).toBe(false);
   });
