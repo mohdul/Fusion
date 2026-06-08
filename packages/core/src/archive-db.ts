@@ -2,8 +2,10 @@ import { DatabaseSync } from "./sqlite-adapter.js";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ArchivedTaskEntry } from "./types.js";
-import { probeFts5 } from "./db.js";
+import { isFts5CorruptionError, probeFts5 } from "./db.js";
 import { hasTitleIdDrift, normalizeTitleForTaskId } from "./task-title-id-drift.js";
+
+const ARCHIVED_TASKS_FTS_MERGE_PAGES = 16;
 
 const BASE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS archived_tasks (
@@ -155,6 +157,63 @@ export class ArchiveDatabase {
 
   delete(id: string): void {
     this.db.prepare("DELETE FROM archived_tasks WHERE id = ?").run(id);
+  }
+
+  rebuildFts5Index(): boolean {
+    if (!this._fts5Available) {
+      return false;
+    }
+
+    try {
+      this.db.exec("INSERT INTO archived_tasks_fts(archived_tasks_fts) VALUES('rebuild')");
+      return true;
+    } catch (error) {
+      console.warn("[fusion:archive-db] Failed to rebuild archive FTS5 index", error);
+      throw error;
+    }
+  }
+
+  optimizeFts5(mode: "optimize" | "merge" = "optimize"): boolean {
+    if (!this._fts5Available) {
+      return false;
+    }
+
+    try {
+      if (mode === "merge") {
+        this.db.exec(
+          `INSERT INTO archived_tasks_fts(archived_tasks_fts, rank) VALUES('merge', ${ARCHIVED_TASKS_FTS_MERGE_PAGES})`,
+        );
+      } else {
+        this.db.exec("INSERT INTO archived_tasks_fts(archived_tasks_fts) VALUES('optimize')");
+      }
+      return true;
+    } catch (error) {
+      if (isFts5CorruptionError(error)) {
+        return this.rebuildFts5Index();
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Estimate archive FTS index bytes using the shadow-table block payload.
+   * Prefer this over `dbstat` because node:sqlite builds do not guarantee
+   * `SQLITE_ENABLE_DBSTAT_VTAB`, while `archived_tasks_fts_data` exists anywhere FTS5 does.
+   */
+  getFtsIndexBytes(): number | null {
+    if (!this._fts5Available) {
+      return null;
+    }
+
+    const row = this.db.prepare("SELECT COALESCE(SUM(LENGTH(block)), 0) AS bytes FROM archived_tasks_fts_data").get() as
+      | { bytes?: number }
+      | undefined;
+    return typeof row?.bytes === "number" ? row.bytes : 0;
+  }
+
+  getArchivedRowCount(): number {
+    const row = this.db.prepare("SELECT COUNT(*) AS count FROM archived_tasks").get() as { count?: number } | undefined;
+    return typeof row?.count === "number" ? row.count : 0;
   }
 
   /**

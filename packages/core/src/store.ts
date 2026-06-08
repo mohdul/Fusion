@@ -14660,16 +14660,36 @@ ${stepsSection}`;
     return this.db.fts5Available;
   }
 
+  get archiveFts5Available(): boolean {
+    return this.archiveDb.fts5Available;
+  }
+
   optimizeFts5(mode?: "optimize" | "merge"): boolean {
     return this.db.optimizeFts5(mode);
+  }
+
+  optimizeArchiveFts5(mode?: "optimize" | "merge"): boolean {
+    return this.archiveDb.optimizeFts5(mode);
   }
 
   getFtsIndexBytes(): number | null {
     return this.db.getFtsIndexBytes();
   }
 
+  getArchiveFtsIndexBytes(): number | null {
+    return this.archiveDb.getFtsIndexBytes();
+  }
+
   getTaskRowCount(): number {
     return this.db.getTaskRowCount();
+  }
+
+  getArchivedRowCount(): number {
+    return this.archiveDb.getArchivedRowCount();
+  }
+
+  rebuildArchiveFts5Index(): boolean {
+    return this.archiveDb.rebuildFts5Index();
   }
 
   /**

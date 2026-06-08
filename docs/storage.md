@@ -143,14 +143,12 @@ Important execution nuance:
 - Full-row task persistence is still intentional for create/restore/replication-class paths: `insertTask` / `atomicCreateTaskJson` remain plain `INSERT`, and direct replication-style upserts (`upsertTaskWithFtsRecovery`, for example task-metadata snapshot application) still use the generated full-row `INSERT ... ON CONFLICT DO UPDATE` form.
 - After a partial SQLite update, Fusion rewrites compatibility `task.json` from a fresh DB read so the disk mirror stays byte-aligned with the authoritative row even on narrow SQL patches.
 - Checkout lease renewal has its own targeted path (`renewCheckoutLease`), updating only `checkoutRunId`, `checkoutLeaseRenewedAt`, and `updatedAt` instead of routing through the broad `updateTask(...)` mutator.
-- `Database.getFtsIndexBytes()` measures index size via `SELECT SUM(LENGTH(block)) FROM tasks_fts_data`. Fusion intentionally does **not** rely on `dbstat`, because node:sqlite builds do not guarantee `SQLITE_ENABLE_DBSTAT_VTAB`.
-- `SelfHealingManager` Batch 1 now runs `fts-maintenance` when `fts5Available === true`:
-  - every maintenance tick: incremental `merge` compaction
-  - every 4th maintenance tick: heavier `optimize`
-  - immediate full `rebuild` when `tasks_fts` exceeds either `32 MiB` absolute or `1 MiB × live task count`
-- Each maintenance pass emits run-audit telemetry with `mutationType: "task:fts-maintenance"` and `metadata` including `mode`, `bytesBefore`, `bytesAfter`, `taskCount`, `rebuilt`, and the threshold values.
+- Both `Database.getFtsIndexBytes()` and `ArchiveDatabase.getFtsIndexBytes()` measure index size via `SELECT SUM(LENGTH(block)) FROM <fts>_data`. Fusion intentionally does **not** rely on `dbstat`, because node:sqlite builds do not guarantee `SQLITE_ENABLE_DBSTAT_VTAB`.
+- `SelfHealingManager` Batch 1 runs one `fts-maintenance` step with per-index `fts5Available` guards:
+  - `tasks_fts`: every maintenance tick runs incremental `merge`, every 4th tick escalates to `optimize`, and an immediate full `rebuild` fires when the index exceeds either `32 MiB` absolute or `1 MiB × live task count`.
+  - `archived_tasks_fts`: because the archive DB is mostly append-only, maintenance runs less often — incremental `merge` every 8th tick, `optimize` every 24th tick, and a full `rebuild` only when the index exceeds either `64 MiB` absolute or `512 KiB × archived row count`.
+- Each maintenance pass emits run-audit telemetry with `mutationType: "task:fts-maintenance"`; the live index uses `target: "tasks_fts"`, the archive index uses `target: "archived_tasks_fts"`, and metadata includes the before/after byte counts plus row-count/threshold details for that target.
 - `rebuildFts5Index()` and migration 103 also set conservative FTS5 merge policy (`automerge=8`, `crisismerge=16`) so legitimate text edits merge segments sooner without forcing the heaviest optimize path on every write.
-- `archived_tasks_fts` is intentionally **not** compacted by this task. The archive DB is effectively append-only for completed tasks, so it does not see the same constant-update churn as the live board; archive FTS compaction is deferred to a follow-up if archive bloat is observed.
 
 ### Attached live-FTS DB investigation (FN-5976)
 

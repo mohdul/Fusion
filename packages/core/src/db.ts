@@ -147,6 +147,19 @@ export function probeFts5(db: DatabaseSync): boolean {
   }
 }
 
+/**
+ * Check whether an error appears to be an FTS5 corruption/integrity failure.
+ */
+export function isFts5CorruptionError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("corruption found reading blob") ||
+    lower.includes("database disk image is malformed") ||
+    (lower.includes("fts5") && lower.includes("corrupt"))
+  );
+}
+
 // ── Schema Definition ────────────────────────────────────────────────
 
 const SCHEMA_VERSION = 114;
@@ -4703,13 +4716,7 @@ export class Database {
    * Check whether an error appears to be an FTS5 corruption/integrity failure.
    */
   isFts5CorruptionError(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : String(error ?? "");
-    const lower = message.toLowerCase();
-    return (
-      lower.includes("corruption found reading blob") ||
-      lower.includes("database disk image is malformed") ||
-      (lower.includes("fts5") && lower.includes("corrupt"))
-    );
+    return isFts5CorruptionError(error);
   }
 
   /**

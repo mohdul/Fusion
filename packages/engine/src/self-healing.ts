@@ -78,6 +78,13 @@ const FTS_MAINTENANCE_OPTIMIZE_CADENCE_TICKS = 4;
 // bounded so sustained text churn heals before segment growth becomes material.
 const FTS_REBUILD_THRESHOLD_BYTES = 32 * 1024 * 1024;
 const FTS_REBUILD_BYTES_PER_TASK = 1 * 1024 * 1024;
+// The archive index is mostly append-only, so maintenance can run much less
+// often than the live task index. We still cap total growth because archive
+// rows retain full title/description/comments payloads for the project's life.
+const ARCHIVE_FTS_MAINTENANCE_MERGE_CADENCE_TICKS = 8;
+const ARCHIVE_FTS_MAINTENANCE_OPTIMIZE_CADENCE_TICKS = 24;
+const ARCHIVE_FTS_REBUILD_THRESHOLD_BYTES = 64 * 1024 * 1024;
+const ARCHIVE_FTS_REBUILD_BYTES_PER_TASK = 512 * 1024;
 export const STALE_ACTIVE_BRANCH_EXECUTION_GRACE_MS = 10 * 60_000;
 export const COMPLETION_HANDOFF_LIMBO_GRACE_MS = 5 * 60_000;
 export const MAX_COMPLETION_HANDOFF_LIMBO_RECOVERIES = 3;
@@ -8820,6 +8827,17 @@ export class SelfHealingManager {
   }
 
   private async maintainTaskFts(): Promise<void> {
+    await this.maintainLiveTaskFts();
+
+    try {
+      await this.maintainArchiveTaskFts();
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Archive FTS maintenance failed: ${errorMessage}`);
+    }
+  }
+
+  private async maintainLiveTaskFts(): Promise<void> {
     if (!this.store.fts5Available) {
       log.log('Maintenance batch 1 step "fts-maintenance" skipped — FTS5 unavailable');
       return;
@@ -8878,6 +8896,68 @@ export class SelfHealingManager {
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       log.warn(`Failed to write task:fts-maintenance run-audit event: ${errorMessage}`);
+    }
+  }
+
+  private async maintainArchiveTaskFts(): Promise<void> {
+    if (!this.store.archiveFts5Available) {
+      log.log('Maintenance batch 1 step "fts-maintenance" archive skipped — FTS5 unavailable');
+      return;
+    }
+
+    const bytesBefore = this.store.getArchiveFtsIndexBytes();
+    if (bytesBefore === null) {
+      log.log('Maintenance batch 1 step "fts-maintenance" archive skipped — FTS shadow tables unavailable');
+      return;
+    }
+
+    const rowCount = this.store.getArchivedRowCount();
+    const relativeThresholdBytes = rowCount > 0 ? rowCount * ARCHIVE_FTS_REBUILD_BYTES_PER_TASK : null;
+    const shouldRebuild = bytesBefore >= ARCHIVE_FTS_REBUILD_THRESHOLD_BYTES
+      || (relativeThresholdBytes !== null && bytesBefore > relativeThresholdBytes);
+    const shouldOptimize = !shouldRebuild
+      && ARCHIVE_FTS_MAINTENANCE_OPTIMIZE_CADENCE_TICKS > 0
+      && this.maintenanceTickCounter % ARCHIVE_FTS_MAINTENANCE_OPTIMIZE_CADENCE_TICKS === 0;
+    const mode = shouldRebuild ? "rebuild" : shouldOptimize ? "optimize" : "merge";
+
+    if (mode === "merge"
+      && ARCHIVE_FTS_MAINTENANCE_MERGE_CADENCE_TICKS > 1
+      && this.maintenanceTickCounter % ARCHIVE_FTS_MAINTENANCE_MERGE_CADENCE_TICKS !== 0) {
+      log.log('Maintenance batch 1 step "fts-maintenance" archive skipped — merge cadence not due');
+      return;
+    }
+
+    let rebuilt = false;
+    if (mode === "rebuild") {
+      rebuilt = this.store.rebuildArchiveFts5Index();
+    } else {
+      this.store.optimizeArchiveFts5(mode);
+    }
+
+    const bytesAfter = this.store.getArchiveFtsIndexBytes();
+    log.log(`Maintenance batch 1 step "fts-maintenance" archive ${mode}: ${bytesBefore} → ${bytesAfter ?? "unknown"} bytes (archived=${rowCount})`);
+
+    try {
+      await createRunAuditor(this.store, {
+        runId: generateSyntheticRunId("self-heal-fts-maintenance", "archived_tasks_fts"),
+        agentId: "self-healing",
+        phase: "maintenance-fts",
+      }).database({
+        type: "task:fts-maintenance" as DatabaseMutationType,
+        target: "archived_tasks_fts",
+        metadata: {
+          mode,
+          bytesBefore,
+          bytesAfter,
+          rowCount,
+          rebuilt,
+          absoluteThresholdBytes: ARCHIVE_FTS_REBUILD_THRESHOLD_BYTES,
+          relativeThresholdBytes,
+        },
+      });
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log.warn(`Failed to write archived task:fts-maintenance run-audit event: ${errorMessage}`);
     }
   }
 
