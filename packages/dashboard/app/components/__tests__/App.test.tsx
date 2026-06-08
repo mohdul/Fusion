@@ -582,6 +582,7 @@ vi.mock("../../hooks/useMobileKeyboard", () => ({
 // depending on window.matchMedia in jsdom.
 const mockUseViewportMode = vi.fn(() => "desktop");
 vi.mock("../../hooks/useViewportMode", () => ({
+  MOBILE_MEDIA_QUERY: "(max-width: 768px), (max-height: 480px)",
   useViewportMode: (...args: unknown[]) => mockUseViewportMode(...args),
   getViewportMode: () => "desktop",
 }));
@@ -4188,6 +4189,9 @@ describe("FN-5817 mobile auto-merge toggle stability", () => {
 
     const toggle = await screen.findByRole("checkbox", { name: "Auto-merge" });
     expect(screen.getByTestId("mobile-view-toggle")).toBeInTheDocument();
+    expect(document.querySelector("main.board")).not.toBeNull();
+    expect(screen.getByText("In review task")).toBeInTheDocument();
+    expect(screen.queryByText("Something went wrong")).toBeNull();
 
     fireEvent.click(toggle);
 
@@ -4198,8 +4202,11 @@ describe("FN-5817 mobile auto-merge toggle stability", () => {
       );
       expect(screen.getByTestId("mobile-view-toggle")).toBeInTheDocument();
       expect(screen.getByRole("checkbox", { name: "Auto-merge" })).toBeInTheDocument();
+      expect(document.querySelector("main.board")).not.toBeNull();
+      expect(screen.getByText("In review task")).toBeInTheDocument();
     });
 
+    expect(screen.queryByText("Something went wrong")).toBeNull();
     expect(consoleErrorSpy).not.toHaveBeenCalled();
     consoleErrorSpy.mockRestore();
   });

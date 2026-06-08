@@ -506,18 +506,20 @@ describe("TaskReviewTab", () => {
     expect(mobileMediaStart).toBeGreaterThanOrEqual(0);
     const mobileCss = taskReviewCss.slice(mobileMediaStart);
     const baseSummaryWrapRule = taskReviewCss.match(/\.task-review-tab__summary-wrap\s*\{[^}]*\}/)?.[0] ?? "";
+    const baseBodyRule = taskReviewCss.match(/\.task-review-tab__body\s*\{[^}]*\}/)?.[0] ?? "";
 
     expect(baseSummaryWrapRule).toMatch(/flex\s*:\s*1\s+1\s+20rem\s*;/);
     expect(baseSummaryWrapRule).not.toMatch(/flex\s*:\s*0\s+0\s+auto\s*;/);
     expect(mobileCss).toMatch(/\.task-review-tab__header\s*\{[^}]*flex-direction\s*:\s*column\s*;[^}]*\}/);
     expect(mobileCss).toMatch(/\.task-review-tab__summary-wrap\s*\{[^}]*flex\s*:\s*0\s+0\s+auto\s*;[^}]*\}/);
-    expect(mobileCss).not.toMatch(/\.task-review-tab__summary-wrap\s*\{[^}]*flex\s*:\s*1\s+1\s+20rem\s*;[^}]*\}/);
+    expect(mobileCss).toMatch(/\.task-review-tab__summary-wrap,\s*\.task-review-tab__actions,\s*\.task-review-tab__auto-merge-control\s*\{[^}]*width\s*:\s*100%\s*;[^}]*\}/);
     expect(mobileCss).toMatch(/\.task-review-tab__actions\s*\{[^}]*justify-content\s*:\s*flex-start\s*;[^}]*\}/);
     expect(mobileCss).toMatch(/\.task-review-tab__actions\s+\.btn\s*\{[^}]*width\s*:\s*100%\s*;[^}]*\}/);
     expect(mobileCss).toMatch(/\.task-review-tab__body\s*\{[^}]*padding\s*:\s*var\(--space-sm\)\s*;[^}]*\}/);
     expect(mobileCss).not.toMatch(/\.task-review-tab__actions\s+\.btn\s*\{[^}]*flex\s*:\s*1\s*;[^}]*\}/);
 
-    expect(taskReviewCss).toMatch(/\.task-review-tab__body\s*\{[^}]*overflow-wrap\s*:\s*anywhere\s*;[^}]*overflow-x\s*:\s*auto\s*;[^}]*\}/);
+    expect(baseBodyRule).toMatch(/overflow-wrap\s*:\s*anywhere\s*;/);
+    expect(baseBodyRule).toMatch(/overflow-x\s*:\s*auto\s*;/);
     expect(taskReviewCss).toMatch(/\.task-review-tab__item\s*\{[^}]*padding\s*:\s*var\(--card-padding\)\s*;[^}]*\}/);
   });
 
@@ -770,6 +772,47 @@ describe("TaskReviewTab", () => {
 
     rerender(<TaskReviewTab task={inReviewTask} addToast={vi.fn()} autoMergeEnabled={false} />);
     await waitFor(() => expect(screen.getByTestId("task-review-auto-merge-effective-hint")).toHaveTextContent("Effective: Auto-merge off — frozen on entry to review"));
+  });
+
+  it("keeps the review tab visible when global auto-merge changes while task detail is open", async () => {
+    const inReviewTask = makeTask({ column: "in-review", autoMerge: undefined, reviewState: { source: "pull-request", items: [], addressing: [] } });
+    apiMocks.fetchTaskReview.mockResolvedValue({ reviewState: inReviewTask.reviewState, automationStatus: null, emptyMessage: null });
+
+    const { rerender } = render(
+      <TaskReviewTab
+        task={inReviewTask}
+        addToast={vi.fn()}
+        prAuthAvailable
+        onRequestCreatePr={vi.fn()}
+        autoMergeEnabled={false}
+      />,
+    );
+
+    expect(await screen.findByRole("button", { name: "Refresh" })).toBeInTheDocument();
+    expect(screen.getByTestId("task-review-auto-merge-select")).toBeInTheDocument();
+    expect(screen.getByTestId("task-review-create-pr")).toBeInTheDocument();
+    expect(screen.getByTestId("task-review-auto-merge-effective-hint")).toHaveTextContent(
+      "Effective: Auto-merge off — frozen on entry to review",
+    );
+
+    rerender(
+      <TaskReviewTab
+        task={inReviewTask}
+        addToast={vi.fn()}
+        prAuthAvailable
+        onRequestCreatePr={vi.fn()}
+        autoMergeEnabled
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+      expect(screen.getByTestId("task-review-auto-merge-select")).toBeInTheDocument();
+      expect(screen.queryByTestId("task-review-create-pr")).toBeNull();
+      expect(screen.getByTestId("task-review-auto-merge-effective-hint")).toHaveTextContent(
+        "Effective: Auto-merge on — frozen on entry to review",
+      );
+    });
   });
 
   it("reflects current per-task auto-merge selection", async () => {

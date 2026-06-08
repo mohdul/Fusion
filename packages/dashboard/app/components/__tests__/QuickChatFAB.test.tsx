@@ -28,7 +28,8 @@ vi.mock("../../api", () => ({
 }));
 
 vi.mock("../../hooks/useAgents", () => ({ useAgents: vi.fn() }));
-vi.mock("../../hooks/useViewportMode", () => ({ useViewportMode: vi.fn() }));
+vi.mock("../../hooks/useViewportMode", () => ({
+  MOBILE_MEDIA_QUERY: "(max-width: 768px), (max-height: 480px)", useViewportMode: vi.fn() }));
 vi.mock("../../hooks/useMobileKeyboard", () => ({ useMobileKeyboard: vi.fn() }));
 vi.mock("../../hooks/useAppSettings", () => ({ useAppSettings: vi.fn() }));
 vi.mock("../../hooks/useChatRooms", () => ({ useChatRooms: vi.fn() }));

@@ -28,6 +28,7 @@ vi.mock("../../api", () => ({
 }));
 
 vi.mock("../../hooks/useViewportMode", () => ({
+  MOBILE_MEDIA_QUERY: "(max-width: 768px), (max-height: 480px)",
   useViewportMode: vi.fn(),
 }));
 

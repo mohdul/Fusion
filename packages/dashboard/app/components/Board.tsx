@@ -7,6 +7,7 @@ import type { ToastType } from "../hooks/useToast";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { fetchWorkflowSteps, fetchBoardWorkflows, promoteTask, type ModelInfo, type BoardWorkflowsPayload } from "../api";
 import { useBlockerFanout } from "../hooks/useBlockerFanout";
+import { MOBILE_MEDIA_QUERY } from "../hooks/useViewportMode";
 import { recordResumeEvent } from "../utils/resumeInstrumentation";
 import { subscribeSse } from "../sse-bus";
 
@@ -199,7 +200,7 @@ export function Board({ tasks, projectId, maxConcurrent, onMoveTask, onPauseTask
   // `overflow-anchor: none`) and only stabilize via reflow + scroll offset
   // normalization; do NOT reintroduce `scroll-snap-type: x mandatory`.
   useEffect(() => {
-    if (!window.matchMedia("(max-width: 768px)").matches) {
+    if (!window.matchMedia(MOBILE_MEDIA_QUERY).matches) {
       return;
     }
 

@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { Board } from "../Board";
 import { PageErrorBoundary } from "../ErrorBoundary";
+import { MOBILE_MEDIA_QUERY } from "../../hooks/useViewportMode";
 import type { Task } from "@fusion/core";
 
 vi.mock("../../api", () => ({
@@ -54,11 +55,12 @@ function ensureMatchMedia() {
   }
 }
 
-function mockViewport(width: number) {
+function mockViewport(width: number, height = 812) {
   ensureMatchMedia();
   Object.defineProperty(window, "innerWidth", { value: width, configurable: true });
+  Object.defineProperty(window, "innerHeight", { value: height, configurable: true });
   return vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
-    matches: query === "(max-width: 768px)" ? width <= 768 : false,
+    matches: query === MOBILE_MEDIA_QUERY ? width <= 768 || height <= 480 : false,
     media: query,
     onchange: null,
     addListener: vi.fn(),

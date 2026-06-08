@@ -17,6 +17,7 @@ const mockFetchMissionInterviewDrafts = vi.fn();
 const mockSubscribeSse = vi.fn(() => vi.fn());
 
 vi.mock("../../hooks/useViewportMode", () => ({
+  MOBILE_MEDIA_QUERY: "(max-width: 768px), (max-height: 480px)",
   useViewportMode: () => mockViewportMode(),
 }));
 

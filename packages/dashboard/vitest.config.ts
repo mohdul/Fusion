@@ -92,7 +92,7 @@ const qualityAppFoundationUiTests = [
 const qualityAppHooksAndUtilsTests = [
   // Hooks and utilities are fast, user-visible state/formatting behavior.
   "app/context/**/*.test.tsx",
-  "app/hooks/__tests__/{useAgents,useAgentLogs,useAgentLogs.resume-instrumentation,useAppSettings,useAuthOnboarding,useConfirm,useCurrentProject,useNodes,useNodes.resume-instrumentation,useNodeSettingsSync,useProjects,useProjects.resume-instrumentation,useMeshState.resume-instrumentation,useManagedDockerNodes.resume-instrumentation,usePrChecksStream.resume-instrumentation,useDevServerLogs.resume-instrumentation,useResearch.resume-instrumentation,useBackgroundSessions.resume-instrumentation,useQuickChat,useTasks,useTasks.resume-instrumentation,useChatRooms.resume-instrumentation,useTerminalSessions,useTheme,useToast,useUsageData,useViewState,useMergeAdvanceNotice}.test.{ts,tsx}",
+  "app/hooks/__tests__/{useAgents,useAgentLogs,useAgentLogs.resume-instrumentation,useAppSettings,useAuthOnboarding,useConfirm,useCurrentProject,useNodes,useNodes.resume-instrumentation,useNodeSettingsSync,useProjects,useProjects.resume-instrumentation,useMeshState.resume-instrumentation,useManagedDockerNodes.resume-instrumentation,usePrChecksStream.resume-instrumentation,useDevServerLogs.resume-instrumentation,useResearch.resume-instrumentation,useBackgroundSessions.resume-instrumentation,useQuickChat,useTasks,useTasks.resume-instrumentation,useChatRooms,useTerminalSessions,useTheme,useToast,useUsageData,useViewportMode,useViewState,useMergeAdvanceNotice}.test.{ts,tsx}",
   "app/utils/**/*.test.{ts,tsx}",
 ];
 
@@ -108,6 +108,8 @@ const qualityAppComponentTests = [
   "AuthTokenRecoveryDialog",
   "Board",
   "Board.canDropTask",
+  "auto-merge-toggle-blank.mobile",
+  "auto-merge-toggle-blank.mobile-integration",
   "board-mobile",
   "board-mobile-view-switch",
   "BranchGroupCard",

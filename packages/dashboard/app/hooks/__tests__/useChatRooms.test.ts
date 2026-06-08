@@ -389,7 +389,7 @@ describe("useChatRooms", () => {
     expect(mockPostChatRoomMessage).not.toHaveBeenCalledWith("room-1", expect.objectContaining({ content: "hello" }), "proj-1");
   });
 
-  it("rejects with original error when post fails and recovery transcript has no persisted user message", async () => {
+  it("rejects with original error while preserving recovered replies when post fails without a persisted user message", async () => {
     const active = room("room-1", "one", "2026-05-09T01:00:00.000Z");
     mockFetchChatRooms.mockResolvedValueOnce({ rooms: [active] });
     const { result } = renderHook(() => useChatRooms("proj-1"));
@@ -400,9 +400,14 @@ describe("useChatRooms", () => {
     act(() => result.current.selectRoom("room-1"));
     await waitFor(() => expect(result.current.activeRoom?.id).toBe("room-1"));
 
+    const recoveredAssistantReply = {
+      ...roomMessage("msg-assistant", "room-1", "Room reply"),
+      role: "assistant" as const,
+      senderAgentId: "agent-1",
+    };
     mockPostChatRoomMessage.mockRejectedValueOnce(new Error("POST failed"));
     mockFetchChatRoomMessages.mockResolvedValueOnce({
-      messages: [{ ...roomMessage("msg-assistant", "room-1", "Room reply"), role: "assistant", senderAgentId: "agent-1" }],
+      messages: [recoveredAssistantReply],
     });
 
     let postError: unknown;
@@ -418,7 +423,7 @@ describe("useChatRooms", () => {
     expect((postError as Error).message).toBe("POST failed");
     expect(postError).not.toBeInstanceOf(RoomMessageDeliveredButReplyFailedError);
 
-    expect(result.current.messages).toEqual([]);
+    expect(result.current.messages).toEqual([recoveredAssistantReply]);
   });
 
   it("uses desc order when refreshing after send failure", async () => {

@@ -349,6 +349,25 @@ describe("project commands", () => {
     await expect(runProjectAdd("bad name", "/tmp")).rejects.toThrow("process.exit:1");
   });
 
+  it("prompts for a missing project name in interactive add mode", async () => {
+    mockListProjects.mockResolvedValue([]);
+    mockRegisterProject.mockResolvedValue({
+      id: "proj-1",
+      name: "demo",
+      path: ".",
+      isolationMode: "in-process",
+    });
+    mockQuestion.mockResolvedValueOnce("demo");
+
+    const { runProjectAdd } = await import("../project.js");
+    await expect(runProjectAdd("", ".", { force: true })).resolves.toBeUndefined();
+
+    expect(mockQuestion).toHaveBeenCalledWith(expect.stringContaining("Project name"));
+    expect(mockRegisterProject).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "demo" }),
+    );
+  });
+
   it("validation exits on missing required args for runProjectRemove", async () => {
     const { runProjectRemove } = await import("../project.js");
     await expect(runProjectRemove("")).rejects.toThrow("process.exit:1");

@@ -20,7 +20,8 @@ vi.mock("../../hooks/useConfirm", () => ({ useConfirm: vi.fn(() => ({ confirm: v
 vi.mock("../../hooks/useMobileKeyboard", () => ({ useMobileKeyboard: vi.fn(() => ({ keyboardOverlap: 0, viewportHeight: null, viewportOffsetTop: 0, keyboardOpen: false })) }));
 vi.mock("../../hooks/useMobileScrollLock", () => ({ useMobileScrollLock: vi.fn() }));
 vi.mock("../../hooks/useNodes", () => ({ useNodes: vi.fn(() => ({ nodes: [] })) }));
-vi.mock("../../hooks/useViewportMode", () => ({ useViewportMode: vi.fn(() => "desktop") }));
+vi.mock("../../hooks/useViewportMode", () => ({
+  MOBILE_MEDIA_QUERY: "(max-width: 768px), (max-height: 480px)", useViewportMode: vi.fn(() => "desktop") }));
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

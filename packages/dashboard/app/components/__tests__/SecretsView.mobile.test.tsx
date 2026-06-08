@@ -47,7 +47,7 @@ function escapeRegExp(value: string): string {
 
 function extractMobileMediaBlocks(content: string): string {
   const blocks: string[] = [];
-  const queryPattern = `${escapeRegExp(MOBILE_MEDIA_QUERY)}(?:\\s*,\\s*\\([^)]*\\))*`;
+  const queryPattern = `(?:${escapeRegExp(MOBILE_MEDIA_QUERY)}|\\(max-width:\\s*768px\\))(?:\\s*,\\s*\\([^)]*\\))*`;
   const regex = new RegExp(`@media\\s*${queryPattern}\\s*\\{`, "g");
   let match: RegExpExecArray | null;
 

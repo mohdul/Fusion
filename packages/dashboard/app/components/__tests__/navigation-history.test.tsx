@@ -288,6 +288,7 @@ vi.mock("../../hooks/useNodes", () => ({
 
 const mockUseViewportMode = vi.fn(() => "desktop");
 vi.mock("../../hooks/useViewportMode", () => ({
+  MOBILE_MEDIA_QUERY: "(max-width: 768px), (max-height: 480px)",
   useViewportMode: (..._args: unknown[]) => mockUseViewportMode(..._args),
   getViewportMode: () => "desktop",
 }));
