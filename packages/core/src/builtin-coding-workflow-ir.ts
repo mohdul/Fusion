@@ -46,9 +46,9 @@ const RAW_BUILTIN_CODING_WORKFLOW_IR: WorkflowIr = {
   ],
   nodes: [
     { id: "start", kind: "start", column: "triage" },
-    { id: "execute", kind: "prompt", column: "in-progress", config: { seam: "execute" } },
-    { id: "review", kind: "prompt", column: "in-review", config: { seam: "review" } },
-    { id: "merge", kind: "prompt", column: "in-review", config: { seam: "merge" } },
+    { id: "execute", kind: "prompt", column: "in-progress", config: { seam: "execute", name: "Execute" } },
+    { id: "review", kind: "prompt", column: "in-review", config: { seam: "review", name: "Review" } },
+    { id: "merge", kind: "prompt", column: "in-review", config: { seam: "merge", name: "Merge boundary" } },
     { id: "end", kind: "end", column: "done" },
   ],
   edges: [

@@ -91,6 +91,30 @@ describe("built-in workflows", () => {
     expect(getBuiltinWorkflow("builtin:compound-engineering")).toBeDefined();
   });
 
+  it("all seam nodes carry a descriptive name", () => {
+    for (const workflow of BUILTIN_WORKFLOWS) {
+      const visitNodes = (nodes: Array<{ config?: unknown; id: string }>) => {
+        for (const node of nodes) {
+          const config = node.config as { seam?: unknown; name?: unknown } | undefined;
+          if (typeof config?.seam === "string") {
+            expect(typeof config.name).toBe("string");
+            expect(String(config.name).trim().length).toBeGreaterThan(0);
+          }
+        }
+      };
+
+      visitNodes(workflow.ir.nodes);
+      if (workflow.ir.version === "v2") {
+        for (const node of workflow.ir.nodes) {
+          if (node.kind !== "foreach") continue;
+          const template = (node.config as { template?: { nodes?: Array<{ config?: unknown; id: string }> } } | undefined)
+            ?.template;
+          if (template?.nodes) visitNodes(template.nodes);
+        }
+      }
+    }
+  });
+
   it("compound-engineering compiles its skill nodes to steps", () => {
     const ce = getBuiltinWorkflow("builtin:compound-engineering")!;
     const steps = compileWorkflowToSteps(ce.ir);

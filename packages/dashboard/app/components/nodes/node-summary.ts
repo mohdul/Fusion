@@ -89,6 +89,23 @@ export function nodeConfigSummary(
 
   switch (kind) {
     case "prompt": {
+      const seam = str(config.seam);
+      if (seam) {
+        switch (seam) {
+          case "execute":
+            return t("workflowNodes.summarySeamExecute", "Execute (engine)");
+          case "review":
+            return t("workflowNodes.summarySeamReview", "Review (engine)");
+          case "merge":
+            return t("workflowNodes.summarySeamMerge", "Merge boundary");
+          case "planning":
+            return t("workflowNodes.summarySeamPlanning", "Plan (engine)");
+          case "step-execute":
+            return t("workflowNodes.summarySeamStepExecute", "Step execute (engine)");
+          default:
+            return t("workflowNodes.summarySeamUnknown", "Seam: {{seam}}", { seam });
+        }
+      }
       const executor = str(config.executor) || "model";
       if (executor === "agent") {
         const agentId = str(config.agentId);

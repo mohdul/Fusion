@@ -63,7 +63,7 @@ const RAW_BUILTIN_STEPWISE_CODING_WORKFLOW_IR: WorkflowIr = {
   nodes: [
     { id: "start", kind: "start", column: "triage" },
     // Planning seam: produces PROMPT.md (the declared step-source artifact).
-    { id: "plan", kind: "prompt", column: "in-progress", config: { seam: "planning" } },
+    { id: "plan", kind: "prompt", column: "in-progress", config: { seam: "planning", name: "Plan" } },
     // KTD-12: parse the planned PROMPT.md into the task step list. This node must
     // dominate the foreach (validator-enforced).
     {
@@ -86,7 +86,7 @@ const RAW_BUILTIN_STEPWISE_CODING_WORKFLOW_IR: WorkflowIr = {
         template: {
           nodes: [
             // KTD-2: run exactly this step inside the task's session/worktree.
-            { id: "step-execute", kind: "prompt", config: { seam: "step-execute" } },
+            { id: "step-execute", kind: "prompt", config: { seam: "step-execute", name: "Step execute" } },
             // KTD-4: per-step code review; verdicts become outcome edges.
             { id: "step-review", kind: "step-review", config: { type: "code" } },
             // Template exit (the single sink the validator requires): a config-less
@@ -121,8 +121,8 @@ const RAW_BUILTIN_STEPWISE_CODING_WORKFLOW_IR: WorkflowIr = {
     },
     // KTD-5: rework exhaustion escalates to a manual hold (a human releases it).
     { id: "rework-hold", kind: "hold", column: "in-progress", config: { release: "manual" } },
-    { id: "review", kind: "prompt", column: "in-review", config: { seam: "review" } },
-    { id: "merge", kind: "prompt", column: "in-review", config: { seam: "merge" } },
+    { id: "review", kind: "prompt", column: "in-review", config: { seam: "review", name: "Review" } },
+    { id: "merge", kind: "prompt", column: "in-review", config: { seam: "merge", name: "Merge boundary" } },
     { id: "end", kind: "end", column: "done" },
   ],
   edges: [

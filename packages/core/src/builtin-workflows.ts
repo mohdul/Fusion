@@ -78,9 +78,9 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
     name: "Coding (built-in)",
     description: "The standard coding pipeline: implement, review, then merge. Equivalent to the default behavior.",
     nodes: [
-      { id: "execute", kind: "prompt", config: { seam: "execute" } },
-      { id: "review", kind: "prompt", config: { seam: "review" } },
-      { id: "merge", kind: "prompt", config: { seam: "merge" } },
+      { id: "execute", kind: "prompt", config: { seam: "execute", name: "Execute" } },
+      { id: "review", kind: "prompt", config: { seam: "review", name: "Review" } },
+      { id: "merge", kind: "prompt", config: { seam: "merge", name: "Merge boundary" } },
     ],
   }),
   linear({
@@ -88,8 +88,8 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
     name: "Quick fix (built-in)",
     description: "Implement and merge with no review step — for trivial, low-risk changes.",
     nodes: [
-      { id: "execute", kind: "prompt", config: { seam: "execute" } },
-      { id: "merge", kind: "prompt", config: { seam: "merge" } },
+      { id: "execute", kind: "prompt", config: { seam: "execute", name: "Execute" } },
+      { id: "merge", kind: "prompt", config: { seam: "merge", name: "Merge boundary" } },
     ],
   }),
   linear({
@@ -97,8 +97,8 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
     name: "Review-heavy (built-in)",
     description: "Adds an extra security pass before merge, on top of the standard review.",
     nodes: [
-      { id: "execute", kind: "prompt", config: { seam: "execute" } },
-      { id: "review", kind: "prompt", config: { seam: "review" } },
+      { id: "execute", kind: "prompt", config: { seam: "execute", name: "Execute" } },
+      { id: "review", kind: "prompt", config: { seam: "review", name: "Review" } },
       {
         id: "security",
         kind: "gate",
@@ -108,7 +108,7 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
           prompt: "Review the diff for security issues: injection, auth/authorization gaps, secret handling, unsafe deserialization. Block on any exploitable finding.",
         },
       },
-      { id: "merge", kind: "prompt", config: { seam: "merge" } },
+      { id: "merge", kind: "prompt", config: { seam: "merge", name: "Merge boundary" } },
     ],
   }),
   linear({
@@ -126,8 +126,8 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
           prompt: "Produce a short implementation plan for this task before any code is written.",
         },
       },
-      { id: "execute", kind: "prompt", config: { seam: "execute" } },
-      { id: "review", kind: "prompt", config: { seam: "review" } },
+      { id: "execute", kind: "prompt", config: { seam: "execute", name: "Execute" } },
+      { id: "review", kind: "prompt", config: { seam: "review", name: "Review" } },
       {
         id: "code-review",
         kind: "gate",
@@ -139,7 +139,7 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
           prompt: "Run a structured code review of the changes. Block merge on P0/P1 findings.",
         },
       },
-      { id: "merge", kind: "prompt", config: { seam: "merge" } },
+      { id: "merge", kind: "prompt", config: { seam: "merge", name: "Merge boundary" } },
       {
         id: "document",
         kind: "prompt",

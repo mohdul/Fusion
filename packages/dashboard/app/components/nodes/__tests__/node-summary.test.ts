@@ -68,6 +68,41 @@ describe("nodeConfigSummary", () => {
     expect(summary).toBe("deploy");
   });
 
+  it("prompt with seam=execute → Execute (engine)", () => {
+    expect(nodeConfigSummary(node("prompt", { seam: "execute" }))).toBe("Execute (engine)");
+  });
+
+  it("prompt with seam=review → Review (engine)", () => {
+    expect(nodeConfigSummary(node("prompt", { seam: "review" }))).toBe("Review (engine)");
+  });
+
+  it("prompt with seam=merge → Merge boundary", () => {
+    expect(nodeConfigSummary(node("prompt", { seam: "merge" }))).toBe("Merge boundary");
+  });
+
+  it("prompt with seam=planning → Plan (engine)", () => {
+    expect(nodeConfigSummary(node("prompt", { seam: "planning" }))).toBe("Plan (engine)");
+  });
+
+  it("prompt with seam=step-execute → Step execute (engine)", () => {
+    expect(nodeConfigSummary(node("prompt", { seam: "step-execute" }))).toBe("Step execute (engine)");
+  });
+
+  it("prompt with unknown seam → Seam: <value>", () => {
+    expect(nodeConfigSummary(node("prompt", { seam: "custom-seam" }))).toBe("Seam: custom-seam");
+  });
+
+  it("seam node ignores executor/model config — seam takes priority", () => {
+    const summary = nodeConfigSummary(
+      node("prompt", {
+        seam: "execute",
+        modelProvider: "openai",
+        modelId: "gpt-4",
+      }),
+    );
+    expect(summary).toBe("Execute (engine)");
+  });
+
   it("prompt with awaitInput → waits for user input", () => {
     const summary = nodeConfigSummary(node("prompt", { awaitInput: true }));
     expect(summary).toBe("Waits for user input");
