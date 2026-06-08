@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 const { execMock } = vi.hoisted(() => ({ execMock: vi.fn() }));
-vi.mock("node:child_process", () => ({ exec: execMock }));
+vi.mock("node:child_process", () => ({ exec: execMock, execFile: vi.fn() }));
 
 import { writeFileAtomic } from "../worktree-hooks.js";
 

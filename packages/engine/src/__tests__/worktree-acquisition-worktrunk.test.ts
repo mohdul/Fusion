@@ -6,7 +6,7 @@ const { execMock, existsSyncMock } = vi.hoisted(() => {
   return { execMock: mock, existsSyncMock: vi.fn() };
 });
 
-vi.mock("node:child_process", () => ({ exec: execMock }));
+vi.mock("node:child_process", () => ({ exec: execMock, execFile: vi.fn() }));
 vi.mock("node:fs", () => ({ existsSync: existsSyncMock }));
 vi.mock("../worktree-hooks.js", () => ({
   installTaskWorktreeIdentityGuard: vi.fn().mockResolvedValue(undefined),

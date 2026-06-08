@@ -5,6 +5,7 @@ const execMock = vi.fn();
 
 vi.mock("node:child_process", () => ({
   exec: execMock,
+  execFile: vi.fn(),
 }));
 
 const originalPlatform = process.platform;

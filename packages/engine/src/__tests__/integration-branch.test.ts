@@ -8,6 +8,7 @@ const { execMock, execSyncMock } = vi.hoisted(() => ({
 vi.mock("node:child_process", () => ({
   exec: execMock,
   execSync: execSyncMock,
+  execFile: vi.fn(),
 }));
 
 import {

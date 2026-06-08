@@ -22,7 +22,7 @@ const { execMock, existsSyncMock, accessMock } = vi.hoisted(() => {
   return { execMock: mock, existsSyncMock: vi.fn(), accessMock: vi.fn().mockResolvedValue(undefined) };
 });
 
-vi.mock("node:child_process", () => ({ exec: execMock }));
+vi.mock("node:child_process", () => ({ exec: execMock, execFile: vi.fn() }));
 vi.mock("node:fs", () => ({ existsSync: existsSyncMock }));
 vi.mock("node:fs/promises", () => ({ access: accessMock }));
 

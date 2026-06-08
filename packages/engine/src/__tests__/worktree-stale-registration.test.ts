@@ -7,7 +7,7 @@ const { execMock } = vi.hoisted(() => {
   return { execMock: mock };
 });
 
-vi.mock("node:child_process", () => ({ exec: execMock }));
+vi.mock("node:child_process", () => ({ exec: execMock, execFile: vi.fn() }));
 
 describe("worktree-stale-registration", () => {
   beforeEach(() => {

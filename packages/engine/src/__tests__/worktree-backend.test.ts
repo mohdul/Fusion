@@ -27,7 +27,7 @@ const { execMock, accessMock, rmMock, existsSyncMock, parseIndexLockPathMock, cl
   };
 });
 
-vi.mock("node:child_process", () => ({ exec: execMock }));
+vi.mock("node:child_process", () => ({ exec: execMock, execFile: vi.fn() }));
 vi.mock("node:fs", () => ({ existsSync: existsSyncMock }));
 vi.mock("node:fs/promises", () => ({ access: accessMock, rm: rmMock }));
 vi.mock("../branch-conflicts.js", () => ({

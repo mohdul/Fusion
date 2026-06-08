@@ -20,6 +20,10 @@ vi.mock("node:child_process", async () => {
     }
   });
 
+  const execFileFn: any = vi.fn((file: string, args: string[] | undefined, opts: any, cb: any) =>
+    execFn([file, ...(Array.isArray(args) ? args : [])].join(" "), opts, cb),
+  );
+
   execFn[promisify.custom] = (cmd: string, opts?: any) =>
     new Promise((resolve, reject) => {
       execFn(cmd, opts, (err: any, stdout: string, stderr: string) => {
@@ -33,7 +37,10 @@ vi.mock("node:child_process", async () => {
       });
     });
 
-  return { exec: execFn, execSync: execSyncFn };
+  execFileFn[promisify.custom] = (file: string, args?: string[], opts?: any) =>
+    execFn[promisify.custom]([file, ...(Array.isArray(args) ? args : [])].join(" "), opts);
+
+  return { exec: execFn, execSync: execSyncFn, execFile: execFileFn };
 });
 
 vi.mock("node:fs", () => ({

@@ -21,7 +21,11 @@ vi.mock("node:child_process", async () => {
       }
     }
   });
-   
+
+  const execFileFn: any = vi.fn((file: string, args: string[] | undefined, opts: any, cb: any) =>
+    execFn([file, ...(Array.isArray(args) ? args : [])].join(" "), opts, cb),
+  );
+
   execFn[promisify.custom] = (cmd: string, opts?: any) =>
     new Promise((resolve, reject) => {
        
@@ -35,7 +39,9 @@ vi.mock("node:child_process", async () => {
         }
       });
     });
-  return { execSync: execSyncFn, exec: execFn };
+  execFileFn[promisify.custom] = (file: string, args?: string[], opts?: any) =>
+    execFn[promisify.custom]([file, ...(Array.isArray(args) ? args : [])].join(" "), opts);
+  return { execSync: execSyncFn, exec: execFn, execFile: execFileFn };
 });
 
 vi.mock("../worktree-desktop-artifacts.js", () => ({
