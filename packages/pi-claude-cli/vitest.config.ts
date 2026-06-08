@@ -14,7 +14,7 @@ export default defineConfig({
     globalSetup: [resolve(__dirname, "../core/src/__test-utils__/vitest-teardown.ts")],
     pool: "forks",
     maxWorkers,
-    poolOptions: { forks: { minForks: 1, maxForks: maxWorkers } },
+    minWorkers: 1,
     fileParallelism: true,
     coverage: {
       provider: "v8",

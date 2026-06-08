@@ -21,7 +21,7 @@ export default defineConfig({
     globalSetup: [resolve(__dirname, "../core/src/__test-utils__/vitest-teardown.ts")],
     pool: "threads",
     maxWorkers,
-    poolOptions: { threads: { minThreads: 1, maxThreads: maxWorkers } },
+    minWorkers: 1,
     fileParallelism: true,
     // Enable isolate to allow parallel execution of tests with conflicting mocks
     isolate: true,
@@ -117,7 +117,9 @@ export default defineConfig({
           // SQLite rowid interleaving (e.g. FN-5521 hit
           // `expected 24 to be less than 19` in merge-reuse-task-worktree).
           // Serialize at the file level; within-file order is already linear.
-          poolOptions: { threads: { singleThread: true } },
+          minWorkers: 1,
+          maxWorkers: 1,
+          fileParallelism: false,
         },
       },
       {
@@ -130,7 +132,9 @@ export default defineConfig({
           // and inflating wall time further. Excluded from the default
           // `pnpm test` lane; run via `pnpm test:slow` / `pnpm test:all`.
           include: ["src/**/*.slow.test.ts"],
-          poolOptions: { threads: { singleThread: true } },
+          minWorkers: 1,
+          maxWorkers: 1,
+          fileParallelism: false,
         },
       },
     ],

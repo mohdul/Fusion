@@ -17,6 +17,6 @@ export default defineConfig({
     globalSetup: [resolve(__dirname, "../core/src/__test-utils__/vitest-teardown.ts")],
     pool: "threads",
     maxWorkers,
-    poolOptions: { threads: { minThreads: 1, maxThreads: maxWorkers } },
+    minWorkers: 1,
   },
 });

@@ -25,7 +25,7 @@ export default defineConfig({
     globalSetup: [fileURLToPath(new URL("../../packages/core/src/__test-utils__/vitest-teardown.ts", import.meta.url))],
     pool: "threads",
     maxWorkers,
-    poolOptions: { threads: { minThreads: 1, maxThreads: maxWorkers }, forks: { minForks: 1, maxForks: maxWorkers } },
+    minWorkers: 1,
     projects: [
       {
         extends: true,

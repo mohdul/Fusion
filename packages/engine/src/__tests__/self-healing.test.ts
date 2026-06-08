@@ -7891,6 +7891,11 @@ describe("SelfHealingManager reclaimSelfOwnedBranchConflicts", () => {
     mockedIsUsableTaskWorktree.mockResolvedValue(true);
   });
 
+  afterEach(() => {
+    manager.stop();
+    vi.restoreAllMocks();
+  });
+
   it("reclaims fully-subsumed branch conflicts and emits subsumed audit metadata", async () => {
     store = createMockStore({
       getSettings: vi.fn().mockResolvedValue({ globalPause: false, enginePaused: false } as any),

@@ -9,5 +9,6 @@
       "node-pty": ["./src/types/node-pty/index.d.ts"]
     }
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["src/__tests__/**/*"]
 }

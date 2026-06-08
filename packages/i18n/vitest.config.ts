@@ -1,5 +1,8 @@
 import { resolve } from "node:path";
 import { defineConfig } from "vitest/config";
+import { computeMaxWorkers } from "../core/src/__test-utils__/vitest-workers";
+
+const maxWorkers = computeMaxWorkers();
 
 export default defineConfig({
   resolve: {
@@ -10,5 +13,9 @@ export default defineConfig({
   },
   test: {
     include: ["src/**/*.test.ts"],
+    setupFiles: ["../core/src/__test-utils__/vitest-setup.ts"],
+    globalSetup: ["../core/src/__test-utils__/vitest-teardown.ts"],
+    maxWorkers,
+    minWorkers: 1,
   },
 });

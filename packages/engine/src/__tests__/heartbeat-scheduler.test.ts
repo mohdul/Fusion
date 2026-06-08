@@ -4,6 +4,7 @@ import {
   HeartbeatMonitor,
   HeartbeatTriggerScheduler,
 } from "../agent-heartbeat.js";
+import type { TriggerCallback } from "../agent-heartbeat.js";
 import type { AgentStore, TaskStore, Agent } from "@fusion/core";
 import { createBudgetStatus } from "./heartbeat-test-helpers.js";
 vi.mock("../logger.js", async () => {
@@ -18,7 +19,7 @@ import { heartbeatLog } from "../logger.js";
 
 describe("HeartbeatTriggerScheduler", () => {
   let store: AgentStore;
-  let callback: ReturnType<typeof vi.fn>;
+  let callback: ReturnType<typeof vi.fn<TriggerCallback>>;
   let scheduler: import("../agent-heartbeat.js").HeartbeatTriggerScheduler;
 
   beforeEach(() => {

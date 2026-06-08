@@ -2,6 +2,10 @@
 
 ## Essential rules
 
+### STANDING DIRECTIVE: Buttons Are Frozen
+
+Buttons Are Frozen (2026-05-13): do not rename, remove, reorder, or restyle established dashboard action buttons unless the task explicitly targets that button contract. Preserve icon affordances and width-aware labels when making adjacent UI changes.
+
 ### Spec Generation Hygiene
 
 - Do not cite `.fusion/tasks/<id>/<file>` paths in Context/Steps/File Scope unless the file already exists, is explicitly created as a `(new)` Artifact, or is sibling `PROMPT.md`/`task.json`/`attachments/*`.

@@ -52,21 +52,27 @@ vi.mock("../logger.js", () => ({
 }));
 
 vi.mock("../stale-task-reporter.js", () => ({
-  StaleTaskReporter: vi.fn().mockImplementation(() => ({
-    report: staleReporterReportMock,
-  })),
+  StaleTaskReporter: vi.fn().mockImplementation(function () {
+    return {
+      report: staleReporterReportMock,
+    };
+  }),
 }));
 
 vi.mock("../backlog-pressure-reporter.js", () => ({
-  BacklogPressureReporter: vi.fn().mockImplementation(() => ({
-    report: backlogPressureReporterReportMock,
-  })),
+  BacklogPressureReporter: vi.fn().mockImplementation(function () {
+    return {
+      report: backlogPressureReporterReportMock,
+    };
+  }),
 }));
 
 vi.mock("../unlinked-missions-advisory-reporter.js", () => ({
-  UnlinkedMissionsAdvisoryReporter: vi.fn().mockImplementation(() => ({
-    report: unlinkedMissionsAdvisoryReporterReportMock,
-  })),
+  UnlinkedMissionsAdvisoryReporter: vi.fn().mockImplementation(function () {
+    return {
+      report: unlinkedMissionsAdvisoryReporterReportMock,
+    };
+  }),
 }));
 
 // Helper to create mock tasks

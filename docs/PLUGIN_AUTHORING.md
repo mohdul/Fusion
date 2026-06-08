@@ -20,8 +20,6 @@ A comprehensive guide to creating Fusion plugins that extend the task board with
 14. [Example Plugins](#14-example-plugins)
 15. [Registering Skills](#15-registering-skills)
 16. [Registering Workflow Steps](#16-registering-workflow-steps)
-16.5. [Contributing Column Traits](#165-contributing-column-traits)
-16.6. [Contributing Workflow Extensions](#166-contributing-workflow-extensions)
 17. [Contributing Prompt Modifications](#17-contributing-prompt-modifications)
 18. [Plugin Binary Setup Hooks](#18-plugin-binary-setup-hooks)
 

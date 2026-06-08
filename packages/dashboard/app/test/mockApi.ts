@@ -24,7 +24,7 @@ function getFallback(name: string): AnyFn {
   return fallbackFns.get(name)!;
 }
 
-export const dashboardApiMocks = {
+export const dashboardApiMocks: Record<string, AnyFn> = {
   fetchTasks: vi.fn(async () => []),
   fetchSettings: vi.fn(async () => ({})),
   updateSettings: vi.fn(async () => ({})),
@@ -34,7 +34,7 @@ export const dashboardApiMocks = {
   fetchTaskDetail: vi.fn(),
   fetchTaskReview: vi.fn(),
   fetchUnreadCount: vi.fn(async () => ({ unreadCount: 0 })),
-} satisfies Record<string, AnyFn>;
+};
 
 export async function createDashboardApiMock(
   importActual: () => Promise<AnyModule>,

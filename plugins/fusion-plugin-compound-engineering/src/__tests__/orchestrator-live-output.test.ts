@@ -43,8 +43,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** A factory exposing the onProgress hook and a controllable nextEvent. */
 function progressFactory(nextEvent: () => Promise<InteractiveAiSessionEvent>) {
-  const captured: { progress?: (e: InteractiveAiSessionProgressEvent) => void; dispose: ReturnType<typeof vi.fn> } = {
-    dispose: vi.fn(),
+  const captured: { progress?: (e: InteractiveAiSessionProgressEvent) => void; dispose: ReturnType<typeof vi.fn<() => void>> } = {
+    dispose: vi.fn<() => void>(),
   };
   const factory: CreateInteractiveAiSessionFactory = vi.fn(async (opts) => {
     captured.progress = opts.onProgress;

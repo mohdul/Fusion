@@ -20,7 +20,7 @@ export default defineConfig({
     hookTimeout: 30_000,
     pool: "threads",
     maxWorkers,
-    poolOptions: { threads: { minThreads: 1, maxThreads: maxWorkers } },
+    minWorkers: 1,
     fileParallelism: true,
     passWithNoTests: true,
     projects: [

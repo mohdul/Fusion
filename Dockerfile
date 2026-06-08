@@ -17,6 +17,7 @@ COPY packages/dashboard/package.json ./packages/dashboard/package.json
 COPY packages/desktop/package.json ./packages/desktop/package.json
 COPY packages/droid-cli/package.json ./packages/droid-cli/package.json
 COPY packages/engine/package.json ./packages/engine/package.json
+COPY packages/i18n/package.json ./packages/i18n/package.json
 COPY packages/mobile/package.json ./packages/mobile/package.json
 COPY packages/pi-claude-cli/package.json ./packages/pi-claude-cli/package.json
 COPY packages/pi-llama-cpp/package.json ./packages/pi-llama-cpp/package.json
@@ -25,6 +26,8 @@ COPY plugins/examples/fusion-plugin-auto-label/package.json ./plugins/examples/f
 COPY plugins/examples/fusion-plugin-ci-status/package.json ./plugins/examples/fusion-plugin-ci-status/package.json
 COPY plugins/examples/fusion-plugin-notification/package.json ./plugins/examples/fusion-plugin-notification/package.json
 COPY plugins/examples/fusion-plugin-settings-demo/package.json ./plugins/examples/fusion-plugin-settings-demo/package.json
+COPY plugins/fusion-plugin-acp-runtime/package.json ./plugins/fusion-plugin-acp-runtime/package.json
+COPY plugins/fusion-plugin-compound-engineering/package.json ./plugins/fusion-plugin-compound-engineering/package.json
 COPY plugins/fusion-plugin-paperclip-runtime/package.json ./plugins/fusion-plugin-paperclip-runtime/package.json
 COPY plugins/fusion-plugin-dependency-graph/package.json ./plugins/fusion-plugin-dependency-graph/package.json
 COPY plugins/fusion-plugin-cli-printing-press/package.json ./plugins/fusion-plugin-cli-printing-press/package.json

@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import type { Mock } from "vitest";
 import { installTaskWorktreeIdentityGuard } from "../worktree-hooks.js";
 
 // Mock external dependencies
@@ -220,16 +221,18 @@ vi.mock("node:fs", () => ({
   realpathSync: vi.fn((path: string) => path),
 }));
 
-export const mockExecuteAll = vi.fn().mockResolvedValue([]);
-export const mockTerminateAllSessions = vi.fn().mockResolvedValue(undefined);
-export const mockCleanup = vi.fn().mockResolvedValue(undefined);
+export const mockExecuteAll: Mock<() => Promise<unknown[]>> = vi.fn().mockResolvedValue([]);
+export const mockTerminateAllSessions: Mock<() => Promise<void>> = vi.fn().mockResolvedValue(undefined);
+export const mockCleanup: Mock<() => Promise<void>> = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("../step-session-executor.js", () => ({
-  StepSessionExecutor: vi.fn().mockImplementation(() => ({
-    executeAll: mockExecuteAll,
-    terminateAllSessions: mockTerminateAllSessions,
-    cleanup: mockCleanup,
-  })),
+  StepSessionExecutor: vi.fn().mockImplementation(function () {
+    return {
+      executeAll: mockExecuteAll,
+      terminateAllSessions: mockTerminateAllSessions,
+      cleanup: mockCleanup,
+    };
+  }),
 }));
 
 vi.mock("../rate-limit-retry.js", () => ({
@@ -257,10 +260,12 @@ vi.mock("@earendil-works/pi-coding-agent", () => {
       open: vi.fn().mockReturnValue(mockSessionManager),
       inMemory: vi.fn().mockReturnValue(mockSessionManager),
     },
-    ModelRegistry: vi.fn().mockImplementation(() => ({
-      find: vi.fn(),
-      refresh: vi.fn(),
-    })),
+    ModelRegistry: vi.fn().mockImplementation(function () {
+      return {
+        find: vi.fn(),
+        refresh: vi.fn(),
+      };
+    }),
     AuthStorage: {
       create: vi.fn().mockReturnValue({}),
     },

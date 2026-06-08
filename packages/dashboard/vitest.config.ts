@@ -316,7 +316,7 @@ export default defineConfig({
     // React suites; forks duplicated the entire renderer per worker (~500MB).
     pool: "threads",
     maxWorkers,
-    poolOptions: { threads: { minThreads: 1, maxThreads: maxWorkers } },
+    minWorkers: 1,
     fileParallelism: true,
     isolate: true,
     // Dashboard route and integration-heavy suites can exceed the Vitest

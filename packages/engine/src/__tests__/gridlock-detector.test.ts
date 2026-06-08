@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Settings, Task, TaskStore } from "@fusion/core";
 import { GridlockDetector } from "../gridlock-detector.js";
+import type { GridlockEvent } from "../gridlock-detector.js";
 
 function createTask(id: string, overrides: Partial<Task> = {}): Task {
   return {
@@ -34,8 +35,8 @@ describe("GridlockDetector", () => {
   let tasks: Task[];
   let settings: Settings;
   let scopes: Record<string, string[]>;
-  let onGridlock: ReturnType<typeof vi.fn>;
-  let onGridlockCleared: ReturnType<typeof vi.fn>;
+  let onGridlock: ReturnType<typeof vi.fn<(event: GridlockEvent) => void>>;
+  let onGridlockCleared: ReturnType<typeof vi.fn<() => void>>;
   let store: TaskStore;
   let detector: GridlockDetector;
 

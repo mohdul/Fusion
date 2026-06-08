@@ -85,7 +85,8 @@
       "protobufjs"
     ],
     "overrides": {
-      "@types/node": "^25.5.2"
+      "@types/node": "^25.5.2",
+      "protobufjs": "^7.5.8"
     }
   },
   "devDependencies": {

@@ -83,9 +83,9 @@ describe("runReviewPanel", () => {
       if (systemPrompt.includes("Operations")) {
         return {
           session: {
-            prompt: vi.fn(async () => new Promise(() => {})),
+            prompt: vi.fn(async () => new Promise<void>(() => {})),
             state: { messages: [] },
-            dispose: vi.fn(),
+            dispose: vi.fn<() => void>(),
           },
         };
       }
@@ -93,7 +93,7 @@ describe("runReviewPanel", () => {
         session: {
           prompt: vi.fn(async () => {}),
           state: { messages: [{ role: "assistant", content: JSON.stringify({ verdict: "approve", summary: "ok", highlights: [], lowlights: [], suggestions: [] }) }] },
-          dispose: vi.fn(),
+          dispose: vi.fn<() => void>(),
         },
       };
     });

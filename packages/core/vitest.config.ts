@@ -28,7 +28,7 @@ export default defineConfig({
     //      and cannot safely share mutable process state under worker_threads.
     pool: "forks",
     maxWorkers,
-    poolOptions: { forks: { minForks: 1, maxForks: maxWorkers } },
+    minWorkers: 1,
     fileParallelism: true,
     // Core runs a large SQLite-heavy suite while other workspace packages test concurrently.
     // Use a slightly higher timeout to reduce nondeterministic slow-machine flakes.
