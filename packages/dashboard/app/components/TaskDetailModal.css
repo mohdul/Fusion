@@ -1737,7 +1737,24 @@
   box-shadow: var(--shadow-sm);
 }
 
+.detail-log-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text-muted);
+  min-height: calc(var(--space-2xl) + var(--space-md));
+}
+
+.detail-log-loading svg {
+  flex: 0 0 auto;
+}
+
 @media (max-width: 768px) {
+  .detail-log-loading {
+    min-height: calc(var(--space-2xl) + var(--space-lg));
+  }
+
+
   .detail-tab {
     min-height: 36px;
   }

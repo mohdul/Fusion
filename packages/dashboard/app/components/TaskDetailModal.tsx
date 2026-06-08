@@ -3102,7 +3102,12 @@ export function TaskDetailContent({
                       {t("taskDetail.logs.truncated", "Showing the most recent {{count}} activity entries.", { count: workingTask.log.length })}
                     </div>
                   ) : null}
-                  {workingTask.log && workingTask.log.length > 0 ? (
+                  {detailLoading ? (
+                    <div className="detail-log-loading" role="status" aria-live="polite">
+                      <Loader2 className="animate-spin" aria-hidden="true" />
+                      <span>{t("taskDetail.logs.loadingActivity", "Loading activity…")}</span>
+                    </div>
+                  ) : workingTask.log && workingTask.log.length > 0 ? (
                     <div className="detail-activity-list" ref={activityListRef}>
                       {(() => {
                         let highlightedOnce = false;

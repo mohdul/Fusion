@@ -6,6 +6,11 @@ import { recordResumeEvent } from "../utils/resumeInstrumentation";
 
 const INITIAL_LOAD_LIMIT = 100;
 
+function getActiveContextKey(taskId: string | null, enabled: boolean, projectId?: string): string | null {
+  if (!taskId || !enabled) return null;
+  return `${projectId ?? ""}\u0000${taskId}`;
+}
+
 /**
  * Hook that manages agent log fetching and live SSE streaming for a task.
  *
@@ -36,6 +41,7 @@ export function useAgentLogs(taskId: string | null, enabled: boolean, projectId?
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadedContextKey, setLoadedContextKey] = useState<string | null>(null);
 
   // Refs for state that needs to survive re-renders
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -54,6 +60,7 @@ export function useAgentLogs(taskId: string | null, enabled: boolean, projectId?
   const requestVersionRef = useRef(0);
 
   // Detect context changes and clear state immediately
+  const activeContextKey = getActiveContextKey(taskId, enabled, projectId);
   const contextChanged =
     previousTaskIdRef.current !== taskId ||
     previousProjectIdRef.current !== projectId ||
@@ -80,6 +87,7 @@ export function useAgentLogs(taskId: string | null, enabled: boolean, projectId?
     setHasMore(false);
     setTotal(null);
     setLoadingMore(false);
+    setLoadedContextKey(null);
 
     // Drop existing SSE subscription
     if (unsubscribeRef.current) {
@@ -106,6 +114,7 @@ export function useAgentLogs(taskId: string | null, enabled: boolean, projectId?
     // Capture taskId and projectId at effect start for comparison
     const currentTaskId = taskId;
     const currentProjectId = projectId;
+    const requestContextKey = getActiveContextKey(currentTaskId, true, currentProjectId);
 
     async function init() {
       if (!currentTaskId) return;
@@ -124,6 +133,7 @@ export function useAgentLogs(taskId: string | null, enabled: boolean, projectId?
         setEntries(result.entries);
         setHasMore(result.hasMore);
         setTotal(result.total);
+        setLoadedContextKey(requestContextKey);
       } catch {
         // Reject stale error: check context version and request version
         if (cancelledRef.current ||
@@ -134,6 +144,7 @@ export function useAgentLogs(taskId: string | null, enabled: boolean, projectId?
         setEntries([]);
         setHasMore(false);
         setTotal(null);
+        setLoadedContextKey(requestContextKey);
       } finally {
         // Only update loading state if not cancelled and not stale
         if (!cancelledRef.current &&
@@ -234,6 +245,7 @@ export function useAgentLogs(taskId: string | null, enabled: boolean, projectId?
   }, [taskId, projectId, entries.length, loadingMore]);
 
   const clear = useCallback(() => setEntries([]), []);
+  const initialContextLoading = Boolean(activeContextKey && loadedContextKey !== activeContextKey);
 
-  return { entries, loading, clear, loadMore, hasMore, total, loadingMore };
+  return { entries, loading: loading || initialContextLoading, clear, loadMore, hasMore, total, loadingMore };
 }

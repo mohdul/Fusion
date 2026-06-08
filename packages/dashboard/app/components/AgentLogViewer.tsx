@@ -475,7 +475,7 @@ export function AgentLogViewer({
   if (loading && entries.length === 0) {
     return (
       <div className="agent-log-viewer" data-testid="agent-log-viewer">
-        <div className="agent-log-loading">{t("agentLog.loading", "Loading agent logs…")}</div>
+        <div className="agent-log-loading" role="status" aria-live="polite">{t("agentLog.loading", "Loading agent logs…")}</div>
       </div>
     );
   }

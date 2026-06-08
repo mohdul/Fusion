@@ -92,6 +92,150 @@ describe("TaskDetailModal GitHub tracking CTA", () => {
   });
 });
 
+describe("TaskDetailModal Logs activity loading", () => {
+  function renderLogsModal(task: ReturnType<typeof makeTask> | Record<string, unknown>) {
+    return render(
+      <TaskDetailModal
+        task={task as any}
+        initialTab="logs"
+        onClose={noop}
+        onMoveTask={noopMove}
+        onDeleteTask={noopDelete}
+        onMergeTask={noopMerge}
+        onOpenDetail={noopOpenDetail}
+        addToast={noop}
+      />,
+    );
+  }
+
+  function makeSlimTask(overrides: Record<string, unknown> = {}) {
+    const { prompt: _prompt, log: _log, steps: _steps, ...task } = makeTask({
+      id: "FN-6040",
+      description: "Slim task",
+      ...overrides,
+    });
+    return task;
+  }
+
+  it("shows activity loading instead of empty state while slim task detail is pending", async () => {
+    const { fetchTaskDetail } = await import("../../api");
+    vi.mocked(fetchTaskDetail).mockReset();
+    vi.mocked(fetchTaskDetail).mockImplementationOnce(() => new Promise(() => {}));
+
+    renderLogsModal(makeSlimTask());
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Loading activity…");
+    expect(screen.queryByText("(no activity)")).not.toBeInTheDocument();
+  });
+
+  it("shows activity loading when switching to Logs before slim task detail resolves", async () => {
+    const user = userEvent.setup();
+    const { fetchTaskDetail } = await import("../../api");
+    vi.mocked(fetchTaskDetail).mockReset();
+    vi.mocked(fetchTaskDetail).mockImplementationOnce(() => new Promise(() => {}));
+
+    render(
+      <TaskDetailModal
+        task={makeSlimTask() as any}
+        onClose={noop}
+        onMoveTask={noopMove}
+        onDeleteTask={noopDelete}
+        onMergeTask={noopMerge}
+        onOpenDetail={noopOpenDetail}
+        addToast={noop}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Logs" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Loading activity…");
+    expect(screen.queryByText("(no activity)")).not.toBeInTheDocument();
+  });
+
+  it("shows empty activity only after loaded detail has no entries", async () => {
+    const { fetchTaskDetail } = await import("../../api");
+    vi.mocked(fetchTaskDetail).mockReset();
+    vi.mocked(fetchTaskDetail).mockResolvedValueOnce(makeTask({ id: "FN-6040", prompt: "# Loaded", log: [] }));
+
+    renderLogsModal(makeSlimTask());
+
+    expect(await screen.findByText("(no activity)")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("renders loaded activity entries newest first", async () => {
+    const { fetchTaskDetail } = await import("../../api");
+    vi.mocked(fetchTaskDetail).mockReset();
+    vi.mocked(fetchTaskDetail).mockResolvedValueOnce(makeTask({
+      id: "FN-6040",
+      prompt: "# Loaded",
+      log: [
+        { timestamp: "2026-06-08T00:00:00.000Z", action: "older entry" },
+        { timestamp: "2026-06-08T00:01:00.000Z", action: "newer entry" },
+      ],
+    }));
+
+    const { container } = renderLogsModal(makeSlimTask());
+
+    await screen.findByText("newer entry");
+    const actions = Array.from(container.querySelectorAll(".detail-log-action")).map((node) => node.textContent);
+    expect(actions).toEqual(["newer entry", "older entry"]);
+    expect(screen.queryByText("(no activity)")).not.toBeInTheDocument();
+  });
+
+  it("preserves truncated activity message after detail load", async () => {
+    const { fetchTaskDetail } = await import("../../api");
+    vi.mocked(fetchTaskDetail).mockReset();
+    vi.mocked(fetchTaskDetail).mockResolvedValueOnce(makeTask({
+      id: "FN-6040",
+      prompt: "# Loaded",
+      log: [{ timestamp: "2026-06-08T00:00:00.000Z", action: "kept entry" }],
+      activityLogTruncatedCount: 25,
+    } as any));
+
+    renderLogsModal(makeSlimTask());
+
+    expect(await screen.findByText("Showing the most recent 1 activity entries.")).toBeInTheDocument();
+    expect(screen.getByText("kept entry")).toBeInTheDocument();
+  });
+});
+
+describe("TaskDetailModal Logs agent loading", () => {
+  it("shows the Agent Log loading indicator when entering the subview", async () => {
+    const user = userEvent.setup();
+    const { useAgentLogs } = await import("../../hooks/useAgentLogs");
+    const mockUseAgentLogs = vi.mocked(useAgentLogs);
+    mockUseAgentLogs.mockImplementation((_taskId, enabled) => ({
+      entries: [],
+      loading: enabled,
+      clear: vi.fn(),
+      loadMore: vi.fn(async () => {}),
+      hasMore: false,
+      total: null,
+      loadingMore: false,
+    }));
+
+    render(
+      <TaskDetailModal
+        task={makeTask({ prompt: "# Loaded" })}
+        onClose={noop}
+        onMoveTask={noopMove}
+        onDeleteTask={noopDelete}
+        onMergeTask={noopMerge}
+        onOpenDetail={noopOpenDetail}
+        addToast={noop}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Logs" }));
+    await user.click(screen.getByRole("button", { name: "Agent Log" }));
+
+    expect(screen.getByText("Loading agent logs…")).toBeInTheDocument();
+    expect(screen.queryByText("No agent output yet.")).not.toBeInTheDocument();
+
+    mockUseAgentLogs.mockImplementation(() => ({ entries: [], loading: false, clear: vi.fn(), loadMore: vi.fn(async () => {}), hasMore: false, total: null, loadingMore: false }));
+  });
+});
+
 describe("TaskDetailModal branch group surfacing", () => {
   it("renders branch group card when task has group context", () => {
     render(

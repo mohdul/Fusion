@@ -661,6 +661,7 @@ The **Logs** tab includes an **Agent Log** subview designed for debugging long-r
 
 - Full `thinking`, `tool_result`, and `tool_error` payloads are shown without entry-content truncation.
 - Raw tool output is rendered as multiline blocks, preserving line breaks and indentation.
+- The Activity and Agent Log subviews show loading indicators while their first async history/detail request is pending, so empty states only appear after the relevant fetch completes.
 - The initial load fetches a recent page, then **Load More** progressively prepends older history.
 - Live streaming appends new entries in chronological order while preserving your scroll position when loading older pages.
 - The **Markdown / Plain** toggle lets you switch between formatted markdown and literal/raw text rendering.

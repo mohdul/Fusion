@@ -37,7 +37,8 @@ describe("AgentLogViewer", () => {
 
   it("shows loading message when loading with no entries", () => {
     render(<AgentLogViewer entries={[]} loading={true} />);
-    expect(screen.getByText("Loading agent logs…")).toBeTruthy();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading agent logs…");
+    expect(screen.queryByText("No agent output yet.")).toBeNull();
   });
 
   it("shows empty message when no entries and not loading", () => {

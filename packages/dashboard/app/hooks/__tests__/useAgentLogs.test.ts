@@ -43,6 +43,16 @@ const originalEventSource = globalThis.EventSource;
 
 const INITIAL_LOAD_LIMIT = 100;
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 beforeEach(() => {
   MockEventSource.instances = [];
   (globalThis as any).EventSource = MockEventSource;
@@ -59,6 +69,26 @@ describe("useAgentLogs", () => {
 
     expect(mockFetchAgentLogsWithMeta).not.toHaveBeenCalled();
     expect(MockEventSource.instances).toHaveLength(0);
+    expect(result.current.entries).toEqual([]);
+  });
+
+  it("reports loading immediately when enabled until initial history fetch completes", async () => {
+    const deferred = createDeferred<{ entries: []; total: number; hasMore: boolean }>();
+    mockFetchAgentLogsWithMeta.mockReturnValueOnce(deferred.promise);
+
+    const { result } = renderHook(() => useAgentLogs("FN-001", true));
+
+    expect(result.current.loading).toBe(true);
+    expect(result.current.entries).toEqual([]);
+
+    await act(async () => {
+      deferred.resolve({ entries: [], total: 0, hasMore: false });
+      await deferred.promise;
+    });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
     expect(result.current.entries).toEqual([]);
   });
 
@@ -478,6 +508,50 @@ describe("useAgentLogs", () => {
       await waitFor(() => {
         expect(MockEventSource.instances).toHaveLength(1);
         expect(MockEventSource.instances[0].url).toBe("/api/tasks/FN-001/logs/stream");
+      });
+    });
+
+    it("clears entries and reports loading immediately when projectId changes", async () => {
+      const secondFetch = createDeferred<{
+        entries: Array<{ timestamp: string; taskId: string; text: string; type: "text" }>;
+        total: number;
+        hasMore: boolean;
+      }>();
+      mockFetchAgentLogsWithMeta
+        .mockResolvedValueOnce({
+          entries: [{ timestamp: "2026-01-01T00:00:00Z", taskId: "FN-001", text: "proj-A-log", type: "text" as const }],
+          total: 1,
+          hasMore: false,
+        })
+        .mockReturnValueOnce(secondFetch.promise);
+
+      const { result, rerender } = renderHook(
+        ({ projectId }) => useAgentLogs("FN-001", true, projectId),
+        { initialProps: { projectId: "proj-A" } },
+      );
+
+      await waitFor(() => {
+        expect(result.current.entries.map((entry) => entry.text)).toEqual(["proj-A-log"]);
+        expect(result.current.loading).toBe(false);
+      });
+
+      rerender({ projectId: "proj-B" });
+
+      expect(result.current.entries).toEqual([]);
+      expect(result.current.loading).toBe(true);
+
+      await act(async () => {
+        secondFetch.resolve({
+          entries: [{ timestamp: "2026-01-01T00:00:00Z", taskId: "FN-001", text: "proj-B-log", type: "text" as const }],
+          total: 1,
+          hasMore: false,
+        });
+        await secondFetch.promise;
+      });
+
+      await waitFor(() => {
+        expect(result.current.loading).toBe(false);
+        expect(result.current.entries.map((entry) => entry.text)).toEqual(["proj-B-log"]);
       });
     });
 
