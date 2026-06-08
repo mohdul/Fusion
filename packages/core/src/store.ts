@@ -54,6 +54,8 @@ import {
 } from "./transition-pending.js";
 import { BUILTIN_CODING_WORKFLOW_IR } from "./builtin-coding-workflow-ir.js";
 import type { WorkflowIr, WorkflowIrColumn, WorkflowFieldDefinition, WorkflowSettingDefinition } from "./workflow-ir-types.js";
+import { getWorkflowExtensionRegistry } from "./workflow-extension-registry.js";
+import type { WorkflowMovePolicyInput } from "./workflow-extension-types.js";
 import {
   validateCustomFieldPatch,
   applyFieldDefaults,
@@ -1336,6 +1338,9 @@ interface MoveTaskOptions {
   preserveStatus?: boolean;
   allocateWorktree?: (reservedNames: Set<string>) => string | null;
   moveSource?: "user" | "engine" | "scheduler";
+  workflowMoveActor?: WorkflowMovePolicyInput["actor"];
+  workflowMoveSource?: string;
+  workflowMoveMetadata?: Record<string, unknown>;
   skipMergeBlocker?: boolean;
   allowDirectInReviewMove?: boolean;
   /**
@@ -1367,7 +1372,14 @@ interface MoveTaskInternalOptions {
   ownerAgentId?: string | null;
   evidence?: HandoffToReviewOptions["evidence"];
   now?: string;
+  movePolicyPreflight?: {
+    fromColumn: string;
+    toColumn: string;
+    workflowSignature: string;
+  };
 }
+
+const WORKFLOW_MOVE_POLICY_TIMEOUT_MS = 5000;
 
 export class TaskStore extends EventEmitter<TaskStoreEvents> {
   private static readonly ACTIVE_TASKS_WHERE = '"deletedAt" IS NULL';
@@ -6318,7 +6330,8 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
     // ColumnId admits workflow-defined custom column ids (KTD-1). Both paths
     // runtime-validate: flag-ON against the task's resolved workflow, flag-OFF
     // via the VALID_TRANSITIONS lookup (non-legacy ids reject as before).
-    return this.withTaskLock(id, () => this.moveTaskInternal(id, toColumn, options, { fromHandoff: false }));
+    const movePolicyPreflight = await this.prepareWorkflowMovePolicyPreflight(id, toColumn, options, { fromHandoff: false });
+    return this.withTaskLock(id, () => this.moveTaskInternal(id, toColumn, options, { fromHandoff: false, movePolicyPreflight }));
   }
 
   async handoffToReview(taskId: string, opts: HandoffToReviewOptions): Promise<Task> {
@@ -6371,6 +6384,140 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
     });
   }
 
+  private resolveWorkflowMoveActor(
+    moveSource: NonNullable<MoveTaskOptions["moveSource"]>,
+    internal: MoveTaskInternalOptions,
+    options?: MoveTaskOptions,
+  ): WorkflowMovePolicyInput["actor"] {
+    if (options?.workflowMoveActor) return options.workflowMoveActor;
+    if (moveSource === "user") return { kind: "human" };
+    if (moveSource === "scheduler") return { kind: "system" };
+    if (internal.runContext?.agentId) {
+      return { kind: "agent", id: internal.runContext.agentId };
+    }
+    return { kind: "engine" };
+  }
+
+  private resolveWorkflowBypassGuards(
+    moveSource: NonNullable<MoveTaskOptions["moveSource"]>,
+    options?: MoveTaskOptions,
+  ): boolean {
+    return options?.recoveryRehome === true ||
+      (options?.bypassGuards ??
+        (moveSource === "engine" || moveSource === "scheduler" || options?.skipMergeBlocker === true));
+  }
+
+  private shouldSkipWorkflowMovePolicies(params: {
+    fromColumn: string;
+    toColumn: string;
+    moveSource: NonNullable<MoveTaskOptions["moveSource"]>;
+    bypassGuards: boolean;
+    options?: MoveTaskOptions;
+  }): boolean {
+    if (params.bypassGuards) return true;
+    if (params.options?.recoveryRehome === true) return true;
+    return params.moveSource === "user" && params.fromColumn === "in-progress" && params.toColumn === "todo";
+  }
+
+  private async prepareWorkflowMovePolicyPreflight(
+    id: string,
+    toColumn: ColumnId,
+    options: MoveTaskOptions | undefined,
+    internal: MoveTaskInternalOptions,
+  ): Promise<MoveTaskInternalOptions["movePolicyPreflight"]> {
+    const task = await this.readTaskForMove(id);
+    const moveSource = options?.moveSource ?? "engine";
+    const mergedSettingsForMove = await this.getSettingsFast();
+    if (!isWorkflowColumnsEnabled(mergedSettingsForMove)) return undefined;
+    if (task.column === toColumn) return undefined;
+
+    const workflowIr = this.resolveTaskWorkflowIrSync(id);
+    const workflowSignature = serializeWorkflowIr(workflowIr);
+    const bypassGuards = this.resolveWorkflowBypassGuards(moveSource, options);
+    const fromColumn = task.column;
+    if (this.shouldSkipWorkflowMovePolicies({ fromColumn, toColumn, moveSource, bypassGuards, options })) {
+      return undefined;
+    }
+
+    const recoveryToLegacy =
+      options?.recoveryRehome === true && (COLUMNS as readonly string[]).includes(toColumn);
+    if (!workflowHasColumn(workflowIr, toColumn) && !recoveryToLegacy) return undefined;
+
+    const allowed = resolveAllowedColumns(workflowIr, fromColumn);
+    if (options?.recoveryRehome !== true && !allowed.includes(toColumn)) return undefined;
+
+    await this.evaluateWorkflowMovePolicies({
+      task,
+      workflow: workflowIr,
+      fromColumn,
+      toColumn,
+      actor: this.resolveWorkflowMoveActor(moveSource, internal, options),
+      source: options?.workflowMoveSource ?? moveSource,
+      metadata: options?.workflowMoveMetadata,
+    });
+    return { fromColumn, toColumn, workflowSignature };
+  }
+
+  private async evaluateWorkflowMovePolicies(input: WorkflowMovePolicyInput): Promise<void> {
+    const policies = getWorkflowExtensionRegistry().list("move-policy");
+    for (const definition of policies) {
+      const extension = definition.extension;
+      if (definition.degraded || extension.kind !== "move-policy" || !extension.evaluate) continue;
+
+      let decision: Awaited<ReturnType<NonNullable<typeof extension.evaluate>>>;
+      try {
+        decision = await new Promise<Awaited<ReturnType<NonNullable<typeof extension.evaluate>>>>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            reject(new Error(`timed out after ${WORKFLOW_MOVE_POLICY_TIMEOUT_MS}ms`));
+          }, WORKFLOW_MOVE_POLICY_TIMEOUT_MS);
+          Promise.resolve(extension.evaluate?.(input))
+            .then((value) => {
+              clearTimeout(timer);
+              resolve(value as Awaited<ReturnType<NonNullable<typeof extension.evaluate>>>);
+            })
+            .catch((error) => {
+              clearTimeout(timer);
+              reject(error);
+            });
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        storeLog.warn("Workflow move-policy extension faulted", {
+          phase: "moveTaskInternal:move-policy",
+          taskId: input.task.id,
+          extensionId: definition.id,
+          fallback: extension.fallback,
+          error: message,
+        });
+        if (extension.fallback === "degradeToDefault") {
+          getWorkflowExtensionRegistry().degrade([definition.id], "runtime-fault", message);
+          continue;
+        }
+        throw new TransitionRejectionError(
+          makeTransitionRejection(
+            "guard-rejected",
+            "transition.rejected.workflowMovePolicy",
+            extension.fallback === "parkNeedsAttention",
+            `Move policy '${definition.id}' failed: ${message}`,
+          ),
+          `Cannot move ${input.task.id} to '${input.toColumn}': move policy '${definition.id}' failed`,
+        );
+      }
+
+      if (!decision.allowed) {
+        throw new TransitionRejectionError(
+          makeTransitionRejection(
+            "guard-rejected",
+            "transition.rejected.workflowMovePolicy",
+            true,
+            decision.reason,
+          ),
+          decision.message,
+        );
+      }
+    }
+  }
+
   private async moveTaskInternal(
     id: string,
     toColumn: ColumnId,
@@ -6398,10 +6545,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
     // call sites map onto it. Capacity (KTD-10) is NEVER bypassed by this — the
     // capacity check is not a guard (U6 fills the enforcement; U4 leaves a
     // pass-through slot). An explicit option value wins; otherwise derive it.
-    const bypassGuards =
-      options?.recoveryRehome === true ||
-      (options?.bypassGuards ??
-        (moveSource === "engine" || moveSource === "scheduler" || options?.skipMergeBlocker === true));
+    const bypassGuards = this.resolveWorkflowBypassGuards(moveSource, options);
     const workflowIr: WorkflowIr | undefined = useWorkflow
       ? this.resolveTaskWorkflowIrSync(id)
       : undefined;
@@ -6506,6 +6650,30 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
           `Invalid transition: '${fromColumn}' → '${toColumn}'. ` +
             `Valid targets: ${allowed.join(", ") || "none"}`,
         );
+      }
+      const skipWorkflowMovePolicies = this.shouldSkipWorkflowMovePolicies({
+        fromColumn,
+        toColumn,
+        moveSource,
+        bypassGuards,
+        options,
+      });
+      if (!skipWorkflowMovePolicies) {
+        if (
+          internal.movePolicyPreflight?.fromColumn !== fromColumn ||
+          internal.movePolicyPreflight?.toColumn !== toColumn ||
+          internal.movePolicyPreflight?.workflowSignature !== serializeWorkflowIr(workflowIr)
+        ) {
+          throw new TransitionRejectionError(
+            makeTransitionRejection(
+              "guard-rejected",
+              "transition.rejected.workflowMovePolicy",
+              true,
+              "Workflow move policy preflight is stale; retry the move",
+            ),
+            `Cannot move ${id} to '${toColumn}': workflow move policy preflight is stale`,
+          );
+        }
       }
       // 3. Sync trait guards (in-lock). Skipped entirely when bypassGuards
       //    (engine/recovery moves, KTD-9). The default workflow's merge-blocker
