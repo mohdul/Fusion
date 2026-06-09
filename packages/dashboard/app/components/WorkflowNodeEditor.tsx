@@ -173,8 +173,6 @@ interface WorkflowNodeEditorProps {
   initialPanel?: "settings";
   /** When "create" the editor opens with the new-workflow dialog active. */
   initialAction?: "create";
-  /** Workflow id to pre-select when opening directly into an existing workflow. */
-  initialWorkflowId?: string;
 }
 
 let nodeSeq = 0;
@@ -659,7 +657,6 @@ function InnerEditor({
   projectId,
   initialPanel,
   initialAction,
-  initialWorkflowId,
   modalRef,
 }: Omit<WorkflowNodeEditorProps, "isOpen"> & { modalRef: React.RefObject<HTMLDivElement | null> }) {
   const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
@@ -681,6 +678,7 @@ function InnerEditor({
   const [edges, setEdges, onEdgesChange] = useEdgesState<FlowEdge>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const { t } = useTranslation("app");
   const { confirm } = useConfirm();
   // Create-workflow dialog (KTD-7) open state + focus-return ref to the
@@ -728,7 +726,11 @@ function InnerEditor({
   const templatesCollapsedStorageKey = "fusion:wf-templates-collapsed";
   const [templatesCollapsed, setTemplatesCollapsed] = useState<boolean>(() => {
     try {
-      return localStorage.getItem(templatesCollapsedStorageKey) === "1";
+      const stored = localStorage.getItem(templatesCollapsedStorageKey);
+      if (stored != null) return stored === "1";
+      return typeof window !== "undefined" &&
+        typeof window.matchMedia === "function" &&
+        window.matchMedia(MOBILE_MEDIA_QUERY).matches;
     } catch {
       return false;
     }
@@ -915,6 +917,10 @@ function InnerEditor({
     }
   }, [templatesCollapsed]);
 
+  useEffect(() => {
+    if (selectedNodeId) setInspectorCollapsed(false);
+  }, [selectedNodeId]);
+
   // U9/R8: fragment definitions surface from the loaded workflow list (kind ===
   // "fragment"); they are excluded from the sidebar workflow list elsewhere.
   const fragments = useMemo(
@@ -975,22 +981,16 @@ function InnerEditor({
     try {
       const data = await fetchWorkflows(projectId);
       setWorkflows(data);
-      const requestedWorkflow = initialWorkflowId
-        ? data.find((workflow) => workflow.id === initialWorkflowId)
-        : undefined;
       setActiveId((prev) => {
         if (prev && data.some((workflow) => workflow.id === prev)) return prev;
-        return requestedWorkflow?.id ?? (isMobileViewport ? null : data[0]?.id ?? null);
+        return isMobileViewport ? null : data[0]?.id ?? null;
       });
-      if (requestedWorkflow && isMobileViewport) {
-        setWorkflowListStageOpen(false);
-      }
     } catch (err) {
       addToast(getErrorMessage(err) || "Failed to load workflows", "error");
     } finally {
       setLoading(false);
     }
-  }, [projectId, addToast, isMobileViewport, initialWorkflowId]);
+  }, [projectId, addToast, isMobileViewport]);
 
   useEffect(() => {
     void loadWorkflows();
@@ -2677,6 +2677,22 @@ function InnerEditor({
                 )}
 
                 <div className="wf-editor-canvas" ref={canvasRef} tabIndex={-1}>
+                  {isMobileViewport &&
+                    inspectorCollapsed &&
+                    selectedNode &&
+                    selectedNode.data.kind !== "start" &&
+                    selectedNode.data.kind !== "end" && (
+                      <button
+                        type="button"
+                        className="wf-inspector-toggle wf-inspector-toggle--collapsed"
+                        data-testid="wf-inspector-toggle"
+                        aria-expanded="false"
+                        onClick={() => setInspectorCollapsed(false)}
+                      >
+                        <ChevronRight size={13} />
+                        <span>{t("workflowNodes.showInspector", "Show node details")}</span>
+                      </button>
+                    )}
                   {isTrivialUserGraph && (
                     <div className="wf-trivial-hint" role="status" data-testid="wf-trivial-hint">
                       {t(
@@ -2743,9 +2759,26 @@ function InnerEditor({
             )}
           </section>
 
-          {selectedNode && selectedNode.data.kind !== "start" && selectedNode.data.kind !== "end" && (
-            <aside className="wf-editor-inspector">
-              <h3>Node</h3>
+          {selectedNode &&
+            selectedNode.data.kind !== "start" &&
+            selectedNode.data.kind !== "end" &&
+            !(isMobileViewport && inspectorCollapsed) && (
+            <aside className="wf-editor-inspector" data-testid="wf-node-inspector">
+              <div className="wf-inspector-heading">
+                <h3>Node</h3>
+                {isMobileViewport && (
+                  <button
+                    type="button"
+                    className="wf-inspector-toggle wf-inspector-toggle--expanded"
+                    data-testid="wf-inspector-toggle"
+                    aria-expanded="true"
+                    onClick={() => setInspectorCollapsed(true)}
+                  >
+                    <ChevronDown size={13} />
+                    <span>{t("workflowNodes.collapseInspector", "Collapse")}</span>
+                  </button>
+                )}
+              </div>
               {isBuiltin && (
                 <p className="wf-inspector-note wf-inspector-note--info">
                   Read-only built-in — duplicate the workflow to edit nodes.

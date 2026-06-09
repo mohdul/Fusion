@@ -557,6 +557,38 @@
   color: var(--text);
 }
 
+.wf-inspector-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.wf-inspector-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.wf-inspector-toggle:hover {
+  background: var(--bg-tertiary);
+}
+
+.wf-inspector-toggle--collapsed {
+  position: absolute;
+  right: var(--space-sm);
+  bottom: var(--space-sm);
+  z-index: 5;
+  box-shadow: var(--shadow-sm);
+}
+
 .wf-field {
   display: flex;
   flex-direction: column;
@@ -1225,6 +1257,11 @@
     min-height: 0;
   }
 
+  .wf-editor-body--editor-stage .wf-editor-canvas {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
   .wf-editor-body--editor-stage .wf-editor-inspector {
     width: 100%;
     min-width: 0;
@@ -1318,7 +1355,31 @@
   }
 
   .wf-editor-toolbar {
+    flex-wrap: nowrap;
     overflow-x: auto;
+  }
+
+  .wf-editor-palette,
+  .wf-editor-actions {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+  }
+
+  .wf-templates {
+    flex: 0 0 auto;
+  }
+
+  .wf-templates-header {
+    flex-wrap: nowrap;
+  }
+
+  .wf-templates-toggle {
+    flex: 0 0 auto;
+  }
+
+  .wf-inspector-toggle {
+    min-height: var(--wf-editor-touch-target);
+    padding: var(--space-sm) var(--space-md);
   }
 
   .wf-ai-panel {

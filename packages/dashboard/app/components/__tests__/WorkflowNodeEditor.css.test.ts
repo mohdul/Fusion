@@ -82,6 +82,27 @@ describe("WorkflowNodeEditor mobile CSS contract", () => {
     expect(canvasWrapRule).toMatch(/min-height\s*:\s*0\s*;/);
   });
 
+  it("FN-6058 keeps mobile workflow editor controls from crowding the canvas", () => {
+    const editorCss = readComponentCss("WorkflowNodeEditor.css");
+    const mobileBlocks = extractMediaBlocks(editorCss, "(max-width: 768px)");
+
+    const toolbarRule = findRule(mobileBlocks, /\.wf-editor-toolbar\s*\{[^}]*\}/);
+    expect(toolbarRule).toMatch(/flex-wrap\s*:\s*nowrap\s*;/);
+    expect(toolbarRule).toMatch(/overflow-x\s*:\s*auto\s*;/);
+
+    const editorStageCanvasRule = findRule(mobileBlocks, /\.wf-editor-body--editor-stage \.wf-editor-canvas\s*\{[^}]*\}/);
+    expect(editorStageCanvasRule).toMatch(/flex\s*:\s*1 1 auto\s*;/);
+    expect(editorStageCanvasRule).toMatch(/min-height\s*:\s*0\s*;/);
+
+    const inspectorRule = findRule(mobileBlocks, /\.wf-editor-body--editor-stage \.wf-editor-inspector\s*\{[^}]*\}/);
+    expect(inspectorRule).toMatch(/width\s*:\s*100%\s*;/);
+    expect(inspectorRule).toMatch(/max-height\s*:\s*45vh\s*;/);
+
+    const collapsedToggleRule = findRule([editorCss], /\.wf-inspector-toggle--collapsed\s*\{[^}]*\}/);
+    expect(collapsedToggleRule).toMatch(/position\s*:\s*absolute\s*;/);
+    expect(collapsedToggleRule).toMatch(/bottom\s*:\s*var\(--space-sm\)\s*;/);
+  });
+
   it("FN-6033 keeps workflow editor touch target increases mobile-scoped", () => {
     const baseCss = loadAllAppCssBaseOnly();
     const editorCss = readComponentCss("WorkflowNodeEditor.css");

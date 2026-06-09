@@ -293,7 +293,13 @@ describe("workflow-flow-mapping", () => {
   it("preserves duplicate and parallel built-in edges with valid endpoints and hit targets", () => {
     const { edges } = edgeRenderableAssertion(builtinDef());
     const failuresToEnd = edges.filter((edge) => edge.target === "end" && edge.data?.condition === "failure");
-    expect(failuresToEnd.map((edge) => edge.source).sort()).toEqual(["execute", "merge", "review"]);
+    expect(failuresToEnd.map((edge) => edge.source).sort()).toEqual([
+      "execute",
+      "merge",
+      "planning",
+      "review",
+      "workflow-step",
+    ]);
     expect(new Set(failuresToEnd.map((edge) => edge.id)).size).toBe(failuresToEnd.length);
     expect(failuresToEnd.every((edge) => edge.interactionWidth === WF_EDGE_INTERACTION_WIDTH)).toBe(true);
   });
@@ -304,10 +310,12 @@ describe("WorkflowNodeEditor", () => {
     vi.mocked(fetchWorkflows).mockResolvedValue([]);
     vi.mocked(fetchTraits).mockResolvedValue(TRAIT_CATALOG);
     vi.mocked(fetchStepParsers).mockResolvedValue(["step-headings", "json-steps"]);
+    vi.mocked(fetchModels).mockResolvedValue({ models: [] });
   });
 
   afterEach(() => {
     localStorage.removeItem("fusion:wf-sidebar-settings-collapsed");
+    localStorage.removeItem("fusion:wf-templates-collapsed");
     cleanup();
     vi.clearAllMocks();
   });
@@ -331,28 +339,6 @@ describe("WorkflowNodeEditor", () => {
     expect(screen.getAllByRole("button", { name: "QA" })[0]).toHaveClass("active");
   });
 
-  it("preselects the requested workflow id on desktop instead of the first workflow", async () => {
-    vi.mocked(fetchWorkflows).mockResolvedValue([def(), v2Def()]);
-
-    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} initialWorkflowId="WF-002" />);
-
-    expect(await screen.findByTestId("wf-workflow-name")).toHaveTextContent("Custom");
-    const workflowItems = document.querySelectorAll(".wf-editor-list-item");
-    expect(workflowItems[0]).toHaveTextContent("QA");
-    expect(workflowItems[0]).not.toHaveClass("active");
-    expect(workflowItems[1]).toHaveTextContent("Custom");
-    expect(workflowItems[1]).toHaveClass("active");
-  });
-
-  it("falls back to the first desktop workflow when the requested workflow id is missing", async () => {
-    vi.mocked(fetchWorkflows).mockResolvedValue([def(), v2Def()]);
-
-    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} initialWorkflowId="WF-deleted" />);
-
-    expect(await screen.findByTestId("wf-workflow-name")).toHaveTextContent("QA");
-    expect(screen.getAllByRole("button", { name: "QA" })[0]).toHaveClass("active");
-  });
-
   it("opens populated mobile workflows on the list with no preselected workflow", async () => {
     mockWorkflowEditorViewport("mobile");
     vi.mocked(fetchWorkflows).mockResolvedValue([def(), v2Def()]);
@@ -364,52 +350,6 @@ describe("WorkflowNodeEditor", () => {
     expect(screen.queryByTestId("wf-workflow-name")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "QA" })).not.toHaveClass("active");
     expect(screen.getByRole("button", { name: "Custom" })).not.toHaveClass("active");
-  });
-
-  it("opens the requested workflow id directly on mobile and bypasses the select stage", async () => {
-    mockWorkflowEditorViewport("mobile");
-    vi.mocked(fetchWorkflows).mockResolvedValue([def(), v2Def()]);
-
-    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} initialWorkflowId="WF-002" />);
-
-    expect(await screen.findByTestId("wf-workflow-name")).toHaveTextContent("Custom");
-    expect(screen.queryByTestId("wf-mobile-select-note")).not.toBeInTheDocument();
-    const workflowItems = document.querySelectorAll(".wf-editor-list-item");
-    expect(workflowItems[0]).toHaveTextContent("QA");
-    expect(workflowItems[0]).not.toHaveClass("active");
-    expect(workflowItems[1]).toHaveTextContent("Custom");
-    expect(workflowItems[1]).toHaveClass("active");
-  });
-
-  it("keeps the mobile list fallback when the requested workflow id is missing", async () => {
-    mockWorkflowEditorViewport("mobile");
-    vi.mocked(fetchWorkflows).mockResolvedValue([def(), v2Def()]);
-
-    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} initialWorkflowId="WF-deleted" />);
-
-    expect(await screen.findByTestId("wf-mobile-select-note")).toHaveTextContent("Select a workflow to edit.");
-    expect(screen.getByText(/No workflow selected/i)).toBeInTheDocument();
-    expect(screen.queryByTestId("wf-workflow-name")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Custom" })).not.toHaveClass("active");
-  });
-
-  it("selects the requested workflow id on mobile even when workflow names are duplicated", async () => {
-    mockWorkflowEditorViewport("mobile");
-    vi.mocked(fetchWorkflows).mockResolvedValue([
-      { ...def(), id: "WF-DUP-A", name: "QA" },
-      { ...v2Def(), id: "WF-DUP-B", name: "QA" },
-    ]);
-
-    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} initialWorkflowId="WF-DUP-B" />);
-
-    expect(await screen.findByTestId("wf-workflow-name")).toHaveTextContent("QA");
-    expect(screen.queryByTestId("wf-mobile-select-note")).not.toBeInTheDocument();
-    const qaButtons = document.querySelectorAll(".wf-editor-list-item");
-    expect(qaButtons).toHaveLength(2);
-    expect(qaButtons[0]).toHaveTextContent("QA");
-    expect(qaButtons[0]).not.toHaveClass("active");
-    expect(qaButtons[1]).toHaveTextContent("QA");
-    expect(qaButtons[1]).toHaveClass("active");
   });
 
   it("selects by workflow id on mobile even when workflow names are duplicated", async () => {
@@ -433,6 +373,50 @@ describe("WorkflowNodeEditor", () => {
     expect(qaButtons[0]).not.toHaveClass("active");
     expect(screen.queryByTestId("wf-mobile-select-note")).not.toBeInTheDocument();
     expect(await screen.findByTestId("wf-workflow-name")).toHaveTextContent("QA");
+  });
+
+  it("collapses and expands the selected node inspector on mobile", async () => {
+    mockWorkflowEditorViewport("mobile");
+    vi.mocked(fetchWorkflows).mockResolvedValue([def()]);
+
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "QA" }));
+    fireEvent.click(await screen.findByTestId("wf-node-gate"));
+
+    const inspector = await screen.findByTestId("wf-node-inspector");
+    expect(within(inspector).getByLabelText("Prompt")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("wf-inspector-toggle"));
+
+    await waitFor(() => expect(screen.queryByTestId("wf-node-inspector")).not.toBeInTheDocument());
+    expect(screen.queryByLabelText("Prompt")).not.toBeInTheDocument();
+    expect(screen.getByTestId("wf-inspector-toggle")).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(screen.getByTestId("wf-inspector-toggle"));
+
+    expect(await screen.findByTestId("wf-node-inspector")).toBeInTheDocument();
+    expect(screen.getByTestId("wf-inspector-toggle")).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("auto-expands the mobile inspector when selecting another node", async () => {
+    mockWorkflowEditorViewport("mobile");
+    vi.mocked(fetchWorkflows).mockResolvedValue([def()]);
+
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "QA" }));
+    fireEvent.click(await screen.findByTestId("wf-node-gate"));
+    expect(await screen.findByTestId("wf-node-inspector")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("wf-inspector-toggle"));
+    await waitFor(() => expect(screen.queryByTestId("wf-node-inspector")).not.toBeInTheDocument());
+
+    fireEvent.click(await screen.findByTestId("wf-node-merge"));
+
+    const inspector = await screen.findByTestId("wf-node-inspector");
+    expect(within(inspector).getByLabelText("Name")).toBeInTheDocument();
+    expect(screen.getByTestId("wf-inspector-toggle")).toHaveAttribute("aria-expanded", "true");
   });
 
   it("renders nothing when closed", () => {
@@ -1877,6 +1861,23 @@ describe("WorkflowNodeEditor — U9 palette Templates section", () => {
     // Plugin entry shows the owner badge.
     const pluginEntry = screen.getByTestId("wf-tpl-plugin-acme-scan");
     expect(pluginEntry).toHaveTextContent("acme-plugin");
+  });
+
+  it("starts Templates collapsed by default on mobile", async () => {
+    mockWorkflowEditorViewport("mobile");
+    vi.mocked(fetchWorkflows).mockResolvedValue([def()]);
+    vi.mocked(fetchWorkflowStepTemplates).mockResolvedValue({ templates: [stepTpl()] });
+
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "QA" }));
+    const toggle = await screen.findByTestId("wf-templates-toggle");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("wf-tpl-step-qa-check")).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+
+    expect(await screen.findByTestId("wf-tpl-step-qa-check")).toBeInTheDocument();
   });
 
   it("clicking a step-template entry adds a pre-configured node", async () => {

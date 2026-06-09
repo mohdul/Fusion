@@ -387,7 +387,6 @@ export function AppModals({
               projectId={projectId}
               initialPanel={modalManager.workflowEditorInitialPanel}
               initialAction={modalManager.workflowEditorInitialAction}
-              initialWorkflowId={modalManager.workflowEditorInitialWorkflowId}
             />
           </Suspense>
         </ModalErrorBoundary>
