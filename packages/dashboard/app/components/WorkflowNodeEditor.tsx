@@ -693,9 +693,11 @@ function InnerEditor({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const [compactLayoutEnabled, setCompactLayoutEnabled] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<MobileWorkflowPanel>(() =>
     initialPanel === "settings" ? "settings" : "graph",
   );
+  const simpleLayoutEnabled = isMobileViewport || compactLayoutEnabled;
   const { t } = useTranslation("app");
   const { confirm } = useConfirm();
   // Create-workflow dialog (KTD-7) open state + focus-return ref to the
@@ -2145,7 +2147,11 @@ function InnerEditor({
           </div>
         ) : null}
 
-        <div className={`wf-editor-body${workflowListStageOpen ? " wf-editor-body--list-stage" : " wf-editor-body--editor-stage"}`}>
+        <div
+          className={`wf-editor-body${workflowListStageOpen ? " wf-editor-body--list-stage" : " wf-editor-body--editor-stage"}${
+            simpleLayoutEnabled ? " wf-editor-body--simple-layout" : ""
+          }`}
+        >
           <aside className="wf-editor-sidebar">
             <button
               className="wf-editor-new"
@@ -2223,7 +2229,7 @@ function InnerEditor({
                 workflow is active (read-only gating preserved via isBuiltin). The
                 disclosure button serves as the section header; the panels' own
                 internal <h3> is suppressed via CSS to avoid a double header. */}
-            {activeWorkflow && !isMobileViewport && (
+            {activeWorkflow && !simpleLayoutEnabled && (
               <div className="wf-sidebar-panels">
                 <section className="wf-sidebar-section" data-testid="wf-sidebar-columns-section">
                   <button
@@ -2392,8 +2398,24 @@ function InnerEditor({
                       {description || t("workflows.descriptionPlaceholder", "Add a description")}
                     </button>
                   )}
+                  {!isMobileViewport && (
+                    <button
+                      type="button"
+                      className="wf-layout-toggle"
+                      data-testid="wf-layout-toggle"
+                      aria-pressed={compactLayoutEnabled}
+                      onClick={() => setCompactLayoutEnabled((enabled) => !enabled)}
+                    >
+                      {compactLayoutEnabled ? <LayoutGrid size={14} /> : <ListChecks size={14} />}
+                      <span>
+                        {compactLayoutEnabled
+                          ? t("workflows.showCanvasEditor", "Show canvas editor")
+                          : t("workflows.showSimpleEditor", "Show simple editor")}
+                      </span>
+                    </button>
+                  )}
                 </div>
-                {isMobileViewport && (
+                {simpleLayoutEnabled && (
                   <div className="wf-mobile-shell" data-testid="wf-mobile-shell">
                     <nav className="wf-mobile-tabs" aria-label={t("workflows.mobileEditorNav", "Workflow editor sections")}>
                       {([
@@ -3064,7 +3086,8 @@ function InnerEditor({
           {selectedNode &&
             selectedNode.data.kind !== "start" &&
             selectedNode.data.kind !== "end" &&
-            !(isMobileViewport && inspectorCollapsed) && (
+            !(isMobileViewport && inspectorCollapsed) &&
+            !(compactLayoutEnabled && !isMobileViewport) && (
             <aside className="wf-editor-inspector" data-testid="wf-node-inspector">
               <div className="wf-inspector-heading">
                 <h3>Node</h3>

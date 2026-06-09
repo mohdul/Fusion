@@ -39,8 +39,14 @@ function nodeDisplayLabel(node: FlowNode<WorkflowFlowNodeData>): string {
   return node.data.label || node.id;
 }
 
-function nodeSortValue(node: FlowNode<WorkflowFlowNodeData>): number {
-  return Math.round(node.position.y) * 100000 + Math.round(node.position.x);
+function compareNodePosition(
+  a: FlowNode<WorkflowFlowNodeData>,
+  b: FlowNode<WorkflowFlowNodeData>,
+): number {
+  const ay = Math.round(a.position.y);
+  const by = Math.round(b.position.y);
+  if (ay !== by) return ay - by;
+  return Math.round(a.position.x) - Math.round(b.position.x);
 }
 
 function buildColumnNameMap(columns: WorkflowIrColumn[], nodes: FlowNode<WorkflowFlowNodeData>[]) {
@@ -63,6 +69,7 @@ export function buildMobileWorkflowGraph(
   const columnNames = buildColumnNameMap(columns, nodes);
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
   const childNodesByParent = new Map<string, FlowNode<WorkflowFlowNodeData>[]>();
+  const edgesBySource = new Map<string, FlowEdge[]>();
 
   for (const node of nodes) {
     if (!node.parentId) continue;
@@ -72,7 +79,13 @@ export function buildMobileWorkflowGraph(
   }
 
   for (const list of childNodesByParent.values()) {
-    list.sort((a, b) => nodeSortValue(a) - nodeSortValue(b));
+    list.sort(compareNodePosition);
+  }
+
+  for (const edge of edges) {
+    const list = edgesBySource.get(edge.source) ?? [];
+    list.push(edge);
+    edgesBySource.set(edge.source, list);
   }
 
   const summarizeEdge = (edge: FlowEdge): MobileWorkflowEdgeSummary => {
@@ -99,14 +112,14 @@ export function buildMobileWorkflowGraph(
       editable: node.data.kind !== "start" && node.data.kind !== "end" && !isColumnBandNode(node.id),
       parentId: node.parentId,
       templateLocalId: node.parentId ? templateNodeIdFromChild(node.parentId, node.id) : undefined,
-      outgoing: edges.filter((edge) => edge.source === node.id).map(summarizeEdge),
+      outgoing: (edgesBySource.get(node.id) ?? []).map(summarizeEdge),
       children,
     };
   };
 
   const topLevelNodes = nodes
     .filter((node) => !node.parentId && !isColumnBandNode(node.id))
-    .sort((a, b) => nodeSortValue(a) - nodeSortValue(b));
+    .sort(compareNodePosition);
 
   return topLevelNodes.map(summarizeNode);
 }

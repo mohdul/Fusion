@@ -71,12 +71,6 @@
   }
 
   .workflow-selector select,
-  .workflow-selector-manage,
-  .workflow-selector-collapsed-button {
-    width: 100%;
-  }
-
-  .workflow-selector select,
   .workflow-selector-manage {
     width: 100%;
   }

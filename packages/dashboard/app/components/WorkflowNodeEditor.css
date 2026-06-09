@@ -549,6 +549,48 @@
   display: none;
 }
 
+.wf-layout-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  width: fit-content;
+  min-height: 30px;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.wf-layout-toggle:hover {
+  background: var(--bg-tertiary);
+  color: var(--text);
+}
+
+.wf-layout-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.wf-editor-body--simple-layout :where(.wf-editor-readonly-banner),
+.wf-editor-body--simple-layout :where(.wf-editor-toolbar),
+.wf-editor-body--simple-layout :where(.wf-templates),
+.wf-editor-body--simple-layout :where(.wf-editor-canvas) {
+  display: none;
+}
+
+.wf-editor-body--simple-layout .wf-mobile-shell {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+}
+
 .wf-editor-inspector {
   display: flex;
   flex-direction: column;
@@ -1331,10 +1373,10 @@
     overflow: hidden;
   }
 
-  .wf-editor-body--editor-stage .wf-editor-readonly-banner:not(.wf-mobile-shell),
-  .wf-editor-body--editor-stage .wf-editor-toolbar:not(.wf-mobile-shell),
-  .wf-editor-body--editor-stage .wf-templates:not(.wf-mobile-shell),
-  .wf-editor-body--editor-stage .wf-editor-canvas:not(.wf-mobile-shell) {
+  .wf-editor-body--editor-stage :where(.wf-editor-readonly-banner),
+  .wf-editor-body--editor-stage :where(.wf-editor-toolbar),
+  .wf-editor-body--editor-stage :where(.wf-templates),
+  .wf-editor-body--editor-stage :where(.wf-editor-canvas) {
     display: none;
   }
 
