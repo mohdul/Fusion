@@ -523,6 +523,7 @@ export type DatabaseMutationType =
    */
   | "session:runtime-resolved"
   | "task:in-review-stall-deadlock-disposed"
+  | "task:in-review-stall-terminal-provider-error"
   | "task:finalize-unproven-blocked"
   /**
    * FN-5490/FN-5517/FN-5526/FN-5540 lost-work guard: the merger or self-heal

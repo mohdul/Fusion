@@ -28,7 +28,7 @@ import { promisify } from "node:util";
 import { setImmediate as setImmediateCb } from "node:timers";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, allowsAutoMergeProcessing, countRecentIdenticalStallEntries, detectDependencyCycle, detectSelfDefeatingDependency, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getTaskMergeBlocker, isEphemeralAgent, isMergeRequestContractShadowEnabled, isWorkflowColumnsEnabled, isSharedBranchGroupMemberIntegration, parseExplicitDuplicateMarker, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult } from "@fusion/core";
+import { IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, IN_REVIEW_STALL_TERMINAL_LOG_PREFIX, allowsAutoMergeProcessing, countRecentIdenticalStallEntries, detectDependencyCycle, detectSelfDefeatingDependency, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getTaskMergeBlocker, isEphemeralAgent, isMergeRequestContractShadowEnabled, isWorkflowColumnsEnabled, isSharedBranchGroupMemberIntegration, parseExplicitDuplicateMarker, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult } from "@fusion/core";
 import type { MeshLeaseManager } from "./mesh-lease-manager.js";
 import { createLogger, schedulerLog } from "./logger.js";
 import { mergeEffectiveSettings } from "./effective-settings.js";
@@ -5415,6 +5415,34 @@ export class SelfHealingManager {
         if (this.isMergeLaneOwned(task.id)) continue;
 
         if (Date.parse(task.updatedAt) >= cycleStartMs) {
+          continue;
+        }
+
+        if (signal.code === "non-retryable-provider-error" && task.userPaused !== true) {
+          await this.store.logEntry(task.id, `${IN_REVIEW_STALL_TERMINAL_LOG_PREFIX}${signal.code}]: ${signal.reason}`);
+          await this.store.updateTask(task.id, {
+            paused: true,
+            pausedReason: "non-retryable-provider-error",
+            status: "failed",
+            error: `Terminal provider error (non-retryable): ${signal.reason}`,
+          });
+          const auditor = createRunAuditor(this.store, {
+            runId: generateSyntheticRunId("self-healing-stall-terminal-provider-error", task.id),
+            agentId: "self-healing",
+            taskId: task.id,
+            phase: "self-healing",
+          });
+          await auditor.database({
+            type: "task:in-review-stall-terminal-provider-error",
+            target: task.id,
+            metadata: {
+              code: signal.code,
+              reason: signal.reason,
+              branch: task.branch ?? null,
+              worktree: task.worktree ?? null,
+            },
+          });
+          surfaced += 1;
           continue;
         }
 
