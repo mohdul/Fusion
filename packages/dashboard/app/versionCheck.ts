@@ -25,11 +25,15 @@ export function _isAutoReloadEnabled(): boolean {
   return autoReloadEnabled;
 }
 
-/** Exported for testing — resets internal state. */
+/** Exported for testing — resets internal state and clears installed polling. */
 export function _resetState(): void {
   lastCheckTime = 0;
   checkInFlight = false;
   autoReloadEnabled = true;
+  if (pollIntervalId !== null) {
+    window.clearInterval(pollIntervalId);
+    pollIntervalId = null;
+  }
   _resetMismatchState();
 }
 
@@ -121,10 +125,15 @@ async function bootstrapAutoReloadSetting(): Promise<void> {
 }
 
 export const MIN_CHECK_INTERVAL_MS = 60_000; // 1 minute
+export const POLL_INTERVAL_MS = 5 * 60_000; // 5 minutes
+
+type VersionCheckTrigger = "visibilitychange" | "focus" | "initial" | "poll";
+
 let lastCheckTime = 0;
 let checkInFlight = false;
 let lastMismatchedRemote: string | null = null;
 let lastMismatchAt = 0;
+let pollIntervalId: number | null = null;
 
 /** Exported for testing — resets internal cooldown state */
 export function _resetCheckState(): void {
@@ -138,7 +147,7 @@ export function _resetMismatchState(): void {
   lastMismatchAt = 0;
 }
 
-export async function checkVersion(trigger: "visibilitychange" | "focus" | "initial" = "initial"): Promise<void> {
+export async function checkVersion(trigger: VersionCheckTrigger = "initial"): Promise<void> {
   if (checkInFlight || document.visibilityState !== "visible") return;
   if (Date.now() - lastCheckTime < MIN_CHECK_INTERVAL_MS) return;
   lastCheckTime = Date.now();
@@ -195,6 +204,15 @@ export async function checkVersion(trigger: "visibilitychange" | "focus" | "init
   }
 }
 
+/**
+ * Install production version-change detection.
+ *
+ * The checker runs on initial load, tab visibility/focus events, and a
+ * lightweight periodic poll so foreground tabs detect newly deployed bundles
+ * even when the user never switches away. `checkVersion()` applies visibility
+ * and cooldown guards, so the interval does not fetch for hidden tabs or more
+ * frequently than the minimum check interval.
+ */
 export function installVersionCheck(): void {
   if (!import.meta.env.PROD) return;
   // Fetch settings to apply auto-reload guard before first version check.
@@ -209,4 +227,9 @@ export function installVersionCheck(): void {
   });
   // Initial check after load to catch tabs restored from bfcache.
   window.setTimeout(() => void checkVersion("initial"), 2_000);
+  if (pollIntervalId === null) {
+    pollIntervalId = window.setInterval(() => {
+      void checkVersion("poll");
+    }, POLL_INTERVAL_MS);
+  }
 }
