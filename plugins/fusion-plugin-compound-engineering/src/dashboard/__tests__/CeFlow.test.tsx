@@ -1,8 +1,70 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { PlanningQuestion } from "@fusion/core";
 import { CeFlow } from "../CeFlow.js";
 import type { CeSession } from "../../session/session-store.js";
+
+let restoreScrollProperties: (() => void) | undefined;
+
+function installTranscriptScrollBox(overrides: { scrollHeight: number; clientHeight: number; scrollTop: number }) {
+  restoreScrollProperties?.();
+
+  const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+  const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+  const originalScrollTop = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTop");
+  const state = { ...overrides };
+
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+    configurable: true,
+    get: () => state.scrollHeight,
+  });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get: () => state.clientHeight,
+  });
+  Object.defineProperty(HTMLElement.prototype, "scrollTop", {
+    configurable: true,
+    get: () => state.scrollTop,
+    set: (value: number) => {
+      state.scrollTop = value;
+    },
+  });
+
+  restoreScrollProperties = () => {
+    if (originalScrollHeight) {
+      Object.defineProperty(HTMLElement.prototype, "scrollHeight", originalScrollHeight);
+    } else {
+      delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight;
+    }
+    if (originalClientHeight) {
+      Object.defineProperty(HTMLElement.prototype, "clientHeight", originalClientHeight);
+    } else {
+      delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+    }
+    if (originalScrollTop) {
+      Object.defineProperty(HTMLElement.prototype, "scrollTop", originalScrollTop);
+    } else {
+      delete (HTMLElement.prototype as { scrollTop?: number }).scrollTop;
+    }
+    restoreScrollProperties = undefined;
+  };
+
+  return {
+    get scrollTop() {
+      return state.scrollTop;
+    },
+    setScrollHeight(value: number) {
+      state.scrollHeight = value;
+    },
+    setScrollTop(value: number) {
+      state.scrollTop = value;
+    },
+  };
+}
+
+afterEach(() => {
+  restoreScrollProperties?.();
+});
 
 function makeSession(over: Partial<CeSession> & { currentQuestion?: PlanningQuestion | null }): CeSession {
   return {
@@ -253,6 +315,74 @@ describe("CeFlow — Q&A transcript rendering", () => {
     expect(details).toHaveTextContent("Agent work (2 steps)");
     expect(screen.getByText("Scanning the repo…")).toBeInTheDocument();
     expect(screen.getByTestId("ce-activity-tool")).toHaveTextContent("Read");
+  });
+
+  it("keeps the transcript pinned when new history arrives near the bottom", () => {
+    const scrollBox = installTranscriptScrollBox({ scrollHeight: 1000, clientHeight: 200, scrollTop: 800 });
+    const initialHistory = [{ role: "agent" as const, text: "First answer", at: "t1" }];
+    const { rerender } = render(
+      <CeFlow session={makeSession({ status: "active", conversationHistory: initialHistory })} onAnswer={vi.fn()} />,
+    );
+    expect(screen.getByTestId("ce-flow-transcript")).toHaveTextContent("First answer");
+
+    scrollBox.setScrollTop(800);
+    scrollBox.setScrollHeight(1200);
+    rerender(
+      <CeFlow
+        session={makeSession({
+          status: "active",
+          conversationHistory: [...initialHistory, { role: "agent" as const, text: "Second answer", at: "t2" }],
+        })}
+        onAnswer={vi.fn()}
+      />,
+    );
+
+    expect(scrollBox.scrollTop).toBe(1200);
+  });
+
+  it("does not auto-scroll when the user has scrolled away from the bottom", () => {
+    const scrollBox = installTranscriptScrollBox({ scrollHeight: 1000, clientHeight: 200, scrollTop: 800 });
+    const initialHistory = [{ role: "agent" as const, text: "First answer", at: "t1" }];
+    const { rerender } = render(
+      <CeFlow session={makeSession({ status: "active", conversationHistory: initialHistory })} onAnswer={vi.fn()} />,
+    );
+    const transcript = screen.getByTestId("ce-flow-transcript");
+
+    scrollBox.setScrollTop(200);
+    fireEvent.scroll(transcript);
+    scrollBox.setScrollHeight(1200);
+    rerender(
+      <CeFlow
+        session={makeSession({
+          status: "active",
+          conversationHistory: [...initialHistory, { role: "agent" as const, text: "Second answer", at: "t2" }],
+        })}
+        onAnswer={vi.fn()}
+      />,
+    );
+
+    expect(scrollBox.scrollTop).toBe(200);
+  });
+
+  it("scrolls to the bottom on first content load", () => {
+    const scrollBox = installTranscriptScrollBox({ scrollHeight: 900, clientHeight: 200, scrollTop: 0 });
+    const { rerender } = render(
+      <CeFlow session={makeSession({ status: "active", conversationHistory: [] })} onAnswer={vi.fn()} />,
+    );
+    expect(screen.queryByTestId("ce-flow-transcript")).not.toBeInTheDocument();
+
+    rerender(
+      <CeFlow
+        session={makeSession({
+          status: "active",
+          conversationHistory: [{ role: "agent" as const, text: "Loaded answer", at: "t1" }],
+        })}
+        onAnswer={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("ce-flow-transcript")).toHaveTextContent("Loaded answer");
+    expect(scrollBox.scrollTop).toBe(900);
   });
 });
 

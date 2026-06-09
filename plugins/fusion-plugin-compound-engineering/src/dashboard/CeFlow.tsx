@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PlanningQuestion } from "@fusion/core";
 import type { CeActivityTurn, CeConversationTurn, CeSession } from "../session/session-store.js";
 import { canRenderRichly } from "./ce-question-support.js";
@@ -39,6 +39,8 @@ export interface CeFlowProps {
 
 // ── Transcript parsing ───────────────────────────────────────────────────────
 
+const BOTTOM_FOLLOW_THRESHOLD_PX = 50;
+
 type DisplayItem =
   | { kind: "chat"; role: "user" | "agent"; text: string }
   | { kind: "qa-question"; question: PlanningQuestion }
@@ -63,6 +65,10 @@ function tryParseJson(text: string): Record<string, unknown> | undefined {
  * renderable items. Control records are no longer hidden — questions, answers,
  * and working traces are the conversation.
  */
+function isNearTranscriptBottom(container: HTMLOListElement): boolean {
+  return container.scrollHeight - (container.scrollTop + container.clientHeight) <= BOTTOM_FOLLOW_THRESHOLD_PX;
+}
+
 function parseHistory(history: CeConversationTurn[]): DisplayItem[] {
   const items: DisplayItem[] = [];
   const questionsById = new Map<string, PlanningQuestion>();
@@ -152,9 +158,52 @@ function ActivityTrace({ turns, live }: { turns: CeActivityTurn[]; live?: boolea
 /** Render the full conversation: chat, Q&A bubbles, and working traces. */
 function Transcript({ history }: { history: CeConversationTurn[] }) {
   const items = useMemo(() => parseHistory(history), [history]);
+  const transcriptRef = useRef<HTMLOListElement | null>(null);
+  const previousHistoryLengthRef = useRef(0);
+  const previousScrollHeightRef = useRef(0);
+  const [isFollowing, setIsFollowing] = useState(true);
+
+  useLayoutEffect(() => {
+    const container = transcriptRef.current;
+    if (!container) return;
+
+    const previousHistoryLength = previousHistoryLengthRef.current;
+    const previousScrollHeight = previousScrollHeightRef.current || container.scrollHeight;
+    const wasNearBottom = previousScrollHeight - (container.scrollTop + container.clientHeight) <= BOTTOM_FOLLOW_THRESHOLD_PX;
+    const firstContentLoad = previousHistoryLength === 0 && history.length > 0;
+    const newContentArrived = history.length !== previousHistoryLength;
+
+    if (firstContentLoad || (newContentArrived && (isFollowing || wasNearBottom))) {
+      container.scrollTop = container.scrollHeight;
+    }
+
+    previousHistoryLengthRef.current = history.length;
+    previousScrollHeightRef.current = container.scrollHeight;
+    setIsFollowing(isNearTranscriptBottom(container));
+  }, [history, isFollowing]);
+
+  const handleScroll = useCallback(() => {
+    const container = transcriptRef.current;
+    if (!container) return;
+    setIsFollowing(isNearTranscriptBottom(container));
+  }, []);
+
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined" || !isFollowing) return;
+    const container = transcriptRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver(() => {
+      container.scrollTop = container.scrollHeight;
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [isFollowing]);
+
   if (items.length === 0) return null;
   return (
-    <ol className="ce-flow-transcript" data-testid="ce-flow-transcript">
+    <ol ref={transcriptRef} className="ce-flow-transcript" data-testid="ce-flow-transcript" onScroll={handleScroll}>
       {items.map((item, i) => {
         switch (item.kind) {
           case "chat":
