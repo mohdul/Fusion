@@ -18,6 +18,10 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   } as Task;
 }
 
+function doneMarker(minutesAgo = 6) {
+  return { action: "Task marked done by agent", timestamp: new Date(Date.now() - minutesAgo * 60_000).toISOString() } as any;
+}
+
 function createStore(task: Task) {
   let current = { ...task } as Task;
   return {
@@ -35,18 +39,22 @@ function createStore(task: Task) {
   } as any;
 }
 
+function limboTask(overrides: Partial<Task> = {}): Task {
+  return makeTask({
+    worktree: "/tmp/wt",
+    status: undefined,
+    review: undefined,
+    reviewState: undefined,
+    mergeDetails: undefined,
+    log: [doneMarker()],
+    ...overrides,
+  });
+}
+
 describe("FN-4999 reliability interactions: completion-handoff-limbo", () => {
-  it("recovers exact signature by requeueing auto-merge", async () => {
-    const task = makeTask({
-      worktree: "/tmp/wt",
-      status: undefined,
-      review: undefined,
-      reviewState: undefined,
-      mergeDetails: undefined,
-      log: [{ action: "Task marked done by agent", timestamp: new Date(Date.now() - 6 * 60_000).toISOString() } as any],
-    });
-    const store = createStore(task);
-    const requeueForAutoMerge = vi.fn();
+  it("recovers exact signature by requeueing auto-merge after accepted handoff", async () => {
+    const store = createStore(limboTask());
+    const requeueForAutoMerge = vi.fn(() => true);
     const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge });
 
     await manager.recoverCompletionHandoffLimbo();
@@ -59,15 +67,19 @@ describe("FN-4999 reliability interactions: completion-handoff-limbo", () => {
     expect(store.recordRunAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
       mutationType: "task:auto-recover-completion-handoff-limbo",
       target: "FN-4999-T",
-      metadata: expect.objectContaining({ ageMs: expect.any(Number), source: "self-healing-in-review-sweep" }),
+      metadata: expect.objectContaining({
+        ageMs: expect.any(Number),
+        source: "self-healing-in-review-sweep",
+        attempts: 1,
+      }),
     }));
     const event = store.recordRunAuditEvent.mock.calls.find((call: any[]) => call[0].mutationType === "task:auto-recover-completion-handoff-limbo")?.[0];
     expect(event.metadata.ageMs).toBeGreaterThanOrEqual(COMPLETION_HANDOFF_LIMBO_GRACE_MS);
   });
 
   it("is no-op before grace period elapses", async () => {
-    const store = createStore(makeTask({ status: undefined, review: undefined, reviewState: undefined, mergeDetails: undefined, log: [{ action: "Task marked done by agent", timestamp: new Date(Date.now() - 30_000).toISOString() } as any] }));
-    const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge: vi.fn() });
+    const store = createStore(limboTask({ log: [doneMarker(0.5)] }));
+    const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge: vi.fn(() => true) });
     await manager.recoverCompletionHandoffLimbo();
     expect(store.updateTask).not.toHaveBeenCalled();
     expect(store.logEntry).not.toHaveBeenCalled();
@@ -75,32 +87,32 @@ describe("FN-4999 reliability interactions: completion-handoff-limbo", () => {
   });
 
   it("skips active tasks", async () => {
-    const requeueForAutoMerge = vi.fn();
-    const store = createStore(makeTask({ status: undefined, review: undefined, reviewState: undefined, mergeDetails: undefined, log: [{ action: "Task marked done by agent", timestamp: new Date(Date.now() - 6 * 60_000).toISOString() } as any] }));
+    const requeueForAutoMerge = vi.fn(() => true);
+    const store = createStore(limboTask());
     const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge, isTaskActive: () => true });
     await manager.recoverCompletionHandoffLimbo();
     expect(requeueForAutoMerge).not.toHaveBeenCalled();
   });
 
   it("honors legitimate merge blockers", async () => {
-    const requeueForAutoMerge = vi.fn();
-    const store = createStore(makeTask({ status: "failed", review: undefined, reviewState: undefined, mergeDetails: undefined, log: [{ action: "Task marked done by agent", timestamp: new Date(Date.now() - 6 * 60_000).toISOString() } as any] }));
+    const requeueForAutoMerge = vi.fn(() => true);
+    const store = createStore(limboTask({ status: "failed" }));
     const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge });
     await manager.recoverCompletionHandoffLimbo();
     expect(requeueForAutoMerge).not.toHaveBeenCalled();
   });
 
   it("is no-op when marker is absent", async () => {
-    const requeueForAutoMerge = vi.fn();
-    const store = createStore(makeTask({ status: undefined, review: undefined, reviewState: undefined, mergeDetails: undefined, log: [{ action: "workflow step", timestamp: new Date(Date.now() - 6 * 60_000).toISOString() } as any] }));
+    const requeueForAutoMerge = vi.fn(() => true);
+    const store = createStore(limboTask({ log: [{ action: "workflow step", timestamp: new Date(Date.now() - 6 * 60_000).toISOString() } as any] }));
     const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge });
     await manager.recoverCompletionHandoffLimbo();
     expect(requeueForAutoMerge).not.toHaveBeenCalled();
   });
 
   it("emits exhausted event and fails task at cap", async () => {
-    const requeueForAutoMerge = vi.fn();
-    const store = createStore(makeTask({ completionHandoffLimboRecoveryCount: MAX_COMPLETION_HANDOFF_LIMBO_RECOVERIES, status: undefined, review: undefined, reviewState: undefined, mergeDetails: undefined, log: [{ action: "Task marked done by agent", timestamp: new Date(Date.now() - 6 * 60_000).toISOString() } as any] }));
+    const requeueForAutoMerge = vi.fn(() => true);
+    const store = createStore(limboTask({ completionHandoffLimboRecoveryCount: MAX_COMPLETION_HANDOFF_LIMBO_RECOVERIES }));
     const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge });
     await manager.recoverCompletionHandoffLimbo();
     expect(requeueForAutoMerge).not.toHaveBeenCalled();
@@ -109,10 +121,9 @@ describe("FN-4999 reliability interactions: completion-handoff-limbo", () => {
     expect(store.recordRunAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ mutationType: "task:auto-recover-completion-handoff-limbo-exhausted" }));
   });
 
-  it("increments completionHandoffLimboRecoveryCount on each successful recovery", async () => {
-    const task = makeTask({ status: undefined, review: undefined, reviewState: undefined, mergeDetails: undefined, log: [{ action: "Task marked done by agent", timestamp: new Date(Date.now() - 6 * 60_000).toISOString() } as any] });
-    const store = createStore(task);
-    const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge: vi.fn() });
+  it("increments completionHandoffLimboRecoveryCount on each accepted recovery", async () => {
+    const store = createStore(limboTask());
+    const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge: vi.fn(() => true) });
 
     await manager.recoverCompletionHandoffLimbo();
     await manager.recoverCompletionHandoffLimbo();
@@ -122,5 +133,68 @@ describe("FN-4999 reliability interactions: completion-handoff-limbo", () => {
       .map((call: any[]) => call[1]?.completionHandoffLimboRecoveryCount)
       .filter((value: unknown) => typeof value === "number");
     expect(increments).toEqual([1, 2, 3]);
+  });
+
+  it("does not increment completionHandoffLimboRecoveryCount when merge requeue is rejected", async () => {
+    const store = createStore(limboTask({ completionHandoffLimboRecoveryCount: 2 }));
+    const requeueForAutoMerge = vi.fn(() => false);
+    const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge });
+
+    await manager.recoverCompletionHandoffLimbo();
+
+    expect(requeueForAutoMerge).toHaveBeenCalledWith("FN-4999-T");
+    expect(store._get().completionHandoffLimboRecoveryCount).toBe(2);
+    expect(store._get().status).toBeUndefined();
+    expect(store.logEntry).not.toHaveBeenCalled();
+    expect(store.recordRunAuditEvent).not.toHaveBeenCalledWith(expect.objectContaining({
+      mutationType: "task:auto-recover-completion-handoff-limbo",
+    }));
+  });
+
+  it("increments completionHandoffLimboRecoveryCount when merge requeue is accepted", async () => {
+    const store = createStore(limboTask({ completionHandoffLimboRecoveryCount: 1 }));
+    const requeueForAutoMerge = vi.fn(() => true);
+    const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge });
+
+    await manager.recoverCompletionHandoffLimbo();
+
+    expect(store._get().completionHandoffLimboRecoveryCount).toBe(2);
+    expect(store.logEntry).toHaveBeenCalledWith("FN-4999-T", expect.stringMatching(/Auto-recovered \(FN-4999\)/));
+    expect(store.recordRunAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      mutationType: "task:auto-recover-completion-handoff-limbo",
+      metadata: expect.objectContaining({ attempts: 2 }),
+    }));
+  });
+
+  it("skips tasks already held by the merge queue without incrementing the count", async () => {
+    const store = createStore(limboTask({ completionHandoffLimboRecoveryCount: 1 }));
+    const requeueForAutoMerge = vi.fn(() => false);
+    const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge });
+
+    await manager.recoverCompletionHandoffLimbo();
+    await manager.recoverCompletionHandoffLimbo();
+
+    expect(requeueForAutoMerge).toHaveBeenCalledTimes(2);
+    expect(store._get().completionHandoffLimboRecoveryCount).toBe(1);
+    expect(store._get().status).toBeUndefined();
+    expect(store.logEntry).not.toHaveBeenCalled();
+  });
+
+  it("exhausts only after three accepted limbo recoveries", async () => {
+    const store = createStore(limboTask());
+    const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge: vi.fn(() => true) });
+
+    await manager.recoverCompletionHandoffLimbo();
+    await manager.recoverCompletionHandoffLimbo();
+    await manager.recoverCompletionHandoffLimbo();
+    expect(store._get().completionHandoffLimboRecoveryCount).toBe(MAX_COMPLETION_HANDOFF_LIMBO_RECOVERIES);
+    expect(store._get().status).toBeUndefined();
+
+    await manager.recoverCompletionHandoffLimbo();
+
+    expect(store.updateTask).toHaveBeenLastCalledWith("FN-4999-T", expect.objectContaining({
+      status: "failed",
+      error: "Completion handoff limbo recovery exhausted",
+    }));
   });
 });

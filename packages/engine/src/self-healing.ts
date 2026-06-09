@@ -269,7 +269,7 @@ export interface SelfHealingOptions {
    * the polling sweep's enqueue to silently no-op).
    */
   enqueueMerge?: (taskId: string) => boolean;
-  requeueForAutoMerge?: (taskId: string) => void | Promise<void>;
+  requeueForAutoMerge?: (taskId: string) => boolean | void | Promise<boolean | void>;
   isTaskActive?: (taskId: string) => boolean;
   clearMergeActive?: (taskId: string) => void;
   /**
@@ -7002,6 +7002,30 @@ export class SelfHealingManager {
         continue;
       }
 
+      const requeueForAutoMerge = this.options.requeueForAutoMerge ?? this.options.enqueueMerge;
+      if (!requeueForAutoMerge) {
+        log.warn(`recoverCompletionHandoffLimbo: requeueForAutoMerge callback missing for ${task.id}`);
+        continue;
+      }
+
+      try {
+        // FN-5353: strict targetTaskId leasing in reuse handoff requires an
+        // explicit queue row before re-emitting auto-merge.
+        await this.store.enqueueMergeQueue(task.id);
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        log.warn(`recoverCompletionHandoffLimbo: enqueue failed for ${task.id}: ${errorMessage}`);
+        continue;
+      }
+
+      const accepted = await requeueForAutoMerge(task.id);
+      if (accepted !== true) {
+        log.log(
+          `recoverCompletionHandoffLimbo: skipped recovery count for ${task.id} because merge requeue was not accepted`,
+        );
+        continue;
+      }
+
       await this.store.updateTask(task.id, {
         completionHandoffLimboRecoveryCount: currentCount + 1,
       });
@@ -7016,24 +7040,10 @@ export class SelfHealingManager {
       await audit.database({
         type: "task:auto-recover-completion-handoff-limbo",
         target: task.id,
-        metadata: { ageMs, source: "self-healing-in-review-sweep" },
+        metadata: { ageMs, source: "self-healing-in-review-sweep", attempts: currentCount + 1 },
       });
 
       await this.store.logEntry(task.id, "Auto-recovered (FN-4999): task in 'in-review' past handoff grace with no merge fan-out — re-emitting auto-merge handoff");
-      if (this.options.requeueForAutoMerge) {
-        try {
-          // FN-5353: strict targetTaskId leasing in reuse handoff requires an
-          // explicit queue row before re-emitting auto-merge.
-          await this.store.enqueueMergeQueue(task.id);
-        } catch (err) {
-          const errorMessage = err instanceof Error ? err.message : String(err);
-          log.warn(`recoverCompletionHandoffLimbo: enqueue failed for ${task.id}: ${errorMessage}`);
-          continue;
-        }
-        await this.options.requeueForAutoMerge(task.id);
-      } else {
-        log.warn(`recoverCompletionHandoffLimbo: requeueForAutoMerge callback missing for ${task.id}`);
-      }
     }
   }
 

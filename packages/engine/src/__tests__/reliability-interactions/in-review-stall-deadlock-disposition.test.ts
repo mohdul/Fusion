@@ -28,6 +28,7 @@ function createStore(task: Task, settings: Record<string, unknown> = {}): TaskSt
     auditEvents.push(event);
   });
   (emitter as any).moveTask = vi.fn().mockResolvedValue(undefined);
+  (emitter as any).enqueueMergeQueue = vi.fn().mockResolvedValue(undefined);
 
   return emitter;
 }
@@ -110,6 +111,48 @@ describe("reliability interactions: in-review stall deadlock disposition", () =>
       (event) => event.mutationType === "task:in-review-stall-deadlock-disposed",
     );
     expect(disposeAuditsAfterFourth).toHaveLength(auditCountBeforeFourth);
+
+    manager.stop();
+  });
+
+  it("FN-6070: rejected limbo requeues do not increment into deadlock disposition", async () => {
+    const task = {
+      id: "FN-6070-REJECTED",
+      column: "in-review",
+      paused: false,
+      userPaused: false,
+      status: undefined,
+      error: undefined,
+      branch: "fusion/fn-6070-rejected",
+      worktree: "/tmp/fn-6070-rejected",
+      mergeDetails: undefined,
+      mergeRetries: 0,
+      completionHandoffLimboRecoveryCount: 2,
+      steps: [{ name: "merge", status: "done" }],
+      workflowStepResults: [],
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      log: [{ action: "Task marked done by agent", timestamp: "2026-01-01T00:00:00.000Z" }],
+    } as any satisfies Task;
+
+    const store = createStore(task);
+    const manager = new SelfHealingManager(store, {
+      rootDir: "/tmp/repo",
+      requeueForAutoMerge: vi.fn(() => false),
+    });
+
+    vi.setSystemTime(new Date("2026-01-01T00:10:00.000Z"));
+    await manager.recoverCompletionHandoffLimbo();
+    vi.setSystemTime(new Date("2026-01-01T00:25:00.000Z"));
+    await manager.recoverCompletionHandoffLimbo();
+    vi.setSystemTime(new Date("2026-01-01T00:40:00.000Z"));
+    await manager.recoverCompletionHandoffLimbo();
+
+    expect(task.completionHandoffLimboRecoveryCount).toBe(2);
+    expect(task.status).toBeUndefined();
+    expect(task.error).toBeUndefined();
+    expect(await manager.surfaceInReviewStalls()).toBe(0);
+    expect(task.pausedReason).not.toBe("in-review-stall-deadlock");
+    expect(task.log.some((entry: { action: string }) => entry.action.includes("Completion handoff limbo recovery exhausted"))).toBe(false);
 
     manager.stop();
   });
