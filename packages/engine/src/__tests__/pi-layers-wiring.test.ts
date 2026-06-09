@@ -26,8 +26,10 @@ const settingsManagerInMemoryMock = vi.fn(() => ({ kind: "settings-manager" }));
 const setFallbackResolverMock = vi.fn();
 const reloadMock = vi.fn(async () => {});
 const execSyncMock = vi.fn((_cmd?: any, _opts?: any) => "");
+const spawnSyncMock = vi.fn(() => ({ status: 1, stdout: "" }));
 const existsSyncMock = vi.fn((_path: PathLike) => false);
 const readFileSyncMock = vi.fn((_path?: any) => "{}");
+const realpathSyncNativeMock = vi.fn((path: PathLike) => String(path));
 const readCustomProvidersMock = vi.fn(() => []);
 
 // Capture DefaultResourceLoader constructor args
@@ -64,7 +66,7 @@ vi.mock("node:child_process", () => {
         }
       });
     });
-  return { execSync: execSyncFn, exec: execFn, execFile: vi.fn() };
+  return { execSync: execSyncFn, exec: execFn, execFile: vi.fn(), spawnSync: spawnSyncMock };
 });
 
 vi.mock("node:fs", async () => {
@@ -73,6 +75,9 @@ vi.mock("node:fs", async () => {
     ...actual,
     existsSync: existsSyncMock,
     readFileSync: readFileSyncMock,
+    realpathSync: Object.assign(vi.fn((path: PathLike) => String(path)), {
+      native: realpathSyncNativeMock,
+    }),
   };
 });
 
@@ -143,8 +148,10 @@ describe("createFnAgent prompt layer wiring", () => {
     vi.clearAllMocks();
     capturedResourceLoaderOptions = null;
     execSyncMock.mockReturnValue("");
+    spawnSyncMock.mockReturnValue({ status: 1, stdout: "" });
     existsSyncMock.mockReturnValue(false);
     readFileSyncMock.mockReturnValue("{}");
+    realpathSyncNativeMock.mockImplementation((path: PathLike) => String(path));
     readCustomProvidersMock.mockReturnValue([]);
     findMock.mockImplementation((provider: string, modelId: string) => ({ provider, id: modelId }));
     createAgentSessionMock.mockResolvedValue({
@@ -172,6 +179,40 @@ describe("createFnAgent prompt layer wiring", () => {
     expect(capturedResourceLoaderOptions).toBeDefined();
     const override = capturedResourceLoaderOptions.systemPromptOverride();
     expect(override).toBe("Stable prefix.");
+  });
+
+  it("accepts macOS-canonicalized Git linked worktrees during session validation", async () => {
+    const cwd = "/var/folders/zp/fjh8794n7bl61c_pn1gmdt200000gn/T/project/.worktrees/fn-6085";
+    const projectRoot = "/var/folders/zp/fjh8794n7bl61c_pn1gmdt200000gn/T/project";
+    const canonicalCwd = "/private/var/folders/zp/fjh8794n7bl61c_pn1gmdt200000gn/T/project/.worktrees/fn-6085";
+    existsSyncMock.mockImplementation((path: PathLike) => {
+      const text = String(path);
+      return text === cwd || text === `${cwd}/.git` || text === `${projectRoot}/.fusion`;
+    });
+    realpathSyncNativeMock.mockImplementation((path: PathLike) => {
+      const text = String(path);
+      return text.startsWith("/var/folders/") ? `/private${text}` : text;
+    });
+    execSyncMock.mockImplementation((cmd: string) => {
+      if (cmd.includes("git rev-parse --show-toplevel")) {
+        return `${canonicalCwd}\n`;
+      }
+      if (cmd.includes("git worktree list --porcelain")) {
+        return `worktree ${canonicalCwd}\nHEAD abc123\n`;
+      }
+      return "";
+    });
+
+    const { createFnAgent } = await import("../pi.js");
+
+    await expect(createFnAgent({
+      cwd,
+      systemPrompt: "system",
+      defaultProvider: "mock",
+      defaultModelId: "scripted",
+    })).resolves.toBeDefined();
+
+    expect(createAgentSessionMock).toHaveBeenCalledWith(expect.objectContaining({ cwd }));
   });
 
   it("passes dynamic layer via appendSystemPromptOverride when layers provided", async () => {

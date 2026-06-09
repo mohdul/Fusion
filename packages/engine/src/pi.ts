@@ -6,7 +6,7 @@
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
@@ -1400,12 +1400,20 @@ async function isRegisteredGitWorktree(projectRoot: string, worktreePath: string
       cwd: projectRoot,
       encoding: "utf-8",
     });
-    const resolvedWorktree = resolve(worktreePath);
+    const resolvedWorktree = normalizeExistingPathForGitComparison(worktreePath);
     return stdout.split("\n").some((line) =>
-      line.startsWith("worktree ") && resolve(line.slice("worktree ".length)) === resolvedWorktree
+      line.startsWith("worktree ") && normalizeExistingPathForGitComparison(line.slice("worktree ".length)) === resolvedWorktree
     );
   } catch {
     return false;
+  }
+}
+
+function normalizeExistingPathForGitComparison(path: string): string {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return resolve(path);
   }
 }
 
@@ -1415,7 +1423,7 @@ async function isCompleteGitWorktree(worktreePath: string): Promise<boolean> {
       cwd: worktreePath,
       encoding: "utf-8",
     });
-    return resolve(stdout.trim()) === resolve(worktreePath);
+    return normalizeExistingPathForGitComparison(stdout.trim()) === normalizeExistingPathForGitComparison(worktreePath);
   } catch {
     return false;
   }
