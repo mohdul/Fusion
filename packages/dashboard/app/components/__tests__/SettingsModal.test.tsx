@@ -518,7 +518,7 @@ describe("SettingsModal", () => {
 
   beforeEach(() => {
     vi.useRealTimers();
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     localStorage.clear();
     sessionStorage.clear();
     clearPluginUiSlotsCache();
