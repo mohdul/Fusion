@@ -29,7 +29,7 @@ function selectedIr(): WorkflowIr {
 
 function recordingPrimitives(
   calls: string[],
-  overrides: Partial<Record<"prepare" | "execute", WorkflowNodeResult>> = {},
+  overrides: Partial<Record<"prepare" | "execute" | "workflowStep", WorkflowNodeResult>> = {},
   observed: { prepared?: PreparedWorktree } = {},
 ): WorkflowRuntimePrimitives {
   const prepared: PreparedWorktree = { worktreePath: "/tmp/fusion-worktree" };
@@ -71,7 +71,16 @@ function recordingPrimitives(
       };
     },
     runVerification: async () => ({ outcome: "success", data: { verdict: "skipped" } }),
-    runWorkflowStep: async () => ({ outcome: "success", data: { allPassed: true } }),
+    runWorkflowStep: async () => {
+      calls.push("workflow-step");
+      const override = overrides.workflowStep;
+      return {
+        outcome: override?.outcome ?? "success",
+        value: override?.value ?? "workflow-steps-passed",
+        contextPatch: override?.contextPatch,
+        data: { allPassed: override?.value !== "remediation-scheduled" },
+      };
+    },
     updateSteps: async (_ctx, _task, steps) => ({ outcome: "success", data: { count: steps.length } }),
     transitionTask: async () => {
       calls.push("schedule");
@@ -153,8 +162,31 @@ describe("WorkflowTaskRuntime", () => {
     const result = await runtime.run(task, flagOff);
 
     expect(result.disposition).toBe("completed");
-    expect(calls).toEqual(["planning", "prepare-worktree", "execute", "review", "merge"]);
-    expect(result.visitedNodeIds).toEqual(["start", "planning", "execute", "review", "merge"]);
+    expect(calls).toEqual(["planning", "prepare-worktree", "execute", "workflow-step", "review", "merge"]);
+    expect(result.visitedNodeIds).toEqual(["start", "planning", "execute", "workflow-step", "review", "merge"]);
+  });
+
+  it("stops the built-in workflow before review when workflow-step remediation is scheduled", async () => {
+    const calls: string[] = [];
+    const runtime = new WorkflowTaskRuntime({
+      store: {
+        getTaskWorkflowSelection: () => undefined,
+        getWorkflowDefinition: async () => undefined,
+      },
+      primitives: recordingPrimitives(calls, {
+        workflowStep: { outcome: "success", value: "remediation-scheduled" },
+      }),
+      runCustomNode: async (node) => {
+        calls.push(`custom:${node.id}`);
+        return { outcome: "success" };
+      },
+    });
+
+    const result = await runtime.run(task, flagOff);
+
+    expect(result.disposition).toBe("completed");
+    expect(calls).toEqual(["planning", "prepare-worktree", "execute", "workflow-step"]);
+    expect(result.visitedNodeIds).toEqual(["start", "planning", "execute", "workflow-step"]);
   });
 
   it("fails selected workflow lookup misses instead of running the built-in workflow", async () => {

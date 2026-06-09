@@ -171,6 +171,11 @@ export class WorkflowGraphTaskRunner {
     const wrappedSeams: WorkflowLegacySeams = {
       planning: (t, c) => ((sideEffectsRan = true), invoked.push("planning"), seams.planning(t, c)),
       execute: (t, c) => ((sideEffectsRan = true), invoked.push("execute"), seams.execute(t, c)),
+      workflowStep: (t, c) => {
+        sideEffectsRan = true;
+        invoked.push("workflow-step");
+        return seams.workflowStep?.(t, c) ?? Promise.resolve({ outcome: "success", value: "workflow-step-skipped" });
+      },
       review: (t, c) => ((sideEffectsRan = true), invoked.push("review"), seams.review(t, c)),
       merge: (t, c) => ((sideEffectsRan = true), invoked.push("merge"), seams.merge(t, c)),
       schedule: (t, c) => ((sideEffectsRan = true), invoked.push("schedule"), seams.schedule(t, c)),

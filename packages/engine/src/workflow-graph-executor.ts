@@ -430,7 +430,12 @@ export class WorkflowGraphExecutor {
         return sourceResult;
       }
 
-      const matching = edges.filter((edge) => this.shouldTraverseEdge(edge, sourceResult));
+      const outcomeMatching = edges.filter((edge) =>
+        edge.condition?.startsWith("outcome:") && this.shouldTraverseEdge(edge, sourceResult)
+      );
+      const matching = outcomeMatching.length > 0
+        ? outcomeMatching
+        : edges.filter((edge) => this.shouldTraverseEdge(edge, sourceResult));
       if (matching.length === 0) {
         return sourceResult;
       }

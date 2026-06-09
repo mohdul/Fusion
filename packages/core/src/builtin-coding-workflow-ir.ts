@@ -20,8 +20,9 @@ import { builtinPromptConfig } from "./builtin-workflow-prompts.js";
  *
  * The lifecycle seam nodes are placed in their columns. Planning is explicit so
  * the built-in workflow owns the specification phase rather than relying on
- * triage code that runs outside the graph; execute/review/merge keep the same
- * observable pipeline and failure routing.
+ * triage code that runs outside the graph; workflow-step keeps the legacy
+ * pre-merge quality gate between implementation and review; execute/review/
+ * merge keep the same observable pipeline and failure routing.
  */
 const RAW_BUILTIN_CODING_WORKFLOW_IR: WorkflowIr = {
   version: "v2",
@@ -60,6 +61,12 @@ const RAW_BUILTIN_CODING_WORKFLOW_IR: WorkflowIr = {
       column: "in-progress",
       config: { ...builtinPromptConfig("execute", "Execute"), maxRetries: 2 },
     },
+    {
+      id: "workflow-step",
+      kind: "prompt",
+      column: "in-progress",
+      config: builtinPromptConfig("workflow-step", "Pre-merge workflow steps"),
+    },
     { id: "review", kind: "prompt", column: "in-review", config: builtinPromptConfig("review", "Review") },
     { id: "merge", kind: "prompt", column: "in-review", config: builtinPromptConfig("merge", "Merge boundary") },
     { id: "end", kind: "end", column: "done" },
@@ -67,11 +74,15 @@ const RAW_BUILTIN_CODING_WORKFLOW_IR: WorkflowIr = {
   edges: [
     { from: "start", to: "planning" },
     { from: "planning", to: "execute", condition: "success" },
-    { from: "execute", to: "review", condition: "success" },
+    { from: "execute", to: "workflow-step", condition: "success" },
+    { from: "workflow-step", to: "review", condition: "success" },
+    { from: "workflow-step", to: "end", condition: "outcome:remediation-scheduled" },
+    { from: "workflow-step", to: "end", condition: "outcome:deferred-paused" },
     { from: "review", to: "merge", condition: "success" },
     { from: "merge", to: "end", condition: "success" },
     { from: "planning", to: "end", condition: "failure" },
     { from: "execute", to: "end", condition: "failure" },
+    { from: "workflow-step", to: "end", condition: "failure" },
     { from: "review", to: "end", condition: "failure" },
     { from: "merge", to: "end", condition: "failure" },
   ],

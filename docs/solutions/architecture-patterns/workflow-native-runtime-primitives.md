@@ -108,13 +108,13 @@ Before the cutover, `builtin:coding` started at execute:
 start -> execute -> review -> merge -> end
 ```
 
-After the cutover, planning is explicit:
+After the cutover, planning and pre-merge workflow steps are explicit:
 
 ```text
-start -> planning -> execute -> review -> merge -> end
+start -> planning -> execute -> workflow-step -> review -> merge -> end
 ```
 
-The workflow compiler also treats `planning` as a seam anchor before `execute`, so built-in graph shape and compile-time compatibility stay aligned.
+The workflow compiler also treats `planning` and `workflow-step` as seam anchors in the canonical lifecycle order, so built-in graph shape and compile-time compatibility stay aligned.
 
 ### Graph routing owns workflow-aware tasks first
 
@@ -128,6 +128,7 @@ Primitive handlers map old seam names to explicit operations:
 
 - `planning` -> `runPlanningSession`
 - `execute` -> `prepareWorktree` then `runCodingSession`
+- `workflow-step` -> `runWorkflowStep`
 - `review` -> `runReview`
 - `merge` -> `requestMerge`
 - `step-execute` -> `runTaskStep`

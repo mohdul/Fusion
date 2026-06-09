@@ -4775,9 +4775,69 @@ export class TaskExecutor {
       runVerification: async () => ({ outcome: "success", value: "verification-skipped", data: {
         verdict: "skipped",
       } }),
-      runWorkflowStep: async () => ({ outcome: "success", value: "workflow-step-skipped", data: {
-        allPassed: true,
-      } }),
+      runWorkflowStep: async (_ctx, task, input) => {
+        if (input.phase !== "pre-merge") {
+          return { outcome: "success", value: "workflow-step-skipped", data: { allPassed: true } };
+        }
+        const live = await this.store.getTask(task.id);
+        if (live.executionMode === "fast") {
+          executorLog.log(`${task.id}: fast mode — skipping pre-merge workflow steps`);
+          await this.store.logEntry(task.id, "Fast mode — pre-merge workflow steps skipped", undefined, this.getRunContextFor(task.id));
+          return { outcome: "success", value: "workflow-step-skipped", data: { allPassed: true } };
+        }
+        if (await this.shouldDeferCompletionForGlobalPause(task.id, "before workflow steps after task completion")) {
+          return { outcome: "success", value: "deferred-paused", data: { allPassed: false } };
+        }
+        const worktreePath = input.worktreePath || live.worktree || this.rootDir;
+        const workflowResult = await this.runWorkflowSteps(live, worktreePath, settings, undefined);
+        if (workflowResult === "deferred-paused") {
+          if (await this.parkTaskAfterWorkflowStepPause(task.id)) {
+            this.pausedAborted.delete(task.id);
+          } else if (this.pausedAborted.has(task.id)) {
+            this.pausedAborted.delete(task.id);
+          }
+          return { outcome: "success", value: "deferred-paused", data: { allPassed: false } };
+        }
+        if (!workflowResult.allPassed) {
+          const feedback = workflowResult.feedback || "Workflow step failed";
+          const stepName = workflowResult.stepName || "Unknown";
+          if (workflowResult.revisionRequested) {
+            const rerunScheduled = await this.handleWorkflowRevisionRequest(
+              live,
+              worktreePath,
+              feedback,
+              stepName,
+              settings,
+            );
+            if (!rerunScheduled) {
+              return {
+                outcome: "failure",
+                value: "workflow-step-revision-unhandled",
+                data: workflowResult,
+              };
+            }
+          } else {
+            const retried = await this.handleWorkflowStepFailure(
+              live,
+              worktreePath,
+              feedback,
+              stepName,
+            );
+            if (!retried) {
+              await this.sendTaskBackForFix(
+                live,
+                worktreePath,
+                feedback,
+                stepName,
+                "Workflow step failed",
+              );
+            }
+          }
+          return { outcome: "success", value: "remediation-scheduled", data: workflowResult };
+        }
+        await this.store.updateTask(task.id, { workflowStepRetries: undefined, taskDoneRetryCount: null });
+        return { outcome: "success", value: "workflow-steps-passed", data: workflowResult };
+      },
       updateSteps: async (_ctx, task, steps) => {
         await this.store.updateTask(task.id, { steps });
         return { outcome: "success", value: "steps-updated", data: { count: steps.length } };
@@ -4886,6 +4946,58 @@ export class TaskExecutor {
           outcome: "failure",
           value: paused ? "implementation-paused" : "implementation-incomplete",
         };
+      },
+      workflowStep: async (seamTask) => {
+        const live = await this.store.getTask(seamTask.id);
+        if (live.executionMode === "fast") {
+          executorLog.log(`${seamTask.id}: fast mode — skipping pre-merge workflow steps`);
+          await this.store.logEntry(seamTask.id, "Fast mode — pre-merge workflow steps skipped", undefined, this.getRunContextFor(seamTask.id));
+          return { outcome: "success", value: "workflow-step-skipped" };
+        }
+        const worktreePath = live.worktree || this.rootDir;
+        const settings = await this.store.getSettings();
+        const workflowResult = await this.runWorkflowSteps(live, worktreePath, settings, undefined);
+        if (workflowResult === "deferred-paused") {
+          if (await this.parkTaskAfterWorkflowStepPause(seamTask.id)) {
+            this.pausedAborted.delete(seamTask.id);
+          } else if (this.pausedAborted.has(seamTask.id)) {
+            this.pausedAborted.delete(seamTask.id);
+          }
+          return { outcome: "success", value: "deferred-paused" };
+        }
+        if (!workflowResult.allPassed) {
+          const feedback = workflowResult.feedback || "Workflow step failed";
+          const stepName = workflowResult.stepName || "Unknown";
+          if (workflowResult.revisionRequested) {
+            const rerunScheduled = await this.handleWorkflowRevisionRequest(
+              live,
+              worktreePath,
+              feedback,
+              stepName,
+              settings,
+            );
+            if (!rerunScheduled) return { outcome: "failure", value: "workflow-step-revision-unhandled" };
+          } else {
+            const retried = await this.handleWorkflowStepFailure(
+              live,
+              worktreePath,
+              feedback,
+              stepName,
+            );
+            if (!retried) {
+              await this.sendTaskBackForFix(
+                live,
+                worktreePath,
+                feedback,
+                stepName,
+                "Workflow step failed",
+              );
+            }
+          }
+          return { outcome: "success", value: "remediation-scheduled" };
+        }
+        await this.store.updateTask(seamTask.id, { workflowStepRetries: undefined, taskDoneRetryCount: null });
+        return { outcome: "success", value: "workflow-steps-passed" };
       },
       review: async (seamTask) => {
         // The legacy "review" stage is the in-review handoff: per-step AI review

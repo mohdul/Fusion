@@ -101,7 +101,15 @@ function primitivesFromLegacySeams(seams: WorkflowLegacySeams): WorkflowRuntimeP
       return { ...result, data: { verdict: result.outcome === "success" ? "APPROVE" : "REVISE" } };
     },
     runVerification: async () => ({ outcome: "success", data: { verdict: "skipped" } }),
-    runWorkflowStep: async () => ({ outcome: "success", data: { allPassed: true } }),
+    runWorkflowStep: async (ctx, task) => {
+      const result = await seams.workflowStep?.(task, ctx.node.context ?? {});
+      return {
+        outcome: result?.outcome ?? "success",
+        value: result?.value ?? "workflow-step-skipped",
+        contextPatch: result?.contextPatch,
+        data: { allPassed: result?.outcome !== "failure" },
+      };
+    },
     updateSteps: async (_ctx, _task, steps) => ({ outcome: "success", data: { count: steps.length } }),
     transitionTask: async (ctx, task) => seams.schedule(task, ctx.node.context ?? {}),
     requestMerge: async (ctx, task) => {

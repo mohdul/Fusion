@@ -34,9 +34,9 @@ The workflow runtime is the authoritative execution path for task lifecycle work
 
 The engine remains the substrate for scheduler dispatch, routing claims, persistence, concurrency limits, process supervision, storage, and audit plumbing. Lifecycle policy belongs in built-in or custom workflows.
 
-The default built-in catalog entry `builtin:coding` is backed by the canonical `BUILTIN_CODING_WORKFLOW_IR`, which is also the resolver/runtime fallback for tasks with no workflow selection, an explicit default selection, or a missing/corrupt custom selection. That IR currently encodes the legacy lifecycle path as graph stages:
+The default built-in catalog entry `builtin:coding` is backed by the canonical `BUILTIN_CODING_WORKFLOW_IR`, which is also the resolver/runtime fallback for tasks with no workflow selection or an explicit default selection. Missing/corrupt explicit custom selections fail closed as workflow-resolution failures instead of silently running the default. The built-in IR encodes the legacy lifecycle path as graph stages:
 
-- `triage/planning` → `execute` → `review` → `merge` → `end`
+- `triage/planning` → `execute` → `workflow-step` → `review` → `merge` → `end`
 
 `builtin:stepwise-coding` is a separate graph variant backed by `BUILTIN_STEPWISE_CODING_WORKFLOW_IR`; it keeps the same lifecycle columns/traits while modeling per-step parse/execute/review/rework as authored graph structure.
 
@@ -488,7 +488,7 @@ Prompt-mode workflow agents should emit a trailing JSON object:
 Workflow graph execution is the task lifecycle runtime. `TaskExecutor` pins `workflowGraphExecutor` for the run and unselected tasks resolve to `builtin:coding`.
 
 Default node dispatch:
-- `prompt` / `script` nodes with `config.seam` dispatch through workflow runtime primitives (`planning`, `execute`, `review`, `merge`, `schedule`, `step-execute`)
+- `prompt` / `script` nodes with `config.seam` dispatch through workflow runtime primitives (`planning`, `execute`, `workflow-step`, `review`, `merge`, `schedule`, `step-execute`)
 - `step-review`, `parse-steps`, `code`, and PR nodes use their dedicated primitive/dependency adapters
 - `gate` nodes evaluate context-key expectations or run configured executable checks
 
@@ -503,9 +503,9 @@ Coverage includes lifecycle ordering, primitive invocation, merge/file-scope fai
 
 ### Workflow-native Cutover
 
-`TaskExecutor.execute()` gives graph routing first claim. The graph runtime resolves a workflow selection, degrading missing/unselected workflows to `builtin:coding`, and parks interpreter failures as workflow failures instead of re-running the old imperative lifecycle.
+`TaskExecutor.execute()` gives graph routing first claim. The graph runtime resolves a workflow selection, using `builtin:coding` for unselected/default tasks, failing closed for missing explicit custom workflows, and parking interpreter failures as workflow failures instead of re-running the old imperative lifecycle.
 
-The legacy seam adapter remains as a compatibility layer for older tests and callers, but authoritative node execution uses `WorkflowRuntimePrimitives`. The built-in coding workflow now includes explicit planning before execute/review/merge.
+The legacy seam adapter remains as a compatibility layer for older tests and callers, but authoritative node execution uses `WorkflowRuntimePrimitives`. The built-in coding workflow now includes explicit planning and pre-merge workflow-step gates before review/merge.
 
 Reliability invariants preserved under authoritative mode:
 - file-scope enforcement including `FileScopeViolationError`
