@@ -42,7 +42,16 @@ describe("FN-4946 implicit refusal budget handling", () => {
 
     await (executor as any).handleImplicitTaskDoneRefusal(task(2), refusal());
 
-    expect(store.updateTask).toHaveBeenCalledWith("FN-4946-B", expect.objectContaining({ taskDoneRetryCount: 3, status: "failed" }));
+    expect(store.updateTask).toHaveBeenCalledWith("FN-4946-B", expect.objectContaining({
+      status: "queued",
+      error: null,
+      taskDoneRetryCount: 3,
+      worktree: null,
+      branch: null,
+      paused: false,
+      pausedByAgentId: null,
+      sessionFile: null,
+    }));
     expect(store.moveTask).toHaveBeenCalledWith("FN-4946-B", "todo", { preserveProgress: true });
     expect(executorLog.error).toHaveBeenCalledWith(expect.stringContaining("(implicit completion)"));
   });

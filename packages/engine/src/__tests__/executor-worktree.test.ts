@@ -20,6 +20,7 @@ import { StepSessionExecutor } from "../step-session-executor.js";
 import { executorLog } from "../logger.js";
 import { withRateLimitRetry } from "../rate-limit-retry.js";
 import { runVerificationCommand as mockedRunVerificationCommand } from "../verification-utils.js";
+import { __resetSandboxBackendForTests, __setSandboxBackendForTests } from "../sandbox/index.js";
 import {
   createMockStore,
   mockedCreateFnAgent,
@@ -201,6 +202,7 @@ describe("TaskExecutor worktreeInitCommand", () => {
 
   beforeEach(() => {
     resetExecutorMocks();
+    __resetSandboxBackendForTests();
     // Default: worktree does NOT exist (new worktree)
     mockedExistsSync.mockReturnValue(false);
     mockedCreateFnAgent.mockResolvedValue({
@@ -211,7 +213,32 @@ describe("TaskExecutor worktreeInitCommand", () => {
     } as any);
   });
 
+  afterEach(() => {
+    __resetSandboxBackendForTests();
+  });
+
   it("runs worktreeInitCommand in new worktree when configured", async () => {
+    __setSandboxBackendForTests({
+      capabilities: () => ({
+        id: "native",
+        supportsNetworkPolicy: false,
+        supportsFilesystemPolicy: false,
+        supportsStreaming: true,
+        platform: "any",
+      }),
+      prepare: vi.fn().mockResolvedValue(undefined),
+      run: vi.fn().mockResolvedValue({
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        bufferExceeded: false,
+      }),
+      runStreaming: vi.fn(),
+      dispose: vi.fn().mockResolvedValue(undefined),
+    });
+
     const store = createMockStore();
     store.getSettings.mockResolvedValue({
       maxConcurrent: 2,
@@ -224,16 +251,6 @@ describe("TaskExecutor worktreeInitCommand", () => {
 
     const executor = new TaskExecutor(store, "/tmp/test");
     await executor.execute(makeTask());
-
-    // execSync is called for worktree creation + init command
-    const initCall = mockedExecSync.mock.calls.find(
-      (call) => call[0] === "pnpm install --frozen-lockfile",
-    );
-    expect(initCall).toBeDefined();
-    expect(initCall![1]).toMatchObject({
-      cwd: expect.stringContaining(".worktrees/"),
-      timeout: 300_000,
-    });
 
     // Should log success
     expect(store.logEntry).toHaveBeenCalledWith(

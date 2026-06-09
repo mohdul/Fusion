@@ -2427,9 +2427,10 @@ describe("StepSessionExecutor integration", () => {
     resolveExecuteAll!();
     await executePromise;
 
-    // Verify: task should be marked stuck-killed and moved to todo for retry
+    // Verify: task should be requeued and moved to todo for retry.
     expect(store.updateTask).toHaveBeenCalledWith("FN-200", expect.objectContaining({
-      status: "stuck-killed",
+      status: "queued",
+      error: null,
       worktree: null,
       branch: null,
     }));

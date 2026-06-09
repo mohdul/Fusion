@@ -50,7 +50,16 @@ describe("FN-4946 implicit completion + REVISE verdict interaction", () => {
 
     await (executor as any).handleImplicitTaskDoneRefusal(makeTask({ id: "FN-4946-R1" }), refusal());
 
-    expect(store.updateTask).toHaveBeenCalledWith("FN-4946-R1", expect.objectContaining({ taskDoneRetryCount: 1, status: "failed" }));
+    expect(store.updateTask).toHaveBeenCalledWith("FN-4946-R1", expect.objectContaining({
+      status: "queued",
+      error: null,
+      taskDoneRetryCount: 1,
+      worktree: null,
+      branch: null,
+      paused: false,
+      pausedByAgentId: null,
+      sessionFile: null,
+    }));
     expect(store.moveTask).toHaveBeenCalledWith("FN-4946-R1", "todo", { preserveProgress: true });
     const refusalLogCall = store.logEntry.mock.calls.find(
       ([id, message]: [string, string]) => id === "FN-4946-R1" && message.includes("pending-code-review-revise"),
