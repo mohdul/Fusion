@@ -721,11 +721,16 @@ function ValuesTab({
 
   const save = useCallback(async () => {
     if (!dirty) return;
+    const savedKeys = new Set(Object.keys(pending));
     setSaving(true);
     try {
       const res = await updateWorkflowSettingValues(workflowId, pending, boundProjectId);
       setPayload(res);
-      setPending({});
+      setPending((prev) => {
+        const next = { ...prev };
+        for (const k of savedKeys) delete next[k];
+        return next;
+      });
       setRejections({});
       addToast(t("workflowSettings.valuesSaved", "Setting values saved"), "success");
     } catch (err) {

@@ -9,7 +9,7 @@
  * `updateWorkflowSettingValues`).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, within, act } from "@testing-library/react";
 import { useState } from "react";
 import * as jestDomMatchers from "@testing-library/jest-dom/matchers";
 
@@ -225,6 +225,45 @@ describe("WorkflowSettingsPanel — Values tab", () => {
       { "timeout-ms": 5000, "new-sessions": true, label: "hello" },
       "proj-1",
     );
+  });
+
+  it("preserves mid-flight edits after a successful save and resaves only the new keys", async () => {
+    mockFetchValues.mockResolvedValue(payload({ effective: { "timeout-ms": 1000, "new-sessions": false, label: "" } }));
+    let resolveSave!: (value: WorkflowSettingValuesPayload) => void;
+    mockUpdateValues
+      .mockReturnValueOnce(
+        new Promise<WorkflowSettingValuesPayload>((resolve) => {
+          resolveSave = resolve;
+        }),
+      )
+      .mockResolvedValueOnce(
+        payload({
+          stored: { "timeout-ms": 5000, label: "mid-flight-edit" },
+          effective: { "timeout-ms": 5000, "new-sessions": false, label: "mid-flight-edit" },
+        }),
+      );
+
+    render(<Host initial={decls} />);
+    openValues();
+    await waitFor(() => expect(mockFetchValues).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByLabelText("Timeout"), { target: { value: "5000" } });
+    fireEvent.click(screen.getByTestId("wf-settings-save-values"));
+    await waitFor(() => expect(mockUpdateValues).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("Label"), { target: { value: "mid-flight-edit" } });
+    await act(async () => {
+      resolveSave(payload({ stored: { "timeout-ms": 5000 }, effective: { "timeout-ms": 5000, "new-sessions": false } }));
+    });
+
+    expect(mockUpdateValues).toHaveBeenNthCalledWith(1, "wf-1", { "timeout-ms": 5000 }, "proj-1");
+    expect(screen.getByLabelText("Label")).toHaveValue("mid-flight-edit");
+    expect(screen.getByLabelText("Timeout")).toHaveValue(5000);
+
+    await waitFor(() => expect(screen.getByTestId("wf-settings-save-values")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("wf-settings-save-values"));
+    await waitFor(() => expect(mockUpdateValues).toHaveBeenCalledTimes(2));
+    expect(mockUpdateValues).toHaveBeenNthCalledWith(2, "wf-1", { label: "mid-flight-edit" }, "proj-1");
   });
 
   it("renders a per-field rejection on the matching row and keeps other edits applied", async () => {
