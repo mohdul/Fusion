@@ -126,9 +126,13 @@ describe("reliability interactions: FN-5436 executor pending-review skip", () =>
 
     expect(mockedCreateFnAgent).toHaveBeenCalledTimes(4);
     expect(store.updateTask).toHaveBeenCalledWith("FN-5436-RI-E", {
-      status: "failed",
-      error: "Agent finished without calling fn_task_done (after 3 retries)",
+      status: "queued",
+      error: null,
       taskDoneRetryCount: 1,
+    });
+    expect(store.updateTask).not.toHaveBeenCalledWith("FN-5436-RI-E", {
+      status: "failed",
+      error: "executor-exit-while-review-pending",
     });
   });
 });
