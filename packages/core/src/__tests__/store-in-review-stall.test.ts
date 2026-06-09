@@ -52,6 +52,27 @@ describe("TaskStore inReviewStall hydration", () => {
     expect(task?.inReviewStall?.reason).toContain("no active merger");
   });
 
+  it("omits merge-stalled hydration while the task is already queued for merge", async () => {
+    await seedTask("FN-6088", {});
+    await store.enqueueMergeQueue("FN-6088");
+
+    const listed = (await store.listTasks({ slim: true })).find((entry) => entry.id === "FN-6088");
+    expect(listed?.inReviewStall).toBeUndefined();
+    expect(listed?.inReviewStalled).toBeUndefined();
+
+    const detailed = await store.getTask("FN-6088");
+    expect(detailed.inReviewStall).toBeUndefined();
+    expect(detailed.inReviewStalled).toBeUndefined();
+
+    const modified = (await store.listTasksModifiedSince("1970-01-01T00:00:00.000Z")).tasks.find((entry) => entry.id === "FN-6088");
+    expect(modified?.inReviewStall).toBeUndefined();
+    expect(modified?.inReviewStalled).toBeUndefined();
+
+    const searched = (await store.searchTasks("FN-6088", { slim: true })).find((entry) => entry.id === "FN-6088");
+    expect(searched?.inReviewStall).toBeUndefined();
+    expect(searched?.inReviewStalled).toBeUndefined();
+  });
+
   it("omits inReviewStall for paused in-review task", async () => {
     await seedTask("FN-4217-PAUSED", { paused: true });
 

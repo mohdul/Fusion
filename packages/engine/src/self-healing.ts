@@ -663,6 +663,26 @@ export class SelfHealingManager {
     return this.options.getActiveMergeTaskId?.() ?? null;
   }
 
+  private isMergeLaneOwned(taskId: string): boolean {
+    if (this.options.getActiveMergeTaskId?.() === taskId) return true;
+
+    try {
+      return this.store.peekMergeQueue().some((entry) => entry.taskId === taskId);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log.warn(`Unable to inspect merge queue ownership for ${taskId}: ${errorMessage}`);
+      return false;
+    }
+  }
+
+  private isFalseCompletionHandoffExhaustionWhileMergeOwned(task: Task): boolean {
+    return task.column === "in-review"
+      && task.status === "failed"
+      && typeof task.error === "string"
+      && task.error.includes("Completion handoff limbo recovery exhausted")
+      && this.isMergeLaneOwned(task.id);
+  }
+
   private emitTaskMerged(task: Task | undefined | null, overrides: Partial<MergeResult> = {}): void {
     if (!task) return;
     this.store.emit("task:merged", {
@@ -5391,6 +5411,7 @@ export class SelfHealingManager {
           engineActivationGraceMs: settings.engineActivationGraceMs,
         });
         if (!signal) continue;
+        if (this.isMergeLaneOwned(task.id)) continue;
 
         if (Date.parse(task.updatedAt) >= cycleStartMs) {
           continue;
@@ -5520,6 +5541,7 @@ export class SelfHealingManager {
         if (!allowsAutoMergeProcessing(task, settings)) continue;
         if (task.paused === true) continue;
         if (task.id === activeMergeTaskId || executingTaskIds.has(task.id)) continue;
+        if (this.isMergeLaneOwned(task.id)) continue;
 
         const signal = getInReviewStalledSignal(task, {
           now: cycleStartMs,
@@ -5690,6 +5712,7 @@ export class SelfHealingManager {
         allowsAutoMergeProcessing(task, settings) &&
         !task.paused &&
         !executingIds.has(task.id) &&
+        !this.isMergeLaneOwned(task.id) &&
         !(task.status && GHOST_REVIEW_PRESERVED_STATUSES.has(task.status)) &&
         // Confirmed merges belong in `done` (handled by `recoverMergedReviewTasks`).
         task.mergeDetails?.mergeConfirmed !== true &&
@@ -6970,8 +6993,21 @@ export class SelfHealingManager {
     for (const task of tasks) {
       if (task.column !== "in-review" || task.paused) continue;
       if (!allowsAutoMergeProcessing(task, settings)) continue;
+      if (this.isFalseCompletionHandoffExhaustionWhileMergeOwned(task)) {
+        await this.store.updateTask(task.id, {
+          status: null,
+          error: null,
+          completionHandoffLimboRecoveryCount: 0,
+        });
+        await this.store.logEntry(
+          task.id,
+          "Auto-recovered: cleared false completion-handoff exhaustion while task is already owned by merge queue",
+        );
+        continue;
+      }
       if (task.status != null || task.mergeDetails != null || task.review != null || task.reviewState != null) continue;
       if (this.options.isTaskActive?.(task.id)) continue;
+      if (this.isMergeLaneOwned(task.id)) continue;
       if (getTaskMergeBlocker(task) !== undefined) continue;
 
       const doneMarker = [...(task.log ?? [])].reverse().find((entry) => entry.action === "Task marked done by agent");

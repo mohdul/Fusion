@@ -2738,6 +2738,11 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
     return this.rowToTask(row);
   }
 
+  private getMergeQueuedTaskIds(): Set<string> {
+    const rows = this.db.prepare("SELECT taskId FROM mergeQueue").all() as Array<{ taskId: string }>;
+    return new Set(rows.map((row) => row.taskId));
+  }
+
   private isTaskIdPresentInArchivedTasksTable(id: string): boolean {
     try {
       const row = this.db.prepare("SELECT 1 as found FROM archivedTasks WHERE id = ? LIMIT 1").get(id) as { found?: number } | undefined;
@@ -4808,7 +4813,27 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
         };
       }
 
-      task.stalledReview = detectStalledReview(task, { now: Date.now() });
+      const now = Date.now();
+      const settings = await this.getSettingsFast();
+      const mergeQueuedTaskIds = this.getMergeQueuedTaskIds();
+      task.inReviewStall = mergeQueuedTaskIds.has(task.id)
+        ? undefined
+        : getInReviewStallReason(task, {
+          now,
+          autoMerge: allowsAutoMergeProcessing(task, settings),
+          engineActiveSinceMs: settings.engineActiveSinceMs,
+          engineActivationGraceMs: settings.engineActivationGraceMs,
+        });
+      task.inReviewStalled = mergeQueuedTaskIds.has(task.id)
+        ? undefined
+        : getInReviewStalledSignal(task, {
+          now,
+          thresholdMs: settings.inReviewStalledThresholdMs,
+          autoMerge: allowsAutoMergeProcessing(task, settings),
+          engineActiveSinceMs: settings.engineActiveSinceMs,
+          engineActivationGraceMs: settings.engineActivationGraceMs,
+        });
+      task.stalledReview = detectStalledReview(task, { now });
       // Derived at read time only; retrySummary is never persisted to SQLite.
       task.retrySummary = computeRetrySummary(task);
 
@@ -5311,9 +5336,11 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
       inReviewCriticalMs: settings.staleInReviewCriticalMs,
     };
     let disableAgeStalenessHydration = false;
+    const mergeQueuedTaskIds = this.getMergeQueuedTaskIds();
     const activeTasks = await Promise.all((rows as unknown as TaskRow[]).map(async (row) => {
       const task = this.rowToTask(row);
-      task.inReviewStall = getInReviewStallReason(task, {
+      const isMergeQueued = mergeQueuedTaskIds.has(task.id);
+      task.inReviewStall = isMergeQueued ? undefined : getInReviewStallReason(task, {
         now,
         autoMerge: allowsAutoMergeProcessing(task, settings),
         engineActiveSinceMs: settings.engineActiveSinceMs,
@@ -5325,7 +5352,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
         engineActiveSinceMs: settings.engineActiveSinceMs,
         engineActivationGraceMs: settings.engineActivationGraceMs,
       });
-      task.inReviewStalled = getInReviewStalledSignal(task, {
+      task.inReviewStalled = isMergeQueued ? undefined : getInReviewStalledSignal(task, {
         now,
         thresholdMs: settings.inReviewStalledThresholdMs,
         autoMerge: allowsAutoMergeProcessing(task, settings),
@@ -5831,9 +5858,11 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
       inReviewCriticalMs: settings.staleInReviewCriticalMs,
     };
     let disableAgeStalenessHydration = false;
+    const mergeQueuedTaskIds = this.getMergeQueuedTaskIds();
     const tasks = rows.slice(0, resolvedLimit).map((row) => {
       const task = this.rowToTask(row);
-      task.inReviewStall = getInReviewStallReason(task, {
+      const isMergeQueued = mergeQueuedTaskIds.has(task.id);
+      task.inReviewStall = isMergeQueued ? undefined : getInReviewStallReason(task, {
         now,
         autoMerge: allowsAutoMergeProcessing(task, settings),
         engineActiveSinceMs: settings.engineActiveSinceMs,
@@ -5845,7 +5874,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
         engineActiveSinceMs: settings.engineActiveSinceMs,
         engineActivationGraceMs: settings.engineActivationGraceMs,
       });
-      task.inReviewStalled = getInReviewStalledSignal(task, {
+      task.inReviewStalled = isMergeQueued ? undefined : getInReviewStalledSignal(task, {
         now,
         thresholdMs: settings.inReviewStalledThresholdMs,
         autoMerge: allowsAutoMergeProcessing(task, settings),
@@ -5994,9 +6023,11 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
       inReviewCriticalMs: settings.staleInReviewCriticalMs,
     };
     let disableAgeStalenessHydration = false;
+    const mergeQueuedTaskIds = this.getMergeQueuedTaskIds();
     const activeMatches = await Promise.all(rows.map(async (row) => {
       const task = this.rowToTask(row);
-      task.inReviewStall = getInReviewStallReason(task, {
+      const isMergeQueued = mergeQueuedTaskIds.has(task.id);
+      task.inReviewStall = isMergeQueued ? undefined : getInReviewStallReason(task, {
         now,
         autoMerge: allowsAutoMergeProcessing(task, settings),
         engineActiveSinceMs: settings.engineActiveSinceMs,
@@ -6008,7 +6039,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
         engineActiveSinceMs: settings.engineActiveSinceMs,
         engineActivationGraceMs: settings.engineActivationGraceMs,
       });
-      task.inReviewStalled = getInReviewStalledSignal(task, {
+      task.inReviewStalled = isMergeQueued ? undefined : getInReviewStalledSignal(task, {
         now,
         thresholdMs: settings.inReviewStalledThresholdMs,
         autoMerge: allowsAutoMergeProcessing(task, settings),
