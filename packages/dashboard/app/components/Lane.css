@@ -36,34 +36,6 @@
   background: var(--surface);
 }
 
-.board-workflow-toolbar[data-collapsed] {
-  justify-content: flex-start;
-  gap: var(--space-sm);
-  padding: var(--space-xs) var(--space-md);
-}
-
-.board-workflow-toolbar:not([data-collapsed]),
-.board-workflow-collapsed-label {
-  cursor: pointer;
-}
-
-.board-workflow-toolbar:focus-visible,
-.board-workflow-collapsed-label:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring-strong);
-}
-
-.board-workflow-collapsed-label {
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  font-size: 0.8rem;
-}
-
-.board-workflow-collapsed-label:hover,
-.board-workflow-collapsed-label:focus-visible {
-  color: var(--text);
-}
-
 .board-workflow-selector {
   margin-left: auto;
 }
@@ -197,13 +169,5 @@
     overflow-x: auto;
     overflow-y: hidden;
     scroll-snap-type: x proximity;
-  }
-}
-
-@media (max-width: 768px) {
-  .board-workflow-toolbar[data-collapsed] {
-    flex-direction: row;
-    flex-wrap: nowrap;
-    align-items: center;
   }
 }
