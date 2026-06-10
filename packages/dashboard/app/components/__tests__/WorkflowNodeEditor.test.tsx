@@ -1685,8 +1685,10 @@ describe("WorkflowNodeEditor — U4 create dialog / delete / inline rename / dir
     const onClose = vi.fn();
     vi.mocked(fetchWorkflows).mockResolvedValue([v2Def()]);
     renderWithConfirm(<WorkflowNodeEditor isOpen onClose={onClose} addToast={() => {}} />);
+    await screen.findByText("Save");
+    await waitFor(() => expect(screen.getAllByLabelText(/Column name/i).length).toBeGreaterThan(0));
     // Make an edit: inline rename.
-    fireEvent.click(await screen.findByTestId("wf-workflow-name"));
+    fireEvent.click(screen.getByTestId("wf-workflow-name"));
     const input = await screen.findByTestId("wf-workflow-name-input");
     fireEvent.change(input, { target: { value: "Edited" } });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -1711,8 +1713,10 @@ describe("WorkflowNodeEditor — U4 create dialog / delete / inline rename / dir
       { ...v2Def(), id: "WF-OTHER", name: "Other" },
     ]);
     renderWithConfirm(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+    await screen.findByText("Save");
+    await waitFor(() => expect(screen.getAllByLabelText(/Column name/i).length).toBeGreaterThan(0));
     // Edit the active workflow.
-    fireEvent.click(await screen.findByTestId("wf-workflow-name"));
+    fireEvent.click(screen.getByTestId("wf-workflow-name"));
     const input = await screen.findByTestId("wf-workflow-name-input");
     fireEvent.change(input, { target: { value: "Edited" } });
     fireEvent.keyDown(input, { key: "Enter" });
