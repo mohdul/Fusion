@@ -14,6 +14,12 @@ When installed and enabled, the plugin registers the **Compound Engineering**
 dashboard view destination and installs its bundled `ce-*` skills into a
 plugin-local, discoverable directory (never a global `~/.claude/skills` path).
 
+**Built-in workflow gating:** the `builtin:compound-engineering` workflow is
+hidden from the workflow picker and task workflow selection until this plugin is
+installed and enabled. Once the plugin is active, the workflow appears
+automatically alongside other built-in workflows — no additional configuration is
+needed. If the plugin is uninstalled, the workflow is hidden again.
+
 ## Dashboard view
 
 The Compound Engineering view is registered as a primary plugin destination
