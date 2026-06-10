@@ -75,6 +75,8 @@ import {
   createWebFetchTool,
   createTaskDocumentReadTool,
   createTaskDocumentWriteTool,
+  createWorkflowListTool,
+  createWorkflowSelectTool,
 } from "./agent-tools.js";
 import {
   getResearchGuidanceForSurface,
@@ -343,6 +345,14 @@ commands, use those EXACT commands in the testing/verification steps and anywher
 the spec references running tests or builds. Do NOT guess or infer commands from
 package.json when explicit commands are provided.
 
+## Workflow Routing
+- Call \`fn_workflow_list\` to discover available workflows before selecting a routing path, and read each workflow description as the routing signal.
+- For investigation, audit, research, or decision-only tasks that produce no code changes, set \`**No commits expected:** true\` in the PROMPT.md header when the no-commits criteria above are met, then select an appropriate lightweight workflow.
+- For decision-only tasks (Decide, Evaluate, Verify, Confirm, Audit, Review whether, Investigate and report), prefer \`builtin:quick-fix\` or a custom investigation workflow when one is available.
+- For standard coding tasks, \`builtin:coding\` is the default and is usually appropriate.
+- Use \`fn_workflow_select\` to set the workflow on the current task, or pass \`workflow_id\` to \`fn_task_create\` when creating subtasks.
+- Match the task nature to the workflow description; descriptions are authoritative for routing decisions.
+
 ## Spec Review
 
 After writing the PROMPT.md, call \`fn_review_spec()\` to get an independent quality review.
@@ -581,6 +591,9 @@ Anti-heuristics (bias to false-negative when ambiguous):
 
 ## Project commands
 When the user prompt includes explicit test/build commands, use those exact commands in the generated spec.
+
+## Workflow Routing
+Call \`fn_workflow_list\` and use workflow descriptions as the routing signal. For investigation/audit/research or decision-only tasks that meet the no-commits criteria above, include \`**No commits expected:** true\` in the PROMPT.md header and prefer \`builtin:quick-fix\` or a custom investigation workflow; standard coding tasks can stay on the default \`builtin:coding\`. Use \`fn_workflow_select\` for the current task or pass \`workflow_id\` to \`fn_task_create\` for subtasks.
 
 ## Task Artifact Location for Forensic / Reconciliation Tasks
 
@@ -1183,6 +1196,8 @@ export class TriageProcessor {
           }),
           createTaskDocumentWriteTool(this.store, task.id),
           createTaskDocumentReadTool(this.store, task.id),
+          createWorkflowListTool(this.store),
+          createWorkflowSelectTool(this.store, task.id),
           ...(isResearchToolSurfaceEnabled(settings)
             ? createResearchTools({
               store: this.store,
@@ -1875,6 +1890,16 @@ export class TriageProcessor {
           description: "Task priority (low, normal, high, urgent)",
         }),
       ),
+      workflow_id: Type.Optional(
+        Type.String({
+          description: "Workflow ID to assign (e.g. 'builtin:coding', 'builtin:quick-fix'). Use fn_workflow_list to discover valid IDs.",
+        }),
+      ),
+      noCommitsExpected: Type.Optional(
+        Type.Boolean({
+          description: "Set true for investigation/audit/decision tasks that produce no code changes.",
+        }),
+      ),
     });
 
     const taskList: ToolDefinition = {
@@ -2083,6 +2108,8 @@ export class TriageProcessor {
             dependencies: validDeps,
             column: "triage",
             priority: params.priority,
+            workflowId: params.workflow_id,
+            noCommitsExpected: params.noCommitsExpected,
             // Inherit parent's model settings if available
             modelProvider: parentTask?.modelProvider,
             modelId: parentTask?.modelId,

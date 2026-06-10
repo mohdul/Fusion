@@ -737,6 +737,18 @@ describe("fast-mode triage", () => {
     expect(FAST_TRIAGE_SYSTEM_PROMPT).not.toContain("Frontend UX Criteria");
   });
 
+  it("documents workflow routing in standard and fast prompts", () => {
+    for (const prompt of [TRIAGE_SYSTEM_PROMPT, FAST_TRIAGE_SYSTEM_PROMPT]) {
+      expect(prompt).toContain("## Workflow Routing");
+      expect(prompt).toContain("fn_workflow_list");
+      expect(prompt).toContain("fn_workflow_select");
+      expect(prompt).toContain("workflow_id");
+      expect(prompt).toContain("**No commits expected:** true");
+      expect(prompt).toContain("builtin:quick-fix");
+      expect(prompt).toContain("builtin:coding");
+    }
+  });
+
   it("includes task-artifact location guidance for forensic/reconciliation tasks", () => {
     expect(FAST_TRIAGE_SYSTEM_PROMPT).toContain("Task Artifact Location");
     expect(FAST_TRIAGE_SYSTEM_PROMPT).toContain("<rootDir>/.fusion/tasks/{TARGET_ID}/");
@@ -1204,6 +1216,32 @@ describe("TriageProcessor", () => {
 
   it("creates processor with default options", () => {
     expect(processor).toBeInstanceOf(TriageProcessor);
+  });
+
+  it("includes workflow discovery and selection tools in the full triage toolset", async () => {
+    const task = createTriageTask({ id: "FN-WORKFLOW-TOOLS" });
+    const detailedTask = { ...mockTaskDetail, id: task.id, attachments: [], comments: [] };
+    (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue(detailedTask);
+
+    let capturedTools: any[] = [];
+    mockCreateFnAgent.mockImplementationOnce(async (opts: any) => {
+      capturedTools = opts.customTools;
+      return {
+        session: {
+          state: {},
+          sessionManager: { getLeafId: vi.fn().mockReturnValue(null) },
+          prompt: vi.fn().mockResolvedValue(undefined),
+          dispose: vi.fn(),
+          navigateTree: vi.fn(),
+        },
+      };
+    });
+
+    await processor.specifyTask(task);
+
+    const toolNames = capturedTools.map((tool) => tool.name);
+    expect(toolNames).toContain("fn_workflow_list");
+    expect(toolNames).toContain("fn_workflow_select");
   });
 
   it("can be started and stopped", () => {
@@ -2049,6 +2087,61 @@ describe("taskCreate tool model inheritance", () => {
           maxWorktrees: 4,
         }),
       }));
+    });
+
+    it("fn_task_create passes workflow_id and noCommitsExpected through to child tasks", async () => {
+      const parentTask: Task = {
+        id: "FN-410",
+        description: "Parent task",
+        column: "triage",
+        dependencies: [],
+        steps: [],
+        currentStep: 0,
+        log: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+
+      const createdSubtask: Task = {
+        ...parentTask,
+        id: "FN-411",
+        description: "Decision child task",
+        workflowId: "builtin:quick-fix",
+        noCommitsExpected: true,
+      };
+
+      const store = createMockStore({
+        getTask: vi.fn().mockResolvedValue(parentTask),
+        createTask: vi.fn().mockResolvedValue(createdSubtask),
+      });
+      const processor = new TriageProcessor(store, "/test/root");
+      const createdSubtasksRef = { current: [] };
+
+      const tools = (processor as any).createTriageTools({
+        parentTaskId: "FN-410",
+        allowTaskCreate: true,
+        createdSubtasksRef,
+      });
+      const taskCreateTool = tools.find((t: any) => t.name === "fn_task_create");
+
+      const result = await taskCreateTool.execute("call-1", {
+        description: "Investigate and report the routing decision",
+        workflow_id: "builtin:quick-fix",
+        noCommitsExpected: true,
+      });
+
+      expect(result.content[0].text).toContain("Created child task FN-411");
+      expect(store.createTask).toHaveBeenCalledWith(expect.objectContaining({
+        description: "Investigate and report the routing decision",
+        workflowId: "builtin:quick-fix",
+        noCommitsExpected: true,
+      }), expect.objectContaining({
+        settings: expect.objectContaining({
+          maxConcurrent: 2,
+          maxWorktrees: 4,
+        }),
+      }));
+      expect(createdSubtasksRef.current).toContain("FN-411");
     });
 
     it("fn_task_create rejects a dependency on the parent task being split", async () => {
