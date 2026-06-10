@@ -11679,9 +11679,10 @@ async function runAiAgentForCommit(params: AiAgentParams): Promise<{ success: bo
   // Merge per-task effective workflow settings (U3, KTD-3) — this worker re-fetches
   // settings independently of aiMergeTask, so apply the same merge here (covers the
   // titleSummarizer lane reads in resolveSafeCommitBody). Behavior-inert by default.
+  const taskForSettings = await store.getTask(taskId).catch(() => ({ id: taskId } as const));
   const settings = await mergeEffectiveSettings(
     store,
-    await store.getTask(taskId),
+    taskForSettings,
     await store.getSettings(),
   );
 
