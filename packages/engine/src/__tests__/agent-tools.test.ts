@@ -148,7 +148,6 @@ describe("createTaskCreateTool", () => {
       source: undefined,
     }, {
       settings: { autoSummarizeTitles: false },
-      onSummarize: undefined,
     });
     expect(result.details).toEqual({ taskId: "PROJ-042" });
     const responseText = result.content[0]?.type === "text" ? result.content[0].text : "";
@@ -302,10 +301,15 @@ describe("createTaskCreateTool", () => {
     expect(store.createTask).toHaveBeenCalledTimes(1);
   });
 
-  it("passes summarize: true when no title provided", async () => {
+  it("passes summarize: true and full settings when no title provided", async () => {
     const created = { id: "FN-201", description: "untitled follow-up", dependencies: [], column: "triage" };
+    const settings = {
+      autoSummarizeTitles: false,
+      titleSummarizerProvider: "openai",
+      titleSummarizerModelId: "gpt-4o-mini",
+    };
     const store = {
-      getSettings: vi.fn().mockResolvedValue({ autoSummarizeTitles: false }),
+      getSettings: vi.fn().mockResolvedValue(settings),
       createTask: vi.fn().mockResolvedValue(created),
     };
 
@@ -314,13 +318,18 @@ describe("createTaskCreateTool", () => {
     expect(store.createTask).toHaveBeenCalledWith(expect.objectContaining({
       description: "untitled follow-up",
       summarize: true,
-    }), expect.objectContaining({ settings: { autoSummarizeTitles: false } }));
+    }), expect.objectContaining({ settings }));
   });
 
-  it("does not set summarize when title is provided", async () => {
+  it("passes full settings and does not set summarize when title is provided", async () => {
     const created = { id: "FN-202", title: "Explicit title", description: "titled follow-up", dependencies: [], column: "triage" };
+    const settings = {
+      autoSummarizeTitles: false,
+      titleSummarizerProvider: "openai",
+      titleSummarizerModelId: "gpt-4o-mini",
+    };
     const store = {
-      getSettings: vi.fn().mockResolvedValue({ autoSummarizeTitles: false }),
+      getSettings: vi.fn().mockResolvedValue(settings),
       createTask: vi.fn().mockResolvedValue(created),
     };
 
@@ -329,36 +338,31 @@ describe("createTaskCreateTool", () => {
     expect(store.createTask).toHaveBeenCalledWith(expect.objectContaining({
       title: "Explicit title",
       summarize: undefined,
-    }), expect.objectContaining({ settings: { autoSummarizeTitles: false } }));
+    }), expect.objectContaining({ settings }));
   });
 
-  it("summarize triggers title generation even when autoSummarizeTitles is false", async () => {
-    const summarizeSpy = vi.spyOn(core, "summarizeTitle").mockResolvedValue("Generated title");
+  it("passes summarize: true without onSummarize so the store resolves title generation", async () => {
     const created = { id: "FN-203", description: "untitled follow-up", dependencies: [], column: "triage" };
+    const settings = {
+      autoSummarizeTitles: false,
+      titleSummarizerProvider: "openai",
+      titleSummarizerModelId: "gpt-4o-mini",
+    };
     const store = {
-      getSettings: vi.fn().mockResolvedValue({
-        autoSummarizeTitles: false,
-        titleSummarizerProvider: "openai",
-        titleSummarizerModelId: "gpt-4o-mini",
-      }),
+      getSettings: vi.fn().mockResolvedValue(settings),
       createTask: vi.fn().mockResolvedValue(created),
     };
 
     await createAgentTask(store as any, { description: "untitled follow-up" } as any, { rootDir: "/repo" });
 
     const createInput = vi.mocked(store.createTask).mock.calls[0]?.[0];
-    const createOptions = vi.mocked(store.createTask).mock.calls[0]?.[1] as { onSummarize?: (description: string) => Promise<string | null> };
+    const createOptions = vi.mocked(store.createTask).mock.calls[0]?.[1] as { onSummarize?: (description: string) => Promise<string | null>; settings?: unknown };
     expect(createInput).toEqual(expect.objectContaining({
       description: "untitled follow-up",
       summarize: true,
     }));
-    expect(createOptions).toEqual(expect.objectContaining({
-      settings: { autoSummarizeTitles: false },
-    }));
-    expect(createOptions.onSummarize).toBeTypeOf("function");
-    await expect(createOptions.onSummarize?.("Long agent-created task description")).resolves.toBe("Generated title");
-    expect(summarizeSpy).toHaveBeenCalledWith("Long agent-created task description", "/repo", "openai", "gpt-4o-mini");
-    summarizeSpy.mockRestore();
+    expect(createOptions).toEqual(expect.objectContaining({ settings }));
+    expect(createOptions.onSummarize).toBeUndefined();
   });
 });
 
@@ -465,28 +469,26 @@ describe("createDelegateTaskTool", () => {
     expect(taskStore.createTask).not.toHaveBeenCalled();
   });
 
-  it("wires title summarization callback when rootDir is provided", async () => {
-    const summarizeSpy = vi.spyOn(core, "summarizeTitle").mockResolvedValue("Short title");
+  it("does not wire a title summarization callback when rootDir is provided", async () => {
     const agentStore = {
       getAgent: vi.fn().mockResolvedValue({ id: "agent-1", name: "Worker", role: "executor", state: "idle" }),
     };
+    const settings = {
+      autoSummarizeTitles: true,
+      titleSummarizerProvider: "openai",
+      titleSummarizerModelId: "gpt-4o-mini",
+    };
     const taskStore = {
-      getSettings: vi.fn().mockResolvedValue({
-        autoSummarizeTitles: true,
-        titleSummarizerProvider: "openai",
-        titleSummarizerModelId: "gpt-4o-mini",
-      }),
+      getSettings: vi.fn().mockResolvedValue(settings),
       createTask: vi.fn().mockResolvedValue({ id: "FN-101", dependencies: [], description: "Delegated" }),
     };
 
     const tool = createDelegateTaskTool(agentStore as any, taskStore as any, { rootDir: "/repo" });
     await tool.execute("call-1", { agent_id: "agent-1", description: "Delegated" } as any, undefined, undefined, {} as any);
 
-    const options = vi.mocked(taskStore.createTask).mock.calls[0]?.[1] as { onSummarize?: (description: string) => Promise<string | null> };
-    expect(options.onSummarize).toBeTypeOf("function");
-    await options.onSummarize?.("Long description");
-    expect(summarizeSpy).toHaveBeenCalledWith("Long description", "/repo", "openai", "gpt-4o-mini");
-    summarizeSpy.mockRestore();
+    const options = vi.mocked(taskStore.createTask).mock.calls[0]?.[1] as { onSummarize?: (description: string) => Promise<string | null>; settings?: unknown };
+    expect(options).toEqual(expect.objectContaining({ settings }));
+    expect(options.onSummarize).toBeUndefined();
   });
 });
 

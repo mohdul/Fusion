@@ -4026,8 +4026,11 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
     }
 
     let onSummarize = options?.onSummarize;
-    if (!onSummarize && resolvedSettings?.autoSummarizeTitles === true) {
-      // The title-summarizer model lanes MOVED to workflow settings (U4/KTD-7).
+    if (!onSummarize && (resolvedSettings?.autoSummarizeTitles === true || input.summarize === true)) {
+      // Resolve a store-managed summarizer whenever title summarization is explicitly
+      // requested on this create call (agent tools set `summarize: true`) or globally
+      // enabled via autoSummarizeTitles. The title-summarizer model lanes MOVED to
+      // workflow settings (U4/KTD-7).
       // At task-creation time there is no task/workflow yet, so resolve the
       // project DEFAULT workflow's effective settings (unset default normalizes to
       // builtin:coding) and overlay them so the moved lane reads from its new home;

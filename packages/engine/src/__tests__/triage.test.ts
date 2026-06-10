@@ -2044,7 +2044,10 @@ describe("taskCreate tool model inheritance", () => {
         title: "Child Task",
         description: "Child task description",
       }), expect.objectContaining({
-        settings: { autoSummarizeTitles: false },
+        settings: expect.objectContaining({
+          maxConcurrent: 2,
+          maxWorktrees: 4,
+        }),
       }));
     });
 
@@ -2143,7 +2146,12 @@ describe("taskCreate tool model inheritance", () => {
       // The second createTask call should have the resolved sibling id preserved.
       expect(createTaskMock).toHaveBeenLastCalledWith(
         expect.objectContaining({ dependencies: ["FN-701"] }),
-        expect.objectContaining({ settings: { autoSummarizeTitles: false } }),
+        expect.objectContaining({
+          settings: expect.objectContaining({
+            maxConcurrent: 2,
+            maxWorktrees: 4,
+          }),
+        }),
       );
       expect(createdSubtasksRef.current).toEqual(["FN-701", "FN-702"]);
     });

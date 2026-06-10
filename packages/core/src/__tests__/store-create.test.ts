@@ -7,6 +7,7 @@ import * as projectMemory from "../project-memory.js";
 import { AgentStore } from "../agent-store.js";
 import { CentralDatabase } from "../central-db.js";
 import { DependencyCycleError, TaskStore, TaskHasDependentsError } from "../store.js";
+import { setCreateFnAgent } from "../ai-engine-loader.js";
 import { setTaskCreatedHook } from "../task-creation-hooks.js";
 import { buildResearchDocumentKey, type Task } from "../types.js";
 import { createTaskStoreTestHarness, makeTmpDir } from "./store-test-helpers.js";
@@ -26,6 +27,7 @@ describe("TaskStore", () => {
 
   afterEach(async () => {
     setTaskCreatedHook(undefined);
+    setCreateFnAgent(undefined);
     await harness.afterEach();
   });
 
@@ -461,6 +463,87 @@ describe("TaskStore", () => {
       // Verify title was set asynchronously
       const updatedTask = await store.getTask(task.id);
       expect(updatedTask.title).toBe("AI Title");
+    });
+
+    it("resolves and calls a store-managed summarizer when summarize input flag is true", async () => {
+      const longDescription = "a".repeat(201);
+      const promptSpy = vi.fn(async () => {});
+      const createFnAgent = vi.fn(async () => ({
+        session: {
+          prompt: promptSpy,
+          state: { messages: [{ role: "assistant", content: "Generated Store Title" }] },
+        },
+      }));
+      setCreateFnAgent(createFnAgent);
+
+      const task = await store.createTask(
+        { description: longDescription, summarize: true },
+        {
+          settings: {
+            autoSummarizeTitles: false,
+            titleSummarizerProvider: "mock",
+            titleSummarizerModelId: "title-model",
+          },
+        },
+      );
+
+      expect(task.title).toBeUndefined();
+
+      await vi.waitFor(async () => {
+        const updatedTask = await store.getTask(task.id);
+        expect(updatedTask.title).toBe("Generated Store Title");
+      });
+      expect(createFnAgent).toHaveBeenCalledWith(expect.objectContaining({
+        cwd: rootDir,
+        defaultProvider: "mock",
+        defaultModelId: "title-model",
+      }));
+      expect(promptSpy).toHaveBeenCalledWith(expect.stringContaining(longDescription));
+    });
+
+    it("defers the task-created hook until store-managed summarize completes", async () => {
+      const longDescription = "a".repeat(201);
+      let releasePrompt!: () => void;
+      const promptStarted = vi.fn();
+      const promptDone = new Promise<void>((resolve) => {
+        releasePrompt = resolve;
+      });
+      setCreateFnAgent(vi.fn(async () => ({
+        session: {
+          prompt: vi.fn(async () => {
+            promptStarted();
+            await promptDone;
+          }),
+          state: { messages: [{ role: "assistant", content: "Deferred Hook Title" }] },
+        },
+      })));
+      const hookSpy = vi.fn();
+      setTaskCreatedHook(hookSpy);
+
+      const task = await store.createTask(
+        { description: longDescription, summarize: true },
+        {
+          settings: {
+            autoSummarizeTitles: false,
+            titleSummarizerProvider: "mock",
+            titleSummarizerModelId: "title-model",
+          },
+        },
+      );
+
+      await vi.waitFor(() => expect(promptStarted).toHaveBeenCalled());
+      expect(hookSpy).not.toHaveBeenCalled();
+
+      releasePrompt();
+      await vi.waitFor(() => {
+        expect(hookSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: task.id,
+            title: "Deferred Hook Title",
+          }),
+          store,
+        );
+      });
     });
 
     it("should ignore malformed confirmation-prose generated titles", async () => {
