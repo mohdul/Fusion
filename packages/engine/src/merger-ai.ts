@@ -32,6 +32,7 @@
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { readdirSync, realpathSync, rmSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -62,6 +63,7 @@ import { accumulateSessionTokenUsage } from "./session-token-usage.js";
 import { createRunAuditor, generateSyntheticRunId, type RunAuditor } from "./run-audit.js";
 import { createLogger } from "./logger.js";
 import { captureSingleCommitLandedMetadata, type MergerOptions } from "./merger.js";
+import { activeSessionRegistry } from "./active-session-registry.js";
 
 const execFileAsync = promisify(execFile);
 const aiMergeLog = createLogger("merger-ai");
@@ -101,6 +103,61 @@ function describeCleanupError(err: unknown): string {
   const stderr = getErrorStringProperty(err, "stderr");
   const message = getErrorMessage(err);
   return stderr ? `${message}: ${stderr.trim()}` : message;
+}
+
+export async function pruneExistingAiMergeWorktrees(
+  taskId: string,
+  projectRootDir: string,
+  audit: RunAuditor,
+  log: (message: string) => Promise<void>,
+): Promise<number> {
+  const prefix = `fusion-ai-merge-${taskId.toLowerCase()}-`;
+  const tempRoot = tmpdir();
+  let entries: string[];
+  try {
+    entries = readdirSync(tempRoot).filter((entry) => entry.startsWith(prefix));
+  } catch (err: unknown) {
+    await log(`AI merge pre-merge prune: failed to read ${tempRoot}: ${getErrorMessage(err)}`);
+    throw err;
+  }
+
+  let pruned = 0;
+  for (const entry of entries) {
+    const candidatePath = join(tempRoot, entry);
+    let canonicalPath = candidatePath;
+    try {
+      canonicalPath = realpathSync(candidatePath);
+    } catch {
+      canonicalPath = candidatePath;
+    }
+
+    if (activeSessionRegistry.isPathActive(canonicalPath) || activeSessionRegistry.isPathActive(candidatePath)) {
+      await log(`AI merge pre-merge prune: skipping active worktree ${canonicalPath}`);
+      continue;
+    }
+
+    try {
+      await execFileAsync("git", ["worktree", "remove", "--force", canonicalPath], {
+        cwd: projectRootDir,
+        timeout: 30_000,
+      });
+    } catch (err: unknown) {
+      await log(`AI merge pre-merge prune: git worktree remove failed for ${canonicalPath}: ${describeCleanupError(err)} — falling back to filesystem removal`);
+    }
+
+    try {
+      rmSync(canonicalPath, { recursive: true, force: true });
+      await audit.git({ type: "merge:ai-worktree-cleanup", target: canonicalPath, metadata: { taskId, mergeRoot: canonicalPath, phase: "pre-merge-prune", success: true } });
+      pruned++;
+    } catch (err: unknown) {
+      const error = getErrorMessage(err);
+      const code = getErrorStringProperty(err, "code");
+      await log(`AI merge pre-merge prune: filesystem rm failed for ${canonicalPath}${code ? ` (${code})` : ""}: ${error}`);
+      await audit.git({ type: "merge:ai-worktree-cleanup", target: canonicalPath, metadata: { taskId, mergeRoot: canonicalPath, phase: "pre-merge-prune", success: false, error, ...(code ? { code } : {}) } });
+    }
+  }
+
+  return pruned;
 }
 
 export async function cleanupAiMergeWorktree(input: {
@@ -839,6 +896,12 @@ export async function runAiMerge(
   const taskTitle = task.title?.trim() ? task.title.split("\n")[0] : undefined;
 
   await setStatus("merging");
+  try {
+    const pruned = await pruneExistingAiMergeWorktrees(taskId, projectRootDir, audit, log);
+    if (pruned > 0) await log(`AI merge: pruned ${pruned} pre-existing worktree(s) for ${taskId}`);
+  } catch (err: unknown) {
+    await log(`AI merge: pre-merge prune failed: ${getErrorMessage(err)}`);
+  }
   let advanceRetries = 0;
   while (true) {
     throwIfAborted(options.signal, taskId);

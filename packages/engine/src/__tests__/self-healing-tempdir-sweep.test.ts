@@ -72,17 +72,18 @@ afterEach(() => {
   }
 });
 
-function makeStore(settings: Record<string, unknown> = {}) {
+function makeStore(settings: Record<string, unknown> = {}, getTask: () => Promise<any> = async () => ({ id: "FN-1", column: "in-progress" })) {
   const audits: any[] = [];
   const store: any = {
     getSettings: vi.fn(async () => ({ ...settings })),
+    getTask: vi.fn(getTask),
     recordRunAuditEvent: vi.fn(async (event: any) => { audits.push(event); }),
   };
   return { store, audits };
 }
 
-function makeManager(settings: Record<string, unknown> = {}) {
-  const { store, audits } = makeStore(settings);
+function makeManager(settings: Record<string, unknown> = {}, getTask?: () => Promise<any>) {
+  const { store, audits } = makeStore(settings, getTask);
   const manager = new SelfHealingManager(store, { rootDir: projectRoot });
   return { manager, audits };
 }
@@ -93,9 +94,25 @@ function tempMergeDir(name = `fusion-ai-merge-fn-1-${Math.random().toString(36).
   return dir;
 }
 
-function makeStale(path: string): void {
-  const old = new Date(Date.now() - 3 * 60 * 60 * 1000);
+function makeAge(path: string, ageMs: number): void {
+  const old = new Date(Date.now() - ageMs);
   utimesSync(path, old, old);
+}
+
+function makeStale(path: string): void {
+  makeAge(path, 3 * 60 * 60 * 1000);
+}
+
+function makeDoneTaskStale(path: string): void {
+  makeAge(path, 11 * 60 * 1000);
+}
+
+function taskWithColumn(column: string): () => Promise<any> {
+  return async () => ({ id: "FN-999", column });
+}
+
+function missingTask(): () => Promise<any> {
+  return async () => { throw new Error("Task FN-999 not found"); };
 }
 
 async function sweep(manager: SelfHealingManager): Promise<number> {
@@ -185,6 +202,91 @@ describe("SelfHealingManager temp-dir AI merge worktree sweep", () => {
     expect(sweepAudits(audits)).toEqual(expect.arrayContaining([
       expect.objectContaining({ metadata: expect.objectContaining({ path: realpathSync(failing), success: false, reason: "fs-rm-failed", error: expect.stringContaining("simulated tempdir rm failure") }) }),
       expect.objectContaining({ metadata: expect.objectContaining({ path: expect.stringContaining("succeeding"), success: true, reason: "stale" }) }),
+    ]));
+  });
+
+  it("removes worktree for done task after grace period", async () => {
+    const stale = tempMergeDir("fusion-ai-merge-fn-999-donetask");
+    makeDoneTaskStale(stale);
+    const { manager, audits } = makeManager({}, taskWithColumn("done"));
+
+    await expect(sweep(manager)).resolves.toBe(1);
+
+    expect(existsSync(stale)).toBe(false);
+    expect(sweepAudits(audits)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ metadata: expect.objectContaining({ path: realpathSync(sandboxRoot) + "/fusion-ai-merge-fn-999-donetask", success: true, reason: "done-task-stale" }) }),
+    ]));
+  });
+
+  it("removes worktree for archived task after grace period", async () => {
+    const stale = tempMergeDir("fusion-ai-merge-fn-999-archivedtask");
+    makeDoneTaskStale(stale);
+    const { manager, audits } = makeManager({}, taskWithColumn("archived"));
+
+    await expect(sweep(manager)).resolves.toBe(1);
+
+    expect(existsSync(stale)).toBe(false);
+    expect(sweepAudits(audits)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ metadata: expect.objectContaining({ success: true, reason: "done-task-stale" }) }),
+    ]));
+  });
+
+  it("removes worktree for deleted task immediately", async () => {
+    const fresh = tempMergeDir("fusion-ai-merge-fn-999-deletedtask");
+    const { manager, audits } = makeManager({}, missingTask());
+
+    await expect(sweep(manager)).resolves.toBe(1);
+
+    expect(existsSync(fresh)).toBe(false);
+    expect(sweepAudits(audits)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ metadata: expect.objectContaining({ success: true, reason: "deleted-task" }) }),
+    ]));
+  });
+
+  it("keeps worktree for in-progress task within 2h gate", async () => {
+    const fresh = tempMergeDir("fusion-ai-merge-fn-999-inprogressfresh");
+    const { manager } = makeManager({}, taskWithColumn("in-progress"));
+
+    await expect(sweep(manager)).resolves.toBe(0);
+
+    expect(existsSync(fresh)).toBe(true);
+  });
+
+  it("removes worktree for in-progress task after 2h gate", async () => {
+    const stale = tempMergeDir("fusion-ai-merge-fn-999-inprogressstale");
+    makeStale(stale);
+    const { manager, audits } = makeManager({}, taskWithColumn("in-progress"));
+
+    await expect(sweep(manager)).resolves.toBe(1);
+
+    expect(existsSync(stale)).toBe(false);
+    expect(sweepAudits(audits)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ metadata: expect.objectContaining({ success: true, reason: "stale" }) }),
+    ]));
+  });
+
+  it("keeps fresh worktree for done task within grace period", async () => {
+    const fresh = tempMergeDir("fusion-ai-merge-fn-999-donefresh");
+    makeAge(fresh, 5 * 60 * 1000);
+    const { manager } = makeManager({}, taskWithColumn("done"));
+
+    await expect(sweep(manager)).resolves.toBe(0);
+
+    expect(existsSync(fresh)).toBe(true);
+  });
+
+  it("handles non-parseable directory names with age-only fallback", async () => {
+    const fresh = tempMergeDir("fusion-ai-merge-unknown-fresh");
+    const stale = tempMergeDir("fusion-ai-merge-unknown-stale");
+    makeStale(stale);
+    const { manager, audits } = makeManager({}, missingTask());
+
+    await expect(sweep(manager)).resolves.toBe(1);
+
+    expect(existsSync(fresh)).toBe(true);
+    expect(existsSync(stale)).toBe(false);
+    expect(sweepAudits(audits)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ metadata: expect.objectContaining({ path: expect.stringContaining("unknown-stale"), success: true, reason: "stale" }) }),
     ]));
   });
 

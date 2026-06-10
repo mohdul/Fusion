@@ -76,6 +76,7 @@ const DB_CORRUPTION_NOTIFICATION_COOLDOWN_MS = 60 * 60 * 1000;
 const FTS_MAINTENANCE_MERGE_CADENCE_TICKS = 1;
 const FTS_MAINTENANCE_OPTIMIZE_CADENCE_TICKS = 4;
 const STALE_TEMP_MERGE_WORKTREE_MS = 2 * 60 * 60 * 1000;
+const DONE_TASK_TEMP_WORKTREE_GRACE_MS = 10 * 60 * 1000;
 // Live pathology peaked around 775 KB/task (~96 MB for ~120 tasks), while a
 // rebuilt healthy index was ~0.1 MB. Keep the steady-state budget generous but
 // bounded so sustained text churn heals before segment growth becomes material.
@@ -93,6 +94,11 @@ export const COMPLETION_HANDOFF_LIMBO_GRACE_MS = 5 * 60_000;
 export const MAX_COMPLETION_HANDOFF_LIMBO_RECOVERIES = 3;
 export const MAX_POST_DONE_NONCONTINUABLE_WEDGE_RECOVERIES = 3;
 const MAX_NO_PROGRESS_RESUME_ATTEMPTS = 2;
+
+function extractTaskIdFromTempMergeDir(dirname: string): string | null {
+  const match = /^fusion-ai-merge-(fn-\d+)-[a-z0-9]+$/i.exec(dirname);
+  return match?.[1]?.toUpperCase() ?? null;
+}
 
 type BranchGroupLandingRecorder = {
   recordBranchGroupMemberLanded?: (groupId: string, payload: {
@@ -8887,6 +8893,7 @@ export class SelfHealingManager {
       for (const entry of entries) {
         const path = join(tempRoot, entry);
         let canonicalPath = path;
+        let cleanupReason = "stale";
         try {
           const stat = statSync(path);
           if (!stat.isDirectory()) {
@@ -8894,7 +8901,22 @@ export class SelfHealingManager {
             continue;
           }
           const ageMs = now - stat.mtimeMs;
-          if (ageMs < STALE_TEMP_MERGE_WORKTREE_MS) continue;
+          let ageGateMs = STALE_TEMP_MERGE_WORKTREE_MS;
+          cleanupReason = "stale";
+          const taskId = extractTaskIdFromTempMergeDir(entry);
+          if (taskId) {
+            try {
+              const task = await this.store.getTask(taskId);
+              if (task.column === "done" || task.column === "archived") {
+                ageGateMs = DONE_TASK_TEMP_WORKTREE_GRACE_MS;
+                cleanupReason = "done-task-stale";
+              }
+            } catch {
+              ageGateMs = 0;
+              cleanupReason = "deleted-task";
+            }
+          }
+          if (ageGateMs > 0 && ageMs < ageGateMs) continue;
           try {
             canonicalPath = realpathSync(path);
           } catch {
@@ -8927,7 +8949,7 @@ export class SelfHealingManager {
         try {
           rmSync(canonicalPath, { recursive: true, force: true });
           log.log(`[self-healing] temp-dir sweep: cleaned stale AI merge worktree ${canonicalPath}`);
-          await auditor.git({ type: "worktree:tempdir-sweep", target: canonicalPath, metadata: { path: canonicalPath, success: true, reason: "stale" } });
+          await auditor.git({ type: "worktree:tempdir-sweep", target: canonicalPath, metadata: { path: canonicalPath, success: true, reason: cleanupReason } });
           cleaned++;
         } catch (err: unknown) {
           const errorMessage = err instanceof Error ? err.message : String(err);
