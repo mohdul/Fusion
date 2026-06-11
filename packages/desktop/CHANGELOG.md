@@ -1,5 +1,14 @@
 # @fusion/desktop
 
+## 0.40.0
+
+### Patch Changes
+
+- Updated dependencies [2d2024f]
+- Updated dependencies [784f308]
+  - @fusion/dashboard@0.40.0
+  - @fusion/core@0.40.0
+
 ## 0.39.0
 
 ### Patch Changes
