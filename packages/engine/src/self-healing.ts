@@ -8760,6 +8760,14 @@ export class SelfHealingManager {
 
       let cleaned = 0;
       for (const worktreePath of orphaned) {
+        // FN-4811/FN-5065: never reap a worktree bound to a live executor/merger/
+        // step/workflow session. Such a task can sit transiently in "done" (or have
+        // null worktree metadata mid-transition) while the owning process is still
+        // working in the checkout — scanIdleWorktrees would otherwise flag it idle.
+        if (activeSessionRegistry.isPathActive(worktreePath) || activeSessionRegistry.isPathActive(resolve(worktreePath))) {
+          log.log(`[self-healing] deferring idle-sweep for ${worktreePath}: active session present`);
+          continue;
+        }
         // U8: never reclaim a worktree backing a resume-eligible CLI session.
         if (this.isWorktreeResumeReserved(worktreePath)) {
           log.log(`[self-healing] deferring idle-sweep for ${worktreePath}: resume-eligible CLI session present`);
@@ -9218,6 +9226,13 @@ export class SelfHealingManager {
 
       for (const { path: worktreePath } of withMtime) {
         if (removed >= excess) break;
+        // FN-4811/FN-5065: never reap a worktree bound to a live executor/merger/
+        // step/workflow session — cap pressure must not yank a checkout out from
+        // under a process that is still working in it.
+        if (activeSessionRegistry.isPathActive(worktreePath) || activeSessionRegistry.isPathActive(resolve(worktreePath))) {
+          log.log(`[self-healing] cap-enforcement skipping ${worktreePath}: active session present`);
+          continue;
+        }
         // U8: never reclaim a worktree backing a resume-eligible CLI session.
         if (this.isWorktreeResumeReserved(worktreePath)) {
           log.log(`[self-healing] cap-enforcement skipping ${worktreePath}: resume-eligible CLI session present`);
