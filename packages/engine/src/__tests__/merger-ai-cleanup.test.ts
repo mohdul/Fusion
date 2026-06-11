@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { cleanupAiMergeWorktree, pruneExistingAiMergeWorktrees, runAiMerge } from "../merger-ai.js";
 import { activeSessionRegistry } from "../active-session-registry.js";
+import { MIN_TEMP_WORKTREE_REAP_AGE_MS } from "../self-healing.js";
 import type { RunAuditor } from "../run-audit.js";
 
 const fsState = vi.hoisted(() => ({ failReaddirPath: "" }));
@@ -117,6 +118,11 @@ function tempAiMergeDir(name: string): string {
   return dir;
 }
 
+function makeAge(path: string, ageMs: number): void {
+  const old = new Date(Date.now() - ageMs);
+  utimesSync(path, old, old);
+}
+
 function realMergeAgent(taskId = "FN-1") {
   return vi.fn(async (cwd: string) => {
     execSync(`git merge --squash fusion/${taskId.toLowerCase()}`, { cwd, stdio: "pipe" });
@@ -177,6 +183,7 @@ describe("AI merge temp worktree cleanup", () => {
 
   it("pruneExistingAiMergeWorktrees removes stale same-task directories", async () => {
     const stale = tempAiMergeDir("fusion-ai-merge-fn-777-stale");
+    makeAge(stale, MIN_TEMP_WORKTREE_REAP_AGE_MS + 1_000);
     const { audit, events } = makeAudit();
     const logs: string[] = [];
 
@@ -186,6 +193,18 @@ describe("AI merge temp worktree cleanup", () => {
     expect(events).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: "merge:ai-worktree-cleanup", metadata: expect.objectContaining({ taskId: "FN-777", mergeRoot: realpathSync(tmpdir()) + "/fusion-ai-merge-fn-777-stale", phase: "pre-merge-prune", success: true }) }),
     ]));
+  });
+
+  it("pruneExistingAiMergeWorktrees skips too-new same-task directories", async () => {
+    const fresh = tempAiMergeDir("fusion-ai-merge-fn-777-fresh");
+    const { audit, events } = makeAudit();
+    const logs: string[] = [];
+
+    await expect(pruneExistingAiMergeWorktrees("FN-777", process.cwd(), audit, vi.fn(async (message: string) => { logs.push(message); }))).resolves.toBe(0);
+
+    expect(existsSync(fresh)).toBe(true);
+    expect(events).toEqual([]);
+    expect(logs.join("\n")).toContain("skipping too-new worktree");
   });
 
   it("pruneExistingAiMergeWorktrees skips directories for other tasks", async () => {
@@ -201,7 +220,7 @@ describe("AI merge temp worktree cleanup", () => {
   it("pruneExistingAiMergeWorktrees skips active-session paths", async () => {
     const stale = tempAiMergeDir("fusion-ai-merge-fn-777-active");
     const canonical = realpathSync(stale);
-    activeSessionRegistry.registerPath(canonical, { taskId: "FN-777", kind: "executor", ownerKey: "FN-777" });
+    activeSessionRegistry.registerPath(canonical, { taskId: "FN-777", kind: "ai-merge", ownerKey: "ai-merge:FN-777" });
     const { audit, events } = makeAudit();
 
     await expect(pruneExistingAiMergeWorktrees("FN-777", process.cwd(), audit, vi.fn(async () => undefined))).resolves.toBe(0);
@@ -209,19 +228,29 @@ describe("AI merge temp worktree cleanup", () => {
     expect(events).toEqual([]);
 
     activeSessionRegistry.unregisterPath(canonical);
+    makeAge(stale, MIN_TEMP_WORKTREE_REAP_AGE_MS + 1_000);
     await expect(pruneExistingAiMergeWorktrees("FN-777", process.cwd(), audit, vi.fn(async () => undefined))).resolves.toBe(1);
     expect(existsSync(stale)).toBe(false);
   });
 
-  it("runAiMerge emits success cleanup audit events", async () => {
+  it("runAiMerge registers the clean-room worktree while merging and unregisters after", async () => {
     const { dir } = initRepoWithBranch();
     const { store, audits } = makeStore();
+    let observedMergeRoot = "";
+    const mergeAgent = vi.fn(async (cwd: string) => {
+      observedMergeRoot = cwd;
+      expect(activeSessionRegistry.isPathActive(realpathSync(cwd))).toBe(true);
+      expect(activeSessionRegistry.isPathActive(cwd)).toBe(true);
+      await realMergeAgent()(cwd);
+    });
 
     await runAiMerge(store, dir, "FN-1", { manual: true }, {
-      mergeAgent: realMergeAgent(),
+      mergeAgent,
       reviewAgent: vi.fn(async () => "REVIEW_VERDICT: approve"),
     });
 
+    expect(observedMergeRoot).toContain("fusion-ai-merge-fn-1-");
+    expect(activeSessionRegistry.pathsForTask("FN-1")).toEqual([]);
     const cleanupEvents = audits.filter((event) => event.mutationType === "merge:ai-worktree-cleanup");
     expect(cleanupEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({ metadata: expect.objectContaining({ phase: "git-remove", success: true }) }),
@@ -233,6 +262,7 @@ describe("AI merge temp worktree cleanup", () => {
     const taskId = "FN-777";
     const { dir } = initRepoWithBranch(taskId);
     const orphan = tempAiMergeDir("fusion-ai-merge-fn-777-orphan");
+    makeAge(orphan, MIN_TEMP_WORKTREE_REAP_AGE_MS + 1_000);
     const { store, audits } = makeStore(taskId);
 
     await runAiMerge(store, dir, taskId, { manual: true }, {

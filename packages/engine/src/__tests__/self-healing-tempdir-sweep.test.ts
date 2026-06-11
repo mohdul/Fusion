@@ -45,7 +45,7 @@ vi.mock("node:child_process", async () => {
 });
 
 import { activeSessionRegistry } from "../active-session-registry.js";
-import { SelfHealingManager } from "../self-healing.js";
+import { DONE_TASK_TEMP_WORKTREE_GRACE_MS, MIN_TEMP_WORKTREE_REAP_AGE_MS, SelfHealingManager, STALE_TEMP_MERGE_WORKTREE_MS } from "../self-healing.js";
 
 const RM = { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as const;
 let sandboxRoot = "";
@@ -115,6 +115,10 @@ function missingTask(): () => Promise<any> {
   return async () => { throw new Error("Task FN-999 not found"); };
 }
 
+function transientErrorTask(): () => Promise<any> {
+  return async () => { throw new Error("SQLITE_BUSY: database is locked"); };
+}
+
 async function sweep(manager: SelfHealingManager): Promise<number> {
   return await (manager as any).cleanupStaleTempMergeWorktrees();
 }
@@ -150,7 +154,7 @@ describe("SelfHealingManager temp-dir AI merge worktree sweep", () => {
     const stale = tempMergeDir();
     makeStale(stale);
     const canonical = realpathSync(stale);
-    activeSessionRegistry.registerPath(canonical, { taskId: "FN-1", kind: "executor", ownerKey: "FN-1" });
+    activeSessionRegistry.registerPath(canonical, { taskId: "FN-1", kind: "ai-merge", ownerKey: "ai-merge:FN-1" });
     const { manager, audits } = makeManager();
 
     await expect(sweep(manager)).resolves.toBe(0);
@@ -231,15 +235,51 @@ describe("SelfHealingManager temp-dir AI merge worktree sweep", () => {
     ]));
   });
 
-  it("removes worktree for deleted task immediately", async () => {
-    const fresh = tempMergeDir("fusion-ai-merge-fn-999-deletedtask");
+  it("keeps fresh worktree for deleted task until minimum age floor", async () => {
+    const fresh = tempMergeDir("fusion-ai-merge-fn-999-deletedtaskfresh");
+    makeAge(fresh, MIN_TEMP_WORKTREE_REAP_AGE_MS - 1_000);
+    const { manager, audits } = makeManager({}, missingTask());
+
+    await expect(sweep(manager)).resolves.toBe(0);
+
+    expect(existsSync(fresh)).toBe(true);
+    expect(sweepAudits(audits)).toEqual([]);
+  });
+
+  it("removes worktree for deleted task after minimum age floor", async () => {
+    const stale = tempMergeDir("fusion-ai-merge-fn-999-deletedtaskstale");
+    makeAge(stale, MIN_TEMP_WORKTREE_REAP_AGE_MS + 1_000);
     const { manager, audits } = makeManager({}, missingTask());
 
     await expect(sweep(manager)).resolves.toBe(1);
 
-    expect(existsSync(fresh)).toBe(false);
+    expect(existsSync(stale)).toBe(false);
     expect(sweepAudits(audits)).toEqual(expect.arrayContaining([
       expect.objectContaining({ metadata: expect.objectContaining({ success: true, reason: "deleted-task" }) }),
+    ]));
+  });
+
+  it("keeps fresh worktree on transient task lookup error", async () => {
+    const fresh = tempMergeDir("fusion-ai-merge-fn-999-lookuperrorfresh");
+    makeAge(fresh, MIN_TEMP_WORKTREE_REAP_AGE_MS - 1_000);
+    const { manager, audits } = makeManager({}, transientErrorTask());
+
+    await expect(sweep(manager)).resolves.toBe(0);
+
+    expect(existsSync(fresh)).toBe(true);
+    expect(sweepAudits(audits)).toEqual([]);
+  });
+
+  it("removes worktree on transient task lookup error only after full stale gate", async () => {
+    const stale = tempMergeDir("fusion-ai-merge-fn-999-lookuperrorstale");
+    makeAge(stale, STALE_TEMP_MERGE_WORKTREE_MS + 1_000);
+    const { manager, audits } = makeManager({}, transientErrorTask());
+
+    await expect(sweep(manager)).resolves.toBe(1);
+
+    expect(existsSync(stale)).toBe(false);
+    expect(sweepAudits(audits)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ metadata: expect.objectContaining({ success: true, reason: "lookup-error" }) }),
     ]));
   });
 
@@ -267,7 +307,7 @@ describe("SelfHealingManager temp-dir AI merge worktree sweep", () => {
 
   it("keeps fresh worktree for done task within grace period", async () => {
     const fresh = tempMergeDir("fusion-ai-merge-fn-999-donefresh");
-    makeAge(fresh, 5 * 60 * 1000);
+    makeAge(fresh, DONE_TASK_TEMP_WORKTREE_GRACE_MS - 1_000);
     const { manager } = makeManager({}, taskWithColumn("done"));
 
     await expect(sweep(manager)).resolves.toBe(0);

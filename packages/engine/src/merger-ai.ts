@@ -32,7 +32,7 @@
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readdirSync, realpathSync, rmSync } from "node:fs";
+import { readdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -64,6 +64,7 @@ import { createRunAuditor, generateSyntheticRunId, type RunAuditor } from "./run
 import { createLogger } from "./logger.js";
 import { captureSingleCommitLandedMetadata, type MergerOptions } from "./merger.js";
 import { activeSessionRegistry } from "./active-session-registry.js";
+import { MIN_TEMP_WORKTREE_REAP_AGE_MS } from "./self-healing.js";
 
 const execFileAsync = promisify(execFile);
 const aiMergeLog = createLogger("merger-ai");
@@ -133,6 +134,18 @@ export async function pruneExistingAiMergeWorktrees(
 
     if (activeSessionRegistry.isPathActive(canonicalPath) || activeSessionRegistry.isPathActive(candidatePath)) {
       await log(`AI merge pre-merge prune: skipping active worktree ${canonicalPath}`);
+      continue;
+    }
+
+    try {
+      const stat = statSync(canonicalPath);
+      const ageMs = Date.now() - stat.mtimeMs;
+      if (ageMs < MIN_TEMP_WORKTREE_REAP_AGE_MS) {
+        await log(`AI merge pre-merge prune: skipping too-new worktree ${canonicalPath} (age ${Math.max(0, Math.round(ageMs))}ms)`);
+        continue;
+      }
+    } catch (err: unknown) {
+      await log(`AI merge pre-merge prune: failed to stat ${canonicalPath}: ${getErrorMessage(err)} — skipping candidate`);
       continue;
     }
 
@@ -910,9 +923,20 @@ export async function runAiMerge(
     // 1. Clean-room worktree at the integration tip.
     const mergeRoot = await mkdtemp(join(tmpdir(), `fusion-ai-merge-${taskId.toLowerCase()}-`));
     let worktreeAdded = false;
+    const registeredMergePaths = new Set<string>();
     try {
       await git(["worktree", "add", "--detach", mergeRoot, tipSha], projectRootDir);
       worktreeAdded = true;
+      let canonicalMergeRoot = mergeRoot;
+      try {
+        canonicalMergeRoot = realpathSync(mergeRoot);
+      } catch {
+        canonicalMergeRoot = mergeRoot;
+      }
+      for (const pathToRegister of new Set([canonicalMergeRoot, mergeRoot])) {
+        activeSessionRegistry.registerPath(pathToRegister, { taskId, kind: "ai-merge", ownerKey: `ai-merge:${taskId}` });
+        registeredMergePaths.add(pathToRegister);
+      }
       await audit.git({ type: "merge:ai-clean-room", target: integrationBranch, metadata: { taskId, tipSha, mergeRoot } });
       await log(`AI merge: merging ${branch} into ${integrationBranch} (clean room at ${short(tipSha)})${advanceRetries ? ` — retry ${advanceRetries} after concurrent advance` : ""}`);
 
@@ -948,6 +972,9 @@ export async function runAiMerge(
       await log(`AI merge: advanced ${integrationBranch} → ${short(squashSha)} (local checkout: ${landed.localSync})`);
       return await finalizeMerged(store, projectRootDir, taskId, task, branch, integrationBranch, squashSha, audit, log, { empty: false });
     } finally {
+      for (const registeredPath of registeredMergePaths) {
+        activeSessionRegistry.unregisterPath(registeredPath);
+      }
       await cleanupAiMergeWorktree({ taskId, mergeRoot, projectRootDir, worktreeAdded, audit, log });
     }
   }

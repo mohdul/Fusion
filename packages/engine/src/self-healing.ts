@@ -75,8 +75,9 @@ const BOARD_STALL_NOTIFICATION_COOLDOWN_MS = 60 * 60_000;
 const DB_CORRUPTION_NOTIFICATION_COOLDOWN_MS = 60 * 60 * 1000;
 const FTS_MAINTENANCE_MERGE_CADENCE_TICKS = 1;
 const FTS_MAINTENANCE_OPTIMIZE_CADENCE_TICKS = 4;
-const STALE_TEMP_MERGE_WORKTREE_MS = 2 * 60 * 60 * 1000;
-const DONE_TASK_TEMP_WORKTREE_GRACE_MS = 10 * 60 * 1000;
+export const STALE_TEMP_MERGE_WORKTREE_MS = 2 * 60 * 60 * 1000;
+export const DONE_TASK_TEMP_WORKTREE_GRACE_MS = 10 * 60 * 1000;
+export const MIN_TEMP_WORKTREE_REAP_AGE_MS = DONE_TASK_TEMP_WORKTREE_GRACE_MS;
 // Live pathology peaked around 775 KB/task (~96 MB for ~120 tasks), while a
 // rebuilt healthy index was ~0.1 MB. Keep the steady-state budget generous but
 // bounded so sustained text churn heals before segment growth becomes material.
@@ -98,6 +99,14 @@ const MAX_NO_PROGRESS_RESUME_ATTEMPTS = 2;
 function extractTaskIdFromTempMergeDir(dirname: string): string | null {
   const match = /^fusion-ai-merge-(fn-\d+)-[a-z0-9]+$/i.exec(dirname);
   return match?.[1]?.toUpperCase() ?? null;
+}
+
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function isTaskNotFoundError(err: unknown): boolean {
+  return /\btask\s+fn-\d+\s+not found\b/i.test(getErrorMessage(err));
 }
 
 type BranchGroupLandingRecorder = {
@@ -8919,12 +8928,19 @@ export class SelfHealingManager {
                 ageGateMs = DONE_TASK_TEMP_WORKTREE_GRACE_MS;
                 cleanupReason = "done-task-stale";
               }
-            } catch {
-              ageGateMs = 0;
-              cleanupReason = "deleted-task";
+            } catch (err: unknown) {
+              if (isTaskNotFoundError(err)) {
+                ageGateMs = MIN_TEMP_WORKTREE_REAP_AGE_MS;
+                cleanupReason = "deleted-task";
+              } else {
+                const errorMessage = getErrorMessage(err);
+                cleanupReason = "lookup-error";
+                log.warn(`[self-healing] temp-dir sweep: task lookup failed for ${taskId}: ${errorMessage}; using conservative age gate`);
+              }
             }
           }
-          if (ageGateMs > 0 && ageMs < ageGateMs) continue;
+          ageGateMs = Math.max(ageGateMs, MIN_TEMP_WORKTREE_REAP_AGE_MS);
+          if (ageMs < ageGateMs) continue;
           try {
             canonicalPath = realpathSync(path);
           } catch {

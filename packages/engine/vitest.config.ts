@@ -107,7 +107,6 @@ export default defineConfig({
             "dist/**",
             "src/__tests__/merger-file-scope-invariant.test.ts",
             "src/__tests__/project-engine-manager.test.ts",
-            "src/__tests__/merger-ai-cleanup.test.ts",
             "src/__tests__/self-healing-already-merged.real-git.test.ts",
           ],
         },
