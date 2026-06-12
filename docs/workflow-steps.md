@@ -34,9 +34,9 @@ The workflow runtime is the authoritative execution path for task lifecycle work
 
 The engine remains the substrate for scheduler dispatch, routing claims, persistence, concurrency limits, process supervision, storage, and audit plumbing. Lifecycle policy belongs in built-in or custom workflows.
 
-The default built-in catalog entry `builtin:coding` is backed by the canonical `BUILTIN_CODING_WORKFLOW_IR`, which is also the resolver/runtime fallback for tasks with no workflow selection or an explicit default selection. Missing/corrupt explicit custom selections fail closed as workflow-resolution failures instead of silently running the default. The built-in IR encodes the legacy lifecycle path as graph stages:
+The default built-in catalog entry `builtin:coding` is backed by the canonical `BUILTIN_CODING_WORKFLOW_IR`, which is also the resolver/runtime fallback for tasks with no workflow selection or an explicit default selection. Missing/corrupt explicit custom selections fail closed as workflow-resolution failures instead of silently running the default. The built-in IR encodes the legacy lifecycle path as graph stages, with merge represented by workflow-native policy primitives rather than a single linear merge seam:
 
-- `triage/planning` → `execute` → `workflow-step` → `review` → `merge` → `end`
+- `triage/planning` → `execute` → `workflow-step` → `review` → `merge-gate` / branch-group integration / `merge-attempt` / retry or manual hold → `end`
 
 `builtin:stepwise-coding` is a separate graph variant backed by `BUILTIN_STEPWISE_CODING_WORKFLOW_IR`; it keeps the same lifecycle columns/traits while modeling per-step parse/execute/review/rework as authored graph structure.
 

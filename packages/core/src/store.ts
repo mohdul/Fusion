@@ -77,7 +77,7 @@ import type {
   WorkflowDefinitionUpdate,
   WorkflowNodeLayout,
 } from "./workflow-definition-types.js";
-import { compileWorkflowToSteps } from "./workflow-compiler.js";
+import { compileWorkflowToSteps, isInterpreterDeferredWorkflowCompileError } from "./workflow-compiler.js";
 import {
   BUILTIN_WORKFLOWS,
   getBuiltinWorkflow,
@@ -14872,8 +14872,16 @@ ${stepsSection}`;
     // selectable workflow); fall back to no default rather than materializing it.
     if (def.kind === "fragment") return undefined;
     // Compile (and validate) before creating any rows so a non-compilable
-    // default falls back cleanly with nothing written.
-    const inputs = compileWorkflowToSteps(def.ir);
+    // default falls back cleanly with nothing written. Interpreter-deferred
+    // built-ins are valid selectable workflows but not lowerable to legacy
+    // WorkflowStep rows, so default materialization falls back to legacy defaults.
+    let inputs: import("./types.js").WorkflowStepInput[];
+    try {
+      inputs = compileWorkflowToSteps(def.ir);
+    } catch (err) {
+      if (isBuiltinWorkflowId(workflowId) && isInterpreterDeferredWorkflowCompileError(err)) return undefined;
+      throw err;
+    }
     const stepIds = await this.materializeWorkflowSteps(workflowId, inputs);
     return { workflowId, stepIds };
   }
@@ -14892,16 +14900,23 @@ ${stepsSection}`;
     if (def.kind === "fragment") {
       throw new Error(`Workflow '${workflowId}' is a fragment and cannot be selected for a task`);
     }
-    const inputs = compileWorkflowToSteps(def.ir);
+    let inputs: import("./types.js").WorkflowStepInput[];
+    try {
+      inputs = compileWorkflowToSteps(def.ir);
+    } catch (err) {
+      if (isBuiltinWorkflowId(workflowId) && isInterpreterDeferredWorkflowCompileError(err)) return { workflowId, stepIds: [] };
+      throw err;
+    }
     const stepIds = await this.materializeWorkflowSteps(workflowId, inputs);
     return { workflowId, stepIds };
   }
 
   /**
-   * Select a workflow for a task: compile it, materialize its steps, and write
-   * their ids into the task's enabledWorkflowSteps. Replaces any prior selection
-   * (no orphaned steps). Throws WorkflowCompileError for non-linear graphs
-   * before any state is written.
+   * Select a workflow for a task: compile it when possible, materialize its
+   * steps, and write their ids into the task's enabledWorkflowSteps. Replaces
+   * any prior selection (no orphaned steps). Interpreter-deferred workflow IRs
+   * record the selection with zero materialized steps; genuinely invalid graphs
+   * still throw before any state is written.
    */
   async selectTaskWorkflow(taskId: string, workflowId: string): Promise<string[]> {
     // Hold the task lock across the whole sequence (materialize → owner write →
@@ -14917,8 +14932,16 @@ ${stepsSection}`;
       if (def.kind === "fragment") {
         throw new Error(`Workflow '${workflowId}' is a fragment and cannot be selected for a task`);
       }
-      // Compile once up front: a non-linear graph aborts before any mutation.
-      const inputs = compileWorkflowToSteps(def.ir);
+      // Compile once up front: invalid graphs abort before any mutation, while
+      // interpreter-deferred graphs keep the selection but materialize no legacy
+      // WorkflowStep rows.
+      let inputs: import("./types.js").WorkflowStepInput[];
+      try {
+        inputs = compileWorkflowToSteps(def.ir);
+      } catch (err) {
+        if (isBuiltinWorkflowId(workflowId) && isInterpreterDeferredWorkflowCompileError(err)) inputs = [];
+        else throw err;
+      }
 
       // Materialize the new steps and point the task at them BEFORE deleting the
       // prior selection's rows, so a mid-flight failure never leaves the task

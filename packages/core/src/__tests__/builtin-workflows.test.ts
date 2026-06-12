@@ -20,7 +20,7 @@ const EXECUTE_NODE_MAX_RETRIES = 2;
 describe("built-in workflows", () => {
   // Non-compiler built-ins model graph-only node kinds or reusable fragments the
   // linear compiler cannot lower to a step list. They still must parse as valid IR.
-  const NON_COMPILABLE_BUILTIN_IDS = new Set(["builtin:stepwise-coding", "builtin:pr-workflow"]);
+  const NON_COMPILABLE_BUILTIN_IDS = new Set(["builtin:coding", "builtin:stepwise-coding", "builtin:pr-workflow"]);
 
   it("every built-in has a valid IR; linear built-ins compile without error", () => {
     expect(BUILTIN_WORKFLOWS.length).toBeGreaterThanOrEqual(4);
@@ -140,7 +140,13 @@ describe("built-in workflows", () => {
     expect(byId.get("review")?.column).toBe("in-review");
     // Merge is the native primitive region (FN-6035), placed in in-review.
     expect(byId.get("merge")).toBeUndefined();
+    expect(byId.get("merge-gate")?.column).toBe("in-review");
+    expect(byId.get("merge-retry")?.column).toBe("in-review");
+    expect(byId.get("merge-manual-hold")?.column).toBe("in-review");
+    expect(byId.get("branch-group-member-integration")?.column).toBe("in-review");
+    expect(byId.get("branch-group-promotion")?.column).toBe("in-review");
     expect(byId.get("merge-attempt")?.column).toBe("in-review");
+    expect(byId.get("recovery-router")?.column).toBe("in-review");
     expect(ir.settings).toEqual(BUILTIN_WORKFLOW_SETTINGS);
   });
 
@@ -202,6 +208,13 @@ describe("built-in workflows", () => {
       // The merge lifecycle is no longer a single `merge` seam node (FN-6035): it
       // is expressed as the merge-gate/merge-attempt/branch-group primitive region.
       expect(byId.get("merge")).toBeUndefined();
+      expect(byId.get("merge-gate")?.kind).toBe("merge-gate");
+      expect(byId.get("merge-retry")?.kind).toBe("retry-backoff");
+      expect(byId.get("merge-manual-hold")?.kind).toBe("manual-merge-hold");
+      expect(byId.get("branch-group-member-integration")?.kind).toBe("branch-group-member-integration");
+      expect(byId.get("branch-group-promotion")?.kind).toBe("branch-group-promotion");
+      expect(byId.get("merge-attempt")?.kind).toBe("merge-attempt");
+      expect(byId.get("recovery-router")?.kind).toBe("recovery-router");
     }
   });
 
@@ -337,10 +350,40 @@ describe("built-in workflows", () => {
       await expect(store.deleteWorkflowDefinition("builtin:coding")).rejects.toThrow(/cannot be deleted/i);
     });
 
-    it("a task can select a built-in workflow", async () => {
-      const task = await store.createTask({ description: "T", enabledWorkflowSteps: [] });
-      await store.selectTaskWorkflow(task.id, "builtin:coding");
-      expect(store.getTaskWorkflowSelection(task.id)?.workflowId).toBe("builtin:coding");
+    it("interpreter-deferred built-ins can be selected without compile materialization", async () => {
+      for (const workflowId of ["builtin:coding", "builtin:stepwise-coding"]) {
+        const task = await store.createTask({ description: `select ${workflowId}`, enabledWorkflowSteps: [] });
+
+        await expect(store.selectTaskWorkflow(task.id, workflowId)).resolves.toEqual([]);
+
+        const detail = await store.getTask(task.id);
+        expect(detail.enabledWorkflowSteps ?? []).toEqual([]);
+        expect(store.getTaskWorkflowSelection(task.id)).toEqual({ workflowId, stepIds: [] });
+      }
+    });
+
+    it("create-time interpreter-deferred built-in workflowId records selection without throwing", async () => {
+      const task = await store.createTask({ description: "explicit builtin coding", workflowId: "builtin:coding" });
+
+      const detail = await store.getTask(task.id);
+      expect(detail.enabledWorkflowSteps ?? []).toEqual([]);
+      expect(store.getTaskWorkflowSelection(task.id)).toEqual({ workflowId: "builtin:coding", stepIds: [] });
+    });
+
+    it("interpreter-deferred built-in project defaults fall back without throwing", async () => {
+      await expect(store.createTask({ description: "implicit builtin default" })).resolves.toMatchObject({
+        description: "implicit builtin default",
+      });
+
+      await store.setDefaultWorkflowId("builtin:coding");
+      const codingTask = await store.createTask({ description: "default builtin coding" });
+      expect((await store.getTask(codingTask.id)).enabledWorkflowSteps ?? []).toEqual([]);
+      expect(store.getTaskWorkflowSelection(codingTask.id)).toBeUndefined();
+
+      await store.setDefaultWorkflowId("builtin:stepwise-coding");
+      const stepwiseTask = await store.createTask({ description: "default builtin stepwise" });
+      expect((await store.getTask(stepwiseTask.id)).enabledWorkflowSteps ?? []).toEqual([]);
+      expect(store.getTaskWorkflowSelection(stepwiseTask.id)).toBeUndefined();
     });
 
     it("rejects selecting the PR lifecycle fragment for a task", async () => {
