@@ -164,11 +164,21 @@ if (!process.env.FUSION_MASTER_KEY_DISABLE_KEYCHAIN) {
   process.env.FUSION_MASTER_KEY_DISABLE_KEYCHAIN = "1";
 }
 
-// Shared parent directory for all worker temp dirs in this run.
-// globalTeardown wipes this at the end of the suite.
-const WORKER_ROOT = join(tmpdir(), "fusion-test-workers");
-try { mkdirSync(WORKER_ROOT, { recursive: true }); } catch { /* ignore */ }
-process.env.FUSION_TEST_WORKER_ROOT = WORKER_ROOT;
+// Shared parent directory for all worker temp dirs in this Vitest invocation.
+// Keep this per-run (globalSetup seeds FUSION_TEST_WORKER_ROOT) instead of a
+// single long-lived tmpdir/fusion-test-workers directory: redirect setup does a
+// bounded one-level sweep of WORKER_ROOT, and a static root can accumulate enough
+// stale worker/home dirs after interrupted runs to make every mkdtempSync call
+// take seconds.
+const WORKER_ROOT = (() => {
+  const fromEnv = process.env.FUSION_TEST_WORKER_ROOT;
+  const root = fromEnv && fromEnv.trim().length > 0
+    ? resolve(fromEnv)
+    : realpathSync(mkdtempSync(join(tmpdir(), "fusion-test-workers-")));
+  try { mkdirSync(root, { recursive: true }); } catch { /* ignore */ }
+  process.env.FUSION_TEST_WORKER_ROOT = root;
+  return root;
+})();
 
 const REAL_TMPDIR = (() => {
   try {
