@@ -184,8 +184,9 @@ govern that execution belong to the workflow.
 **Where to set them.** The common model lanes for a project's default workflow are
 available directly in **Settings → Project Models → Default workflow model lanes**:
 Plan/Triage, Executor, and Reviewer. Those dropdown controls use the shared model
-picker and still write workflow setting values for the active project's default
-workflow; they do not restore the old project settings keys.
+picker and are persisted by the Settings modal's primary **Save** action, which
+writes workflow setting values for the active project's default workflow; they do
+not restore the old project settings keys.
 
 For step execution, review/approval policy, fallbacks, title summarization, and
 custom workflow settings, open the **workflow editor** (the workflow node editor in
@@ -236,10 +237,12 @@ These groups moved out of project settings and into workflow settings (built-in
 | **Per-phase model lanes** | `executionProvider`/`executionModelId`, `planningProvider`/`planningModelId` (+ fallbacks), `validatorProvider`/`validatorModelId` (+ fallbacks) |
 
 In the dashboard Settings modal, Project Models now exposes Plan/Triage, Executor,
-and Reviewer dropdown controls for the default workflow. The workflow editor's
-Settings → Values tab uses the same dropdown picker for declared provider/model
-pairs, including fallbacks. Former locations for advanced workflow policy still
-show a short redirect stub linking to the workflow editor (for one release).
+and Reviewer dropdown controls for the default workflow. The modal's primary
+**Save** action persists pending default-workflow model lane overrides; there is no
+separate workflow-model save button. The workflow editor's Settings → Values tab
+uses the same dropdown picker for declared provider/model pairs, including
+fallbacks. Former locations for advanced workflow policy still show a short
+redirect stub linking to the workflow editor (for one release).
 
 > Note: the global baseline model lanes (`executionGlobalProvider` etc.) and
 > integrity guarantees stay where they are — only the per-workflow process policy
@@ -772,7 +775,7 @@ Short-lived token bounds are enforced server-side:
 
 ## Model Selection Hierarchy
 
-Fusion resolves task models through workflow-backed lane values first, then global lane defaults, then the project/global default model fallback. The common workflow lanes are stored as setting values on the project's default workflow and can be edited with dropdown controls from Settings -> Project Models -> Default workflow model lanes or from workflow editor -> Settings -> Values for declared workflow lanes and fallbacks.
+Fusion resolves task models through workflow-backed lane values first, then global lane defaults, then the project/global default model fallback. The common workflow lanes are stored as setting values on the project's default workflow and can be edited with dropdown controls from Settings -> Project Models -> Default workflow model lanes (persisted by the Settings modal's primary Save) or from workflow editor -> Settings -> Values for declared workflow lanes and fallbacks.
 
 ### Planning model
 
