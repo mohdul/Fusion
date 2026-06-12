@@ -9530,12 +9530,18 @@ export class TaskExecutor {
       : evaluatePromptDerivedNoCommitEligibility(task, typeof promptContent === "string" ? promptContent : "");
     if (noCommitEligibility.eligible) {
       executorLog.log(`${task.id}: fn_task_done no_commits guard skipped (${noCommitEligibility.reason})`);
-      await this.store.logEntry(
-        task.id,
-        `fn_task_done no_commits guard skipped (${noCommitEligibility.reason})`,
-        undefined,
-        this.getRunContextFor(task.id),
-      );
+      try {
+        await this.store.logEntry(
+          task.id,
+          `fn_task_done no_commits guard skipped (${noCommitEligibility.reason})`,
+          undefined,
+          this.getRunContextFor(task.id),
+        );
+      } catch (error) {
+        executorLog.warn(
+          `${task.id}: failed to write no_commits guard skip audit log: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
       return { ok: true };
     }
 

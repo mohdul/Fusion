@@ -206,6 +206,23 @@ describe("FN-4114 fn_task_done invariants", () => {
     expect(result.content[0].text).toContain("fn_task_done refused: wrong_branch");
     expect(store.moveTask).toHaveBeenCalledWith("FN-4114", "todo", { preserveProgress: true });
   });
+  it("FN-4114 allows no-commit completion when noCommitsExpected audit logging fails", async () => {
+    const { store, tool } = await setup({ noCommitsExpected: true });
+    mockedExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("rev-parse --show-toplevel")) return Buffer.from("/repo/.worktrees/swift-falcon\n");
+      if (cmd.includes("rev-parse --abbrev-ref HEAD")) return Buffer.from("fusion/fn-4114\n");
+      if (cmd.includes("rev-list --count")) return Buffer.from("0\n");
+      if (cmd.includes("rev-parse HEAD")) return Buffer.from("def456\n");
+      return Buffer.from("");
+    });
+    store.logEntry.mockImplementation(async (_id: string, message: string) => {
+      if (message.includes("no_commits guard skipped")) throw new Error("audit unavailable");
+    });
+
+    const result = await tool.execute("id", {});
+    expect(result.content[0].text).toContain("Task marked complete");
+    expect(store.updateStep).toHaveBeenCalled();
+  });
 
 
   it("FN-416 allows plan-only operational no-source completion with zero commits when the explicit flag is missing", async () => {
