@@ -4457,11 +4457,15 @@ export class TaskExecutor {
         stageByNodeId.set(node.id, seam);
       }
     }
-    // Stop the shadow walk at the live terminal seam. The graph walker visits a
-    // node *before* invoking its seam, so even a failing merge seam (the case
-    // when the live task is parked in-review with autoMerge off) still records a
-    // "merge" stage. The legacy side never reports merge for an in-review task,
-    // so that phantom stage manufactures stageTransitions drift on healthy runs.
+    // The built-in coding IR now enters an interpreter-owned merge-policy
+    // primitive region after review; graph execution collapses that region to a
+    // synthetic legacy merge seam recorded as `merge` until merge-policy cutover.
+    stageByNodeId.set("merge", "merge");
+    // Stop the shadow walk at the live terminal seam. The graph walker records a
+    // merge stage before/while invoking its seam, so even a failing merge seam
+    // (the case when the live task is parked in-review with autoMerge off) still
+    // records a "merge" stage. The legacy side never reports merge for an
+    // in-review task, so that phantom stage manufactures stageTransitions drift.
     // Truncate the visited-stage sequence at the stage the live task actually
     // reached: merged → merge, reachedReview → review, else → execute.
     const terminalStage: WorkflowStage = merged ? "merge" : reachedReview ? "review" : "execute";
