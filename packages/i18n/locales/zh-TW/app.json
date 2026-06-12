@@ -649,7 +649,7 @@
     "newAgent": "新增智能體",
     "next": "下一步",
     "nextExpected": "下次預期",
-    "nextHeartbeat": "下次：{{time}}",
+    "nextHeartbeat": "",
     "nextHeartbeatAt": "下次：{{time}}",
     "noActiveAssignment": "無活動任務",
     "noActiveEligible": "沒有符合條件可暫停的活動代理",

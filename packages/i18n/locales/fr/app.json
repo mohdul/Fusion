@@ -656,7 +656,7 @@
     "newAgent": "Nouvel agent",
     "next": "Suivant",
     "nextExpected": "Prochain attendu",
-    "nextHeartbeat": "Prochaine : {{time}}",
+    "nextHeartbeat": "",
     "nextHeartbeatAt": "Prochaine : {{time}}",
     "noActiveAssignment": "Aucune assignation active",
     "noActiveEligible": "Aucun agent actif éligible à la pause",
