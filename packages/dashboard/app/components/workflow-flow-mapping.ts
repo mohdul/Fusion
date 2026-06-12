@@ -5,6 +5,7 @@ import type {
   WorkflowIrColumn,
   WorkflowIrNode,
   WorkflowIrEdge,
+  WorkflowIrNodeKind,
   WorkflowDefinition,
   WorkflowFieldDefinition,
   WorkflowSettingDefinition,
@@ -127,30 +128,58 @@ function isV2(ir: WorkflowIr): ir is WorkflowIrV2 {
   return ir.version === "v2";
 }
 
-/** Resolve the editor node "type" for an IR node (merge seam → "merge"). */
+const SAME_KIND_EDITOR_NODE_KINDS = new Set<WorkflowIrNodeKind>([
+  "start",
+  "prompt",
+  "script",
+  "gate",
+  "end",
+  "hold",
+  "split",
+  "join",
+  "foreach",
+  "loop",
+  "step-review",
+  "parse-steps",
+  "code",
+  "notify",
+]);
+
+const GRAPH_ONLY_EDITOR_KIND: Partial<Record<WorkflowIrNodeKind, WorkflowEditorNodeKind>> = {
+  "merge-gate": "gate",
+  "merge-attempt": "merge",
+  "manual-merge-hold": "hold",
+  "retry-backoff": "hold",
+  "recovery-router": "gate",
+  "branch-group-member-integration": "merge",
+  "branch-group-promotion": "merge",
+  "pr-merge": "merge",
+  "pr-create": "prompt",
+  "pr-respond": "prompt",
+};
+
+function isSameKindEditorNodeKind(
+  kind: WorkflowIrNodeKind,
+): kind is Extract<WorkflowEditorNodeKind, WorkflowIrNodeKind> {
+  return SAME_KIND_EDITOR_NODE_KINDS.has(kind);
+}
+
+/**
+ * Resolve the editor node "type" for an IR node. Graph-only IR policy nodes map
+ * to the closest existing editor shape: merge/recovery gates render as gate,
+ * merge/branch actions render as merge, passive waits render as hold, and PR
+ * nodes reuse merge/prompt until dedicated renderers exist.
+ */
 function editorKind(node: WorkflowIr["nodes"][number]): WorkflowEditorNodeKind {
   const seam = node.config?.seam;
   if (seam === "merge") return "merge";
-  // PR node kinds (pr-create/pr-respond/pr-merge) are graph node kinds but have
-  // no dedicated editor palette renderer yet; map them to the closest existing
-  // editor shape so the workflow editor renders them as recognizable nodes.
-  // (Dedicated PR-node editor rendering is a follow-up, not part of this work.)
-  if (node.kind === "pr-merge") return "merge";
-  if (node.kind === "pr-create" || node.kind === "pr-respond") return "prompt";
-  // Workflow-owned merge/retry/recovery nodes are executable IR kinds, but the
-  // dashboard editor does not expose dedicated palette/renderers for each one.
-  // Preserve rendering by mapping them to the closest existing editor shape.
-  if (node.kind === "merge-gate") return "gate";
-  if (node.kind === "manual-merge-hold" || node.kind === "retry-backoff") return "hold";
-  if (node.kind === "recovery-router") return "split";
-  if (
-    node.kind === "merge-attempt" ||
-    node.kind === "branch-group-member-integration" ||
-    node.kind === "branch-group-promotion"
-  ) {
-    return "merge";
-  }
-  return node.kind;
+
+  const mapped = GRAPH_ONLY_EDITOR_KIND[node.kind];
+  if (mapped) return mapped;
+
+  if (isSameKindEditorNodeKind(node.kind)) return node.kind;
+
+  return "prompt";
 }
 
 function nodeLabel(node: WorkflowIr["nodes"][number]): string {
