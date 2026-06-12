@@ -143,7 +143,11 @@ export function CustomProvidersSection({ embedded = false, onProviderChange }: C
     setName(provider.name);
     setApiType(provider.apiType);
     setBaseUrl(provider.baseUrl);
-    setApiKey(provider.apiKey ?? "");
+    // The loaded provider's apiKey is masked (e.g. "abc•••••wxyz") for display.
+    // Never seed the editable field with the mask — echoing it back would send a
+    // masked value to save/probe (which the server rejects). Start empty; an
+    // unchanged blank field leaves the stored key untouched on save.
+    setApiKey("");
     setModels((provider.models ?? []).map((model) => model.id).join(", "));
     setFormError(null);
     setDetectError(null);
@@ -366,6 +370,9 @@ export function CustomProvidersSection({ embedded = false, onProviderChange }: C
                         id="custom-provider-api-key"
                         type="password"
                         className="input"
+                        placeholder={editingProvider?.apiKey
+                          ? t("providers.apiKeyKeepPlaceholder", "Leave blank to keep current key")
+                          : undefined}
                         value={apiKey}
                         onChange={(event) => setApiKey(event.target.value)}
                         disabled={saving}

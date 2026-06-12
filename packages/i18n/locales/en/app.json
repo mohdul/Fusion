@@ -4299,6 +4299,7 @@
       "saving": "Saving..."
     },
     "addCustom": "Add Custom Provider",
+    "apiKeyKeepPlaceholder": "Leave blank to keep current key",
     "apiKeyLabel": "API key",
     "apiTypeAnthropic": "Anthropic-compatible",
     "apiTypeInvalid": "API type is invalid.",

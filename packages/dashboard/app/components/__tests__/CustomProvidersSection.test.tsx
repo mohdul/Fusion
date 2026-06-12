@@ -244,6 +244,49 @@ describe("CustomProvidersSection", () => {
     });
   });
 
+  it("does not echo the masked key back when editing without retyping", async () => {
+    mockFetchCustomProviders
+      .mockResolvedValueOnce([
+        {
+          id: "test-id",
+          name: "Keyed Provider",
+          apiType: "openai-compatible",
+          baseUrl: "https://api.example.com",
+          // Server returns the key masked for display.
+          apiKey: "abc•••••wxyz",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "test-id",
+          name: "Keyed Provider",
+          apiType: "openai-compatible",
+          baseUrl: "https://api.example.com",
+        },
+      ]);
+
+    render(<CustomProvidersSection embedded />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Edit Keyed Provider")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByLabelText("Edit Keyed Provider"));
+
+    // The API key field must start empty, never seeded with the mask.
+    const apiKeyInput = screen.getByLabelText("API key") as HTMLInputElement;
+    expect(apiKeyInput.value).toBe("");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => {
+      expect(mockUpdateCustomProvider).toHaveBeenCalledTimes(1);
+    });
+    // apiKey is omitted entirely so the stored credential is preserved.
+    const [, payload] = mockUpdateCustomProvider.mock.calls[0];
+    expect(payload).not.toHaveProperty("apiKey");
+  });
+
   it("deletes provider after confirmation", async () => {
     mockFetchCustomProviders
       .mockResolvedValueOnce([
