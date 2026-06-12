@@ -171,6 +171,7 @@ describe("AI merge temp worktree cleanup", () => {
   it("treats spawn git ENOENT during cleanup as idempotent already-absent success", async () => {
     const mergeRoot = mkdtempSync(join(tmpdir(), "fusion-ai-merge-fn-1-enoent-cleanup-test-"));
     tracked.add(mergeRoot);
+    const canonicalMergeRoot = realpathSync(mergeRoot);
     const err = Object.assign(new Error("spawn git ENOENT"), { code: "ENOENT" });
     const gitRunner = vi.fn(async () => { throw err; });
 
@@ -179,7 +180,7 @@ describe("AI merge temp worktree cleanup", () => {
       gitRunner,
     });
 
-    expect(gitRunner).toHaveBeenCalledWith(["worktree", "remove", "--force", mergeRoot], process.cwd());
+    expect(gitRunner).toHaveBeenCalledWith(["worktree", "remove", "--force", canonicalMergeRoot], process.cwd());
 
     expect(events).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: "merge:ai-worktree-cleanup", metadata: expect.objectContaining({ phase: "git-remove", success: true, alreadyAbsent: true, idempotent: true, code: "ENOENT" }) }),
@@ -219,10 +220,33 @@ describe("AI merge temp worktree cleanup", () => {
 
     const { events } = await cleanup({ worktreeAdded: false, gitRunner });
 
-    expect(gitRunner).not.toHaveBeenCalled();
+    expect(gitRunner).toHaveBeenCalledTimes(1);
+    expect(gitRunner).toHaveBeenCalledWith(["worktree", "prune"], expect.any(String), { timeout: 30_000 });
     expect(events.some((event) => event.metadata.phase === "git-remove")).toBe(false);
     expect(events).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: "merge:ai-worktree-cleanup", metadata: expect.objectContaining({ phase: "fs-rm", success: true }) }),
+      expect.objectContaining({ type: "merge:ai-worktree-cleanup", metadata: expect.objectContaining({ phase: "git-prune", success: true }) }),
+    ]));
+  });
+
+  it("prunes stale worktree metadata after git removal failure", async () => {
+    const err = new Error("git remove failed") as Error & { stderr?: string; code?: string };
+    err.stderr = "fatal: not a working tree registered in git metadata";
+    err.code = "1";
+    const gitRunner = vi.fn(async (args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "remove" && args[2] === "--force") throw err;
+      return "";
+    });
+
+    const { mergeRoot, events, logs } = await cleanup({ gitRunner });
+
+    expect(existsSync(mergeRoot)).toBe(false);
+    expect(gitRunner).toHaveBeenCalledWith(["worktree", "prune"], expect.any(String), { timeout: 30_000 });
+    expect(logs.join("\n")).toContain("not a working tree registered");
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "merge:ai-worktree-cleanup", metadata: expect.objectContaining({ phase: "git-remove", success: false }) }),
+      expect.objectContaining({ type: "merge:ai-worktree-cleanup", metadata: expect.objectContaining({ phase: "fs-rm", success: true }) }),
+      expect.objectContaining({ type: "merge:ai-worktree-cleanup", metadata: expect.objectContaining({ phase: "git-prune", success: true }) }),
     ]));
   });
 
