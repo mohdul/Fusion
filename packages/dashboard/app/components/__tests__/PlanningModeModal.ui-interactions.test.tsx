@@ -68,6 +68,7 @@ import {
 } from "./PlanningModeModal.test-helpers";
 
 vi.mock("../../api", () => ({
+  api: vi.fn().mockResolvedValue({ sessions: [] }),
   startPlanning: (...args: any[]) => mockStartPlanning(...args),
   startPlanningStreaming: (...args: any[]) => mockStartPlanningStreaming(...args),
   createPlanningDraft: (...args: any[]) => mockCreatePlanningDraft(...args),
@@ -99,6 +100,7 @@ vi.mock("../../api", () => ({
   fetchGlobalSettings: vi.fn().mockResolvedValue({}),
   fetchModels: (...args: any[]) => mockFetchModels(...args),
   fetchWorkflowSteps: vi.fn().mockResolvedValue([]),
+  fetchBoardWorkflows: vi.fn().mockResolvedValue({ flagEnabled: false, defaultWorkflowId: "", workflows: [], taskWorkflowIds: {} }),
   refineText: vi.fn(),
   getRefineErrorMessage: vi.fn((err: any) => err?.message || "Failed to refine"),
   updateGlobalSettings: vi.fn().mockResolvedValue({}),
@@ -112,6 +114,8 @@ vi.mock("../../hooks/useConfirm", () => ({
 
 vi.mock("../../hooks/useViewportMode", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 768px), (max-height: 480px)",
+  getViewportMode: () => mockUseViewportMode(),
+  isMobileViewport: () => mockUseViewportMode() === "mobile",
   useViewportMode: () => mockUseViewportMode(),
 }));
 

@@ -26,7 +26,11 @@ vi.mock("../../hooks/useViewportMode", () => ({
 vi.mock("../../hooks/useMobileKeyboard", () => ({
   useMobileKeyboard: () => ({ keyboardOverlap: 0, viewportHeight: null, viewportOffsetTop: 0, keyboardOpen: false }),
 }));
-vi.mock("../../hooks/useMobileScrollLock", () => ({ useMobileScrollLock: vi.fn() }));
+vi.mock("../../hooks/useMobileScrollLock", () => ({
+  useMobileScrollLock: vi.fn(),
+  useMobileKeyboardViewportLock: vi.fn(),
+  useMobileViewportRestoreReset: vi.fn(),
+}));
 vi.mock("../../hooks/useConfirm", () => ({ useConfirm: () => ({ confirm: vi.fn() }) }));
 vi.mock("../../hooks/useWorkspaceFileBrowser", () => ({
   useWorkspaceFileBrowser: () => ({ entries: [], currentPath: ".", setPath: vi.fn(), loading: false, error: null, refresh: vi.fn() }),
