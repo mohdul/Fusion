@@ -2807,7 +2807,6 @@ describe("POST /api/memory/extract", () => {
           prunedMemory: "## Architecture\n\nDurable architecture notes.",
         });
         this.state.messages.push({ role: "assistant", content: response });
-        return response;
       }),
       dispose: vi.fn(),
     };
@@ -2824,12 +2823,64 @@ describe("POST /api/memory/extract", () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("success", true);
-    expect(res.body).toHaveProperty("summary");
-    expect(res.body).toHaveProperty("insightCount");
-    expect(res.body).toHaveProperty("pruned");
+    expect(typeof res.body.summary).toBe("string");
+    expect(res.body.insightCount).toBeGreaterThanOrEqual(1);
+    expect(typeof res.body.pruned).toBe("boolean");
     expect(existsSync(join(rootDir, ".fusion", "memory", "memory-insights.md"))).toBe(true);
     expect(existsSync(join(rootDir, ".fusion", "memory", "memory-audit.md"))).toBe(true);
     expect(existsSync(join(rootDir, ".fusion", "memory", "memory-audit-state.json"))).toBe(true);
+  });
+
+  it("uses prompt return text when the session does not persist assistant state", async () => {
+    mkdirSync(join(rootDir, ".fusion", "memory"), { recursive: true });
+    writeFileSync(join(rootDir, ".fusion", "memory", "MEMORY.md"), "Working memory content for extraction that is long enough.");
+
+    const session = {
+      state: { messages: [] as Array<{ role: string; content: string }> },
+      prompt: vi.fn(async () => JSON.stringify({
+        summary: "Returned extraction",
+        insights: [{ category: "pattern", content: "Prefer returned text when available" }],
+      })),
+      dispose: vi.fn(),
+    };
+
+    vi.mocked(createFnAgent).mockResolvedValue({ session } as never);
+
+    const res = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/memory/extract",
+      JSON.stringify({}),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.insightCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("returns 503 when the agent produces no assistant text", async () => {
+    mkdirSync(join(rootDir, ".fusion", "memory"), { recursive: true });
+    writeFileSync(join(rootDir, ".fusion", "memory", "MEMORY.md"), "Working memory content for extraction that is long enough.");
+
+    const session = {
+      state: { messages: [] as Array<{ role: string; content: string }> },
+      prompt: vi.fn(async () => undefined),
+      dispose: vi.fn(),
+    };
+
+    vi.mocked(createFnAgent).mockResolvedValue({ session } as never);
+
+    const res = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/memory/extract",
+      JSON.stringify({}),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(res.status).toBe(503);
+    expect(res.body.error).toContain("AI agent did not produce a response");
   });
 });
 
