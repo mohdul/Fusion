@@ -2680,7 +2680,7 @@ export function TaskDetailContent({
             )}
           </div>
         </div>
-        <div className={`detail-body${activeTab === "logs" && logSubview === "agent-log" && !isEditing ? " detail-body--agent-log" : ""}`}>
+        <div className={`detail-body${activeTab === "logs" && logSubview === "agent-log" && !isEditing ? " detail-body--agent-log" : ""}${activeTab === "chat" && !isEditing ? " detail-body--chat" : ""}`}>
           {isEditing ? (
             <div className="modal-edit-form">
               <TaskForm
@@ -3136,7 +3136,7 @@ export function TaskDetailContent({
               <ModelSelectorTab task={task} addToast={addToast} onTaskUpdated={onTaskUpdated} settings={settings} />
             </div>
           ) : activeTab === "chat" ? (
-            <div className="detail-section">
+            <div className="detail-section detail-section--chat">
               <TaskChatTab
                 task={workingTask}
                 projectId={projectId}

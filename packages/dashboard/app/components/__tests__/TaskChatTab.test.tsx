@@ -81,6 +81,19 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function getCssRuleBlock(css: string, selector: string): string {
+  const selectorIndex = css.indexOf(selector);
+  if (selectorIndex < 0) return "";
+  const ruleStart = css.indexOf("{", selectorIndex);
+  const ruleEnd = css.indexOf("}", ruleStart);
+  return ruleStart >= 0 && ruleEnd >= 0 ? css.slice(ruleStart + 1, ruleEnd) : "";
+}
+
+function getCssAfter(css: string, marker: string): string {
+  const markerIndex = css.indexOf(marker);
+  return markerIndex >= 0 ? css.slice(markerIndex) : "";
+}
+
 function mockLogs(entries: AgentLogEntry[] = [], loading = false) {
   mockedUseAgentLogs.mockReturnValue({
     entries,
@@ -1078,6 +1091,29 @@ describe("TaskChatTab", () => {
     expect(screen.getByTestId("task-chat-transcript")).toBeInTheDocument();
     expect(screen.getByLabelText("Message active agent session")).toHaveClass("task-chat-input");
     expect(screen.getByRole("button", { name: "Send" })).toHaveClass("task-chat-send");
+  });
+
+  it("FN-6347 pins the composer while the transcript flex-fills without fixed viewport caps", () => {
+    const css = readFileSync(resolve(__dirname, "../TaskChatTab.css"), "utf8");
+    const tabRule = getCssRuleBlock(css, ".task-chat-tab");
+    const transcriptRule = getCssRuleBlock(css, ".task-chat-transcript");
+    const composerRule = getCssRuleBlock(css, ".task-chat-composer");
+    const mobileCss = getCssAfter(css, "@media (max-width: 768px)");
+    const mobileTranscriptRule = getCssRuleBlock(mobileCss, ".task-chat-transcript");
+
+    expect(tabRule).toContain("display: flex");
+    expect(tabRule).toContain("flex: 1");
+    expect(tabRule).toContain("min-height: 0");
+    expect(transcriptRule).toContain("flex: 1 1 auto");
+    expect(transcriptRule).toContain("min-height: 0");
+    expect(transcriptRule).toContain("overflow-y: auto");
+    expect(transcriptRule).not.toContain("max-height");
+    expect(composerRule).toContain("flex: 0 0 auto");
+    expect(mobileTranscriptRule).toContain("flex: 1 1 auto");
+    expect(mobileTranscriptRule).toContain("min-height: 0");
+    expect(mobileTranscriptRule).not.toContain("max-height");
+    expect(css).not.toContain("70vh");
+    expect(css).not.toContain("62vh");
   });
 
   it("keeps mobile breakpoint scaffolding for the transcript, composer, and collapsible groups", () => {
