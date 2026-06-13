@@ -165,7 +165,20 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
           prompt: "Produce a short implementation plan for this task before any code is written.",
         },
       },
-      { id: "execute", kind: "prompt", config: builtinPromptConfig("execute", "Execute") },
+      {
+        id: "execute",
+        kind: "prompt",
+        config: {
+          name: "Execute",
+          executor: "skill",
+          skillName: "compound-engineering:ce-work",
+          // Coding mode so the step has write + spawn tools (readonly is the
+          // default and would strip them). ce-work does the implementation the
+          // CE way instead of the generic executor seam.
+          toolMode: "coding",
+          prompt: "Execute the plan for this task, following existing patterns and maintaining quality throughout.",
+        },
+      },
       { id: "review", kind: "prompt", config: builtinPromptConfig("review", "Review") },
       {
         id: "code-review",

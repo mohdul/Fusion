@@ -268,9 +268,24 @@ describe("built-in workflows", () => {
   it("compound-engineering compiles its skill nodes to steps", () => {
     const ce = getBuiltinWorkflow("builtin:compound-engineering")!;
     const steps = compileWorkflowToSteps(ce.ir);
-    // plan + code-review (pre-merge) + document (post-merge) — seams are skipped.
-    expect(steps.length).toBeGreaterThanOrEqual(3);
+    // plan + execute (ce-work) + code-review (pre-merge) + document (post-merge)
+    // — review/merge seams are skipped.
+    expect(steps.length).toBeGreaterThanOrEqual(4);
     expect(steps.some((s) => s.name === "Plan")).toBe(true);
+  });
+
+  it("compound-engineering runs ce-work for the execute step in coding mode", () => {
+    const ce = getBuiltinWorkflow("builtin:compound-engineering")!;
+    // The IR node declares the ce-work skill executor (engine wraps the prompt
+    // with the invoke-skill preamble on the graph-interpreter path).
+    const executeNode = ce.ir.nodes.find((n) => n.id === "execute");
+    expect(executeNode?.config?.executor).toBe("skill");
+    expect(executeNode?.config?.skillName).toBe("compound-engineering:ce-work");
+    // The compiled step runs in coding mode so write/spawn tools are available.
+    const steps = compileWorkflowToSteps(ce.ir);
+    const execute = steps.find((s) => s.name === "Execute");
+    expect(execute).toBeDefined();
+    expect(execute!.toolMode).toBe("coding");
   });
 
   describe("store integration", () => {
