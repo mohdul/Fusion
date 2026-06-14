@@ -42,9 +42,9 @@ import {
   getProjectRootFromWorktree,
   reconcileClaudeCliPaths,
   reconcileDroidCliPaths,
+  mergeBuiltInZaiProviderModels,
+  registerBuiltInZaiProvider,
   resolvePiExtensionProjectRoot,
-  ZAI_PROVIDER_ID,
-  ZAI_PROVIDER_REGISTRATION,
 } from "@fusion/core";
 import type {
   AgentPermissionPolicyActionCategory,
@@ -1364,12 +1364,7 @@ function resolveVendoredDroidCliEntry(): string | null {
 }
 
 async function registerExtensionProviders(cwd: string, modelRegistry: ModelRegistry): Promise<void> {
-  try {
-    modelRegistry.registerProvider(ZAI_PROVIDER_ID, ZAI_PROVIDER_REGISTRATION);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    extensionsLog.warn(`Failed to register built-in ${ZAI_PROVIDER_ID} provider: ${message}`);
-  }
+  registerBuiltInZaiProvider(modelRegistry, (message) => extensionsLog.warn(message));
 
   try {
     const agentDir = getPackageManagerAgentDir();
@@ -1423,6 +1418,7 @@ async function registerExtensionProviders(cwd: string, modelRegistry: ModelRegis
     }
 
     extensionsResult.runtime.pendingProviderRegistrations = [];
+    mergeBuiltInZaiProviderModels(modelRegistry, (message) => extensionsLog.warn(message));
     modelRegistry.refresh();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

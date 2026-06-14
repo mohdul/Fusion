@@ -20,9 +20,9 @@ import {
   GlobalSettingsStore,
   resolveGlobalDir,
   getEnabledPiExtensionPaths,
+  mergeBuiltInZaiProviderModels,
   reconcileClaudeCliPaths,
-  ZAI_PROVIDER_ID,
-  ZAI_PROVIDER_REGISTRATION,
+  registerBuiltInZaiProvider,
 } from "@fusion/core";
 import type { AutomationRunResult, ScheduledTask } from "@fusion/core";
 import { createServer, GitHubClient, createSkillsAdapter, getProjectSettingsPath, loadTlsCredentialsFromEnv, registerGithubTrackingHook } from "@fusion/dashboard";
@@ -554,12 +554,7 @@ export async function runDaemon(opts: DaemonOptions = {}) {
   ]);
   const mergedAuthStorage = mergeAuthStorageReads(authStorage, [supplementalAuthStorage]);
   const modelRegistry = ModelRegistry.create(mergedAuthStorage, getModelRegistryModelsPath());
-  try {
-    modelRegistry.registerProvider(ZAI_PROVIDER_ID, ZAI_PROVIDER_REGISTRATION);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.log(`[extensions] Failed to register built-in ${ZAI_PROVIDER_ID} provider: ${message}`);
-  }
+  registerBuiltInZaiProvider(modelRegistry, (message) => console.log(`[extensions] ${message}`));
   const dashboardAuthStorage = wrapAuthStorageWithApiKeyProviders(mergedAuthStorage, modelRegistry);
 
   // PackageManager may be used for skills adapter even if extension loading fails
@@ -674,6 +669,7 @@ export async function runDaemon(opts: DaemonOptions = {}) {
     }
 
     extensionsResult.runtime.pendingProviderRegistrations = [];
+    mergeBuiltInZaiProviderModels(modelRegistry, (message) => console.log(`[extensions] ${message}`));
     modelRegistry.refresh();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

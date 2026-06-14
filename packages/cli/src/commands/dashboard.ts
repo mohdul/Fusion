@@ -19,9 +19,9 @@ import {
   isWorkflowColumnsEnabled,
   resolveColumnFlags,
   BUILTIN_CODING_WORKFLOW_IR,
+  mergeBuiltInZaiProviderModels,
   parseWorkflowIr,
-  ZAI_PROVIDER_ID,
-  ZAI_PROVIDER_REGISTRATION,
+  registerBuiltInZaiProvider,
   type WorkflowIrColumn,
   type TraitFlags,
 } from "@fusion/core";
@@ -1371,12 +1371,7 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
   ]);
   const mergedAuthStorage = mergeAuthStorageReads(authStorage, [supplementalAuthStorage]);
   const modelRegistry = ModelRegistry.create(mergedAuthStorage, getModelRegistryModelsPath());
-  try {
-    modelRegistry.registerProvider(ZAI_PROVIDER_ID, ZAI_PROVIDER_REGISTRATION);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logSink.log(`Failed to register built-in ${ZAI_PROVIDER_ID} provider: ${message}`, "extensions");
-  }
+  registerBuiltInZaiProvider(modelRegistry, (message) => logSink.log(message, "extensions"));
   const dashboardAuthStorage = wrapAuthStorageWithApiKeyProviders(mergedAuthStorage, modelRegistry);
 
   // PackageManager may be used for skills adapter even if extension loading fails.
@@ -1496,6 +1491,7 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
     }
 
     extensionsResult.runtime.pendingProviderRegistrations = [];
+    mergeBuiltInZaiProviderModels(modelRegistry, (message) => logSink.log(message, "extensions"));
     modelRegistry.refresh();
 
     try {
