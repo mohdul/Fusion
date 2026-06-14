@@ -101,6 +101,8 @@
   flex-direction: column;
   min-height: 0;
   overflow-y: hidden;
+  /* FNXC:TaskDetailChat 2026-06-13-19:55: Chat box should sit in the chat view without excess vertical spacing around the composer (FN-6418), so only the chat body tightens vertical padding while shared detail tab padding remains unchanged. */
+  padding-block: var(--space-md);
 }
 
 .detail-title {
@@ -735,7 +737,8 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  margin-top: var(--space-lg);
+  /* FNXC:TaskDetailChat 2026-06-13-19:55: Chat box should sit in the chat view without excess vertical spacing around the composer (FN-6418), so the chat section opts out of the shared top margin used by other detail tabs. */
+  margin-top: 0;
 }
 
 .task-detail-content--chat-expanded .detail-title-row {
@@ -988,11 +991,13 @@
     flex-direction: column;
     min-height: 0;
     overflow-y: hidden;
+    padding-block: var(--space-sm);
   }
 
   .detail-section--chat {
     flex: 1;
     min-height: 0;
+    margin-top: 0;
   }
 
   .task-detail-content--chat-expanded .detail-body--chat {

@@ -2,7 +2,8 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: var(--space-md);
+  /* FNXC:TaskDetailChat 2026-06-13-19:55: Chat box should sit in the chat view without excess vertical spacing around the composer (FN-6418), so the transcript-to-composer gap is tighter than the default card stack. */
+  gap: var(--space-sm);
   min-height: 0;
   height: 100%;
 }
@@ -304,7 +305,8 @@
   flex: 0 0 auto;
   flex-direction: column;
   gap: var(--space-sm);
-  padding: var(--space-md);
+  /* FNXC:TaskDetailChat 2026-06-13-19:55: Chat box should sit in the chat view without excess vertical spacing around the composer (FN-6418), while preserving readable horizontal inset for the input row. */
+  padding: var(--space-sm) var(--space-md);
 }
 
 .task-chat-session-hint {
@@ -339,7 +341,7 @@
 
 @media (max-width: 768px) {
   .task-chat-tab {
-    gap: var(--space-sm);
+    gap: var(--space-xs);
   }
 
   .task-chat-expand-toggle--overlay {
@@ -403,7 +405,7 @@
   }
 
   .task-chat-composer {
-    padding: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
   }
 
   .task-chat-composer-row {
