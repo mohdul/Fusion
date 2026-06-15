@@ -118,11 +118,14 @@ FN-6473 is the explicit authenticated-environment escalation for Route-A U9, so 
 
 FNXC:ACPRoute 2026-06-15-00:45:
 FN-6475 captured the upstream sponsorship package in committed docs because Route A stays blocked until the bridge/ACP layer can pass `session/new.mcpServers` to authenticated Claude and route forwarded MCP tool calls through ACP `session/request_permission` or an equivalent MCP-layer hook. Keep this here so FN-6460 preflight and FN-6476 reruns do not reinterpret sponsorship as a GO verdict or fall back to `claude -p`.
+
+FNXC:ACPRoute 2026-06-15-00:17:
+FN-6476 was the genuinely-authenticated U9 escalation rerun, but this worktree still proved the bridge session was unauthenticated by driving an actual prompt turn that returned `Not logged in · Please run /login` with stopReason `end_turn`. Keep the blocked verdict in this committed contract, with the pinned bridge 0.1.1, matching lockfile integrity, and 62-tool `custom-tools` payload, so FN-6460's preflight is never unblocked by binary presence or lost task metadata.
 -->
 
 ### OQ1 — Route A MCP-over-ACP forwarding and permission-gate traversal
 
-**Status:** UNRESOLVED / BLOCKED as of FN-6473 (2026-06-15). **Gate traversal:** UNRESOLVED — no forwarded tool invocation reached the point where it could be classified as GATED or BYPASSED. **Combined Route A verdict: NOT GO** until this OQ records both required U9 answers as GO.
+**Status:** UNRESOLVED / BLOCKED as of FN-6476 (2026-06-15). **Gate traversal:** UNRESOLVED — no forwarded tool invocation reached the point where it could be classified as GATED or BYPASSED. **Combined Route A verdict: NOT GO** until this OQ records both required U9 answers as GO.
 
 **Recovery status:** NOT-RECOVERED. `fn_task_show FN-6459` retained only archived task metadata plus an archive log entry, `.fusion/tasks/FN-6459/` is absent in the FN-6465 worktree, and `fn_task_document_read(key="research")` returned not found from FN-6465's execution context. No surviving authoritative FN-6459 U9 verdict was available to transcribe.
 
@@ -146,6 +149,12 @@ FN-6475 captured the upstream sponsorship package in committed docs because Rout
 **Recorded OQ1 state after FN-6473:**
 1. **Can Claude invoke a real forwarded Fusion tool through the bridge?** **UNPROVEN / BLOCKED.** The bridge still accepts the non-empty `mcpServers` declaration, but the underlying `claude` session remains unauthenticated from the bridge's perspective and no forwarded MCP tool was invoked.
 2. **Do forwarded tool calls traverse ACP `session/request_permission`?** **UNPROVEN / BLOCKED (neither GATED nor BYPASSED observed).** The explicit request-permission instrumentation recorded zero callbacks because no forwarded tool call occurred.
+
+**FN-6476 result (genuinely-authenticated rerun attempt, still blocked):** This rerun first re-verified the local prerequisites: `claude` **2.1.177** resolved at `/Users/eclipxe/.local/bin/claude`; the plugin-local bridge shim resolved at `plugins/fusion-plugin-acp-runtime/node_modules/.bin/claude-code-cli-acp` and reported **0.1.1**; the lockfile still records integrity `sha512-qpfRGOXkOs9mqI7oumsGistWisyXcCC0r7ng7wdLvGMIORdzHjmUUa+94Jftgr/NYAVnAUe6N7kimD8PaO3D5g==`. The payload source was the committed FN-6473/FN-6475 OQ1 record plus a rebuild from the real `mcp-config.ts` shape and `packages/cli/src/extension.ts`: one stdio MCP server named `custom-tools`, `command: "node"`, `args: [packages/pi-claude-cli/src/mcp-schema-server.cjs, <temp schema file>]`, `env: []`, carrying **62** Fusion custom-tool names. The authenticated-readiness proof opened ACP directly against the pinned bridge and drove a no-MCP prompt turn before attempting any forwarded-tool verdict; `initialize` returned `agentInfo.name="claude-code-cli-acp"`, `version="0.1.1"`, `authMethods=["claude-code-login"]`, and the turn returned assistant text **`Not logged in · Please run /login`** with stopReason `end_turn`, **zero** tool-like updates, and **zero** ACP `session/request_permission` callbacks. Because the readiness proof failed, the harness did **not** proceed to the MCP-forwarding prompt; no forwarded Fusion tool was invoked and gate traversal could not be classified as GATED or BYPASSED.
+
+**Recorded OQ1 state after FN-6476:**
+1. **Can Claude invoke a real forwarded Fusion tool through the bridge?** **UNPROVEN / BLOCKED.** The bridge binary and real 62-tool payload are present, but this environment still cannot exercise an authenticated bridge session; no forwarded MCP tool was invoked.
+2. **Do forwarded tool calls traverse ACP `session/request_permission`?** **UNPROVEN / BLOCKED (neither GATED nor BYPASSED observed).** The explicit client-side `requestPermission` instrumentation recorded zero callbacks because the auth-readiness gate failed before a forwarded tool call.
 
 **Escalation path:** rerun U9 with an environment where the pinned bridge can reach an authenticated `claude`, the same non-empty `session/new.mcpServers` shape, and explicit `session/request_permission` instrumentation. Sponsor the missing bridge/ACP MCP permission-forwarding capability upstream: the bridge/ACP layer must forward `session/new.mcpServers` to the underlying Claude session and surface forwarded tool calls through ACP `session/request_permission` or an MCP-layer permission hook. If an authenticated rerun still ignores `mcpServers`, cannot invoke the forwarded tools, or bypasses the ACP permission gate without an MCP-layer permission hook or sensitive-tool exclusion, Route A remains blocked. A `claude -p` fallback is not an acceptable Route-A completion path.
 
