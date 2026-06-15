@@ -1,4 +1,7 @@
 import type { Request } from "express";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { isGhAvailable, isGhAuthenticated } from "@fusion/core";
 import { probeClaudeCli } from "../claude-cli-probe.js";
 import { probeDroidCli } from "../droid-cli-probe.js";
@@ -600,6 +603,23 @@ export const registerAuthRoutes: ApiRouteRegistrar = (ctx) => {
       const acpBridgeAvailable =
         typeof process.env.FUSION_CLAUDE_ACP_BRIDGE === "string" &&
         process.env.FUSION_CLAUDE_ACP_BRIDGE.length > 0;
+      // R17: the driver writes this signal when a turn comes back "Not logged in"
+      // (the bridged `claude` can't authenticate). Surface it so the UI can offer
+      // fall-back-to-`-p` or fix-auth. Path matches ACP_BRIDGE_AUTH_SIGNAL_PATH.
+      let acpAuthFailed = false;
+      let acpAuthReason: string | undefined;
+      try {
+        const signalPath = join(tmpdir(), "fusion-acp-bridge-auth.json");
+        if (existsSync(signalPath)) {
+          const sig = JSON.parse(readFileSync(signalPath, "utf8")) as { authFailed?: boolean; reason?: string };
+          if (sig?.authFailed) {
+            acpAuthFailed = true;
+            acpAuthReason = typeof sig.reason === "string" ? sig.reason : undefined;
+          }
+        }
+      } catch {
+        // best-effort; absence of the signal means no known auth failure
+      }
 
       res.json({
         binary,
@@ -609,6 +629,8 @@ export const registerAuthRoutes: ApiRouteRegistrar = (ctx) => {
           enabled: acpEnabled,
           bridgeAvailable: acpBridgeAvailable,
           active: enabled && acpEnabled && acpBridgeAvailable,
+          authFailed: acpAuthFailed,
+          authReason: acpAuthReason,
         },
         // Convenience field: the provider card considers everything "ready"
         // when the binary is available, the user has enabled the toggle,

@@ -6,7 +6,9 @@ import { PassThrough } from "node:stream";
 let scriptedUpdates: Array<Record<string, unknown>> = [];
 
 // Driver validates the bridge path with existsSync — make the fake path "exist".
-vi.mock("node:fs", () => ({ existsSync: () => true }));
+// writeFileSync/unlinkSync back the R17 auth-failure signal (spied).
+const fsSpies = vi.hoisted(() => ({ writeFileSync: vi.fn(), unlinkSync: vi.fn() }));
+vi.mock("node:fs", () => ({ existsSync: () => true, writeFileSync: fsSpies.writeFileSync, unlinkSync: fsSpies.unlinkSync }));
 
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(() => {
@@ -117,6 +119,19 @@ describe("streamViaAcp — ACP→pi translation (U11)", () => {
     expect(eventsOf(stream).some((e) => e.type === "toolcall_start")).toBe(true);
     const done = eventsOf(stream).find((e) => e.type === "done");
     expect(done!.reason).toBe("toolUse");
+  });
+
+  it("records the R17 auth-failure signal when the bridge turn is only 'Not logged in'", async () => {
+    fsSpies.writeFileSync.mockClear();
+    scriptedUpdates = [
+      { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Not logged in · Please run /login" } },
+    ];
+    const stream = streamViaAcp(MODEL, CTX, OPTS) as unknown as { _events: Array<Record<string, unknown>> };
+    await flush();
+    // signal file written with authFailed:true
+    const wrote = fsSpies.writeFileSync.mock.calls.find((c) => String(c[1]).includes("authFailed"));
+    expect(wrote).toBeTruthy();
+    expect(String(wrote![1])).toContain("\"authFailed\":true");
   });
 
   it("ends with done even when the turn produces no content", async () => {

@@ -8,8 +8,10 @@
  *      `FUSION_CLAUDE_ACP_BRIDGE` on load — KTD10; absent → fail-closed to `-p`).
  *
  * The user-facing switch is `experimentalFeatures.claudeCliAcp`: ON unless the
- * user explicitly sets it to `false`. An explicit `FUSION_CLAUDE_ACP` env value
- * always wins (operator / test override) — see {@link applyClaudeAcpEnable}.
+ * user explicitly sets it to `false`. An operator force-override
+ * (`FUSION_CLAUDE_ACP_FORCE=0|1`) always wins. The decision is recomputed every
+ * call (each `createFnAgent`) so flipping the flag — e.g. the UI "use `claude -p`"
+ * fallback after an auth failure — takes effect on the next turn, no restart.
  */
 
 /** True unless `experimentalFeatures.claudeCliAcp === false` (default ON). */
@@ -29,8 +31,11 @@ export function applyClaudeAcpEnable(
   globalSettings: Record<string, unknown> | undefined,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  if (typeof env.FUSION_CLAUDE_ACP === "string") return env.FUSION_CLAUDE_ACP === "1";
-  const enabled = claudeAcpExperimentalEnabled(globalSettings);
-  if (enabled) env.FUSION_CLAUDE_ACP = "1";
+  // Operator force-override (set in the launch environment), re-read every call
+  // so our own writes to FUSION_CLAUDE_ACP can't latch the decision.
+  const force = env.FUSION_CLAUDE_ACP_FORCE;
+  const enabled =
+    force === "1" ? true : force === "0" ? false : claudeAcpExperimentalEnabled(globalSettings);
+  env.FUSION_CLAUDE_ACP = enabled ? "1" : "0";
   return enabled;
 }
