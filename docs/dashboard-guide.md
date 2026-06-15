@@ -380,7 +380,11 @@ Branch names are dynamic from merge/audit payloads; the banner is not hardcoded 
 
 ## OAuth Re-login Banner
 
-The global OAuth re-login banner now clears a provider row immediately after that provider successfully re-authenticates (from Settings → Authentication or Model Onboarding), instead of waiting for the next `GET /auth/status` poll interval.
+The global OAuth re-login banner clears a provider row immediately after that provider successfully re-authenticates (from Settings → Authentication or Model Onboarding), instead of waiting for the next `GET /auth/status` poll interval.
+
+For Claude/Anthropic OAuth credentials, the same `/auth/status` poll also attempts an automatic refresh when the stored OAuth credential has a refresh token and the access token is expired or within the refresh buffer. When that refresh succeeds, the banner clears for Claude without manual re-login and without waiting for a separate model request.
+
+If the OAuth credential has no refresh token, the refresh request fails, or the provider is not Anthropic, the provider stays expired and the banner remains visible. Re-authenticate with manual re-login from **Settings → Authentication** or Model Onboarding.
 
 ## Smart Pull
 
