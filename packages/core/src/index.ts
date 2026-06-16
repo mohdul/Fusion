@@ -572,6 +572,13 @@ export type {
   LanguageCount,
   LocSummary,
 } from "./productivity-analytics.js";
+export { composeLiveSnapshot } from "./command-center-live.js";
+export type {
+  LiveSnapshot,
+  LiveSession,
+  LiveRun,
+  ColumnCount,
+} from "./command-center-live.js";
 export {
   STALLED_REVIEW_REENQUEUE_THRESHOLD,
   STALLED_REVIEW_INVALID_TRANSITION_THRESHOLD,
