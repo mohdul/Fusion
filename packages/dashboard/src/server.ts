@@ -75,6 +75,7 @@ import {
   recoverAlreadyMergedReviewTasksRecoveriesPerDay,
 } from "./reliability-metrics.js";
 import { loadViewChunkManifest } from "./view-chunk-manifest.js";
+import { maybeStartOtelExporter, type OtelExporterHandle } from "./otel-exporter.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -1707,6 +1708,10 @@ export function createServer(store: TaskStore, options?: ServerOptions): ReturnT
 
   const originalListen = dashboardApp.listen.bind(dashboardApp);
   const httpsCreds = options?.https;
+  // U10: OTLP metrics exporter. Disabled by default — only started when
+  // FUSION_OTEL_METRICS_ENDPOINT is explicitly configured. Held here so the
+  // server "close" handler can stop its timer.
+  let otelExporter: OtelExporterHandle | null = null;
   dashboardApp.listen = ((...args: Parameters<typeof dashboardApp.listen>) => {
     const normalizedArgs = normalizeListenArgsForTests(args) as Parameters<typeof originalListen>;
 
@@ -1731,9 +1736,22 @@ export function createServer(store: TaskStore, options?: ServerOptions): ReturnT
       server = originalListen(...normalizedArgs);
     }
 
+    // U10: start the OTLP exporter (no-op unless FUSION_OTEL_METRICS_ENDPOINT
+    // is set). Failures here must never break server startup.
+    try {
+      otelExporter = maybeStartOtelExporter({ store, logger: runtimeLogger });
+    } catch (error) {
+      runtimeLogger.warn("OTLP metrics exporter failed to start", {
+        message: "OTLP metrics exporter failed to start",
+        ...normalizeErrorForLog(error),
+      });
+    }
+
     server.once("close", () => {
       clearAiSessionCleanupInterval();
       aiSessionStore.stopScheduledCleanup();
+      otelExporter?.stop();
+      otelExporter = null;
       (apiRouter as Router & { dispose?: () => void }).dispose?.();
       void stopAllDevServers().catch((error) => {
         runtimeLogger.warn("Failed to shutdown dev-server managers", {

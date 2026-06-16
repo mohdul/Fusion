@@ -579,6 +579,14 @@ export type {
   LiveRun,
   ColumnCount,
 } from "./command-center-live.js";
+export { mapAnalyticsToOtlp, OTEL_METRIC_PREFIX } from "./otel-metrics.js";
+export type {
+  OtelMappingInput,
+  OtlpExportPayload,
+  OtlpMetric,
+  OtlpNumberDataPoint,
+  OtlpAttribute,
+} from "./otel-metrics.js";
 export {
   STALLED_REVIEW_REENQUEUE_THRESHOLD,
   STALLED_REVIEW_INVALID_TRANSITION_THRESHOLD,
