@@ -962,13 +962,20 @@ The task-detail modal metadata must keep priority, execution mode, provenance, P
   font-size: calc(var(--space-sm) + var(--space-xs) * 0.75);
 }
 
-/* FN-5599: widen task detail modal on tablet viewports. */
+/*
+FNXC:TaskDetailModalResponsive 2026-06-16-19:13:
+FN-6500 fixes a tablet regression from FN-5599: the task-detail overlay offset and modal max-height subtraction must use the same `--overlay-padding-top` value so the `.modal-actions` footer remains on-screen, while the modal uses more of the tablet viewport to avoid a cramped layout.
+*/
 @media (min-width: 769px) and (max-width: 1024px) {
+  .modal-overlay:has(.task-detail-modal) {
+    --overlay-padding-top: 6vh;
+  }
+
   .modal.task-detail-modal {
-    width: min(96vw, 1024px);
-    max-width: 96vw;
+    width: 98vw;
+    max-width: 98vw;
     height: 92vh;
-    max-height: calc(100dvh - var(--overlay-padding-top, 6vh) - 16px);
+    max-height: calc(100dvh - var(--overlay-padding-top, 6vh) - var(--space-md));
   }
 }
 
