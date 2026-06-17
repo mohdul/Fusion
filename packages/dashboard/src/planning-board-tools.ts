@@ -1,4 +1,4 @@
-import type { TaskStore } from "@fusion/core";
+import { clampTaskListText, type TaskStore } from "@fusion/core";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 export function createPlanningBoardTools(store: TaskStore): ToolDefinition[] {
@@ -32,8 +32,12 @@ export function createPlanningBoardTools(store: TaskStore): ToolDefinition[] {
         const deps = t.dependencies.length ? ` [deps: ${t.dependencies.join(", ")}]` : "";
         return `${t.id} (${t.column}): ${desc}${deps}`;
       });
+      /*
+      FNXC:TaskListOutput 2026-06-16-17:47:
+      FN-6492 keeps dashboard planning-board duplicate checks within the shared plain-text budget so large boards stay readable to non-vision agents.
+      */
       return {
-        content: [{ type: "text" as const, text: lines.join("\n") }],
+        content: [{ type: "text" as const, text: clampTaskListText(lines) }],
         details: {},
       };
     },

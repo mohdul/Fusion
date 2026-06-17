@@ -10,6 +10,11 @@
       "file": "packages/dashboard/src/__tests__/github-tracking-hook.test.ts",
       "reason": "FN-6496 merge verification: pnpm test failed in dashboard-api-quality-backfill with ENOTEMPTY while removing a temp task directory; isolated rerun of the file passed, so classify as unrelated cleanup flake. Failing command: pnpm test; confirming command: pnpm --filter @fusion/dashboard exec vitest run src/__tests__/github-tracking-hook.test.ts --reporter=dot --silent=passed-only.",
       "quarantinedAt": "2026-06-16"
+    },
+    {
+      "file": "packages/engine/src/__tests__/cli-agent-executor.test.ts",
+      "reason": "FN-6492 verification observed the hard-cancel CLI session test fail only in the full @fusion/engine package lane (activeCliTaskSessions false plus ENOTEMPTY temp cleanup), while an immediate file-specific rerun passed; quarantined as a concurrency/temp-cleanup flake per the deletion ratchet.",
+      "quarantinedAt": "2026-06-16"
     }
   ]
 }

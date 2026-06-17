@@ -26,6 +26,7 @@ import {
   findNearDuplicates,
   isNearDuplicateCanonicalInactive,
   applyFrontendUxCriteria,
+  clampTaskListText,
   type NearDuplicateCandidate,
 } from "@fusion/core";
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -1467,8 +1468,12 @@ export class TriageProcessor {
             : "";
           return `${t.id} (${t.column}): ${desc}${deps}`;
         });
+        /*
+        FNXC:TaskListOutput 2026-06-16-17:47:
+        FN-6492 keeps engine triage duplicate-detection listings bounded with the shared fn_task_list text clamp so large active boards never require attachment/image fallback.
+        */
         return {
-          content: [{ type: "text" as const, text: lines.join("\n") }],
+          content: [{ type: "text" as const, text: clampTaskListText(lines) }],
           details: {},
         };
       },

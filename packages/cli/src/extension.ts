@@ -28,6 +28,7 @@ import {
   resolveSecretAccessPolicy,
   getProjectRootFromWorktree,
   resolveTaskGithubTracking,
+  clampTaskListText,
   type SecretScope,
 } from "@fusion/core";
 import {
@@ -821,8 +822,12 @@ export default function kbExtension(pi: ExtensionAPI) {
         lines.push("");
       }
 
+      /*
+      FNXC:TaskListOutput 2026-06-16-17:47:
+      FN-6492 routes CLI fn_task_list through the shared clamp so large column-filtered board reads remain text-only instead of being converted to host attachments.
+      */
       return {
-        content: [{ type: "text", text: lines.join("\n").trimEnd() }],
+        content: [{ type: "text", text: clampTaskListText(lines).trimEnd() }],
         details: { count: tasks.length },
       };
     },

@@ -22,7 +22,7 @@ vi.mock("../commands/task.js", () => ({
 }));
 
 import kbExtension from "../extension.js";
-import { TaskStore, AgentStore, MANUAL_RETRY_RESET_COUNTER_KEYS, RESEARCH_RUN_STATUSES } from "@fusion/core";
+import { TaskStore, AgentStore, MANUAL_RETRY_RESET_COUNTER_KEYS, RESEARCH_RUN_STATUSES, MAX_TASK_LIST_TEXT_CHARS } from "@fusion/core";
 import type { WorkflowIr } from "@fusion/core";
 import { isGhAvailable, isGhAuthenticated, runGhJsonAsync } from "@fusion/core/gh-cli";
 import { runTaskPlan } from "../commands/task.js";
@@ -2545,6 +2545,83 @@ describe("fn pi extension (runnable structured-output regression slice)", () => 
     expect(result.details.taskId).toMatch(/^[A-Z]+-\d+$/);
     expect(result.details.dependencies).toEqual([parent.details.taskId]);
     expect(result.content[0].text).toContain(result.details.taskId);
+  });
+
+  describe("fn_task_list", () => {
+    it("keeps small column-filtered listings complete without the clamp marker", async () => {
+      const store = new TaskStore(tmpDir);
+      await store.init();
+      try {
+        const first = await store.createTask({ description: "Small todo task one", column: "todo" });
+        await store.createTask({ description: "Small todo task two", column: "todo", dependencies: [first.id] });
+      } finally {
+        store.close();
+      }
+
+      const listTool = api.tools.get("fn_task_list")!;
+      const result = await listTool.execute(
+        "list-small-todo",
+        { column: "todo", limit: 50 },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+      const text = result.content[0].text;
+
+      expect(result.content).toHaveLength(1);
+      expect(result.content[0].type).toBe("text");
+      expect(result.content.some((block: any) => block.type === "image")).toBe(false);
+      expect(text).toContain("Todo (2):");
+      expect(text).toContain("FN-001");
+      expect(text).toContain("FN-002");
+      expect(text).toContain("[deps: FN-001]");
+      expect(text).not.toContain("truncated to fit; narrow with column/limit");
+      expect(result.details.count).toBe(2);
+    });
+
+    it("bounds large column-filtered listings as a single plain-text block", async () => {
+      const store = new TaskStore(tmpDir);
+      await store.init();
+      try {
+        const first = await store.createTask({
+          title: `Todo task 001 ${"x".repeat(260)}`,
+          description: "Large todo task 001",
+          column: "todo",
+        });
+        for (let i = 2; i <= 60; i += 1) {
+          await store.createTask({
+            title: `Todo task ${String(i).padStart(3, "0")} ${"x".repeat(260)}`,
+            description: `Large todo task ${String(i).padStart(3, "0")}`,
+            column: "todo",
+            dependencies: [first.id],
+          });
+        }
+      } finally {
+        store.close();
+      }
+
+      const listTool = api.tools.get("fn_task_list")!;
+      const result = await listTool.execute(
+        "list-large-todo",
+        { column: "todo", limit: 50 },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+      const text = result.content[0].text;
+
+      expect(result.content).toHaveLength(1);
+      expect(result.content[0].type).toBe("text");
+      expect(result.content.some((block: any) => block.type === "image")).toBe(false);
+      expect(text).toBeTruthy();
+      expect(text.length).toBeLessThanOrEqual(MAX_TASK_LIST_TEXT_CHARS);
+      expect(text).toContain("Todo (60):");
+      expect(text).toContain("FN-001");
+      expect(text).toContain("FN-002");
+      expect(text).toContain("[deps: FN-001]");
+      expect(text).toContain("truncated to fit; narrow with column/limit");
+      expect(result.details.count).toBe(60);
+    });
   });
 
   it("returns structured details for invalid task assignment", async () => {
