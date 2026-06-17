@@ -593,6 +593,44 @@ describe("useQuickChat", () => {
     });
   });
 
+  it("does not clobber a selected same-target session id when automatic init replays the target", async () => {
+    const lastOpenedSession = makeSession({
+      id: "model-last-opened",
+      agentId: FN_AGENT_ID,
+      modelProvider: "openai",
+      modelId: "gpt-4o",
+    });
+    const autoResolvedSession = makeSession({
+      id: "model-auto-resolved",
+      agentId: FN_AGENT_ID,
+      modelProvider: "openai",
+      modelId: "gpt-4o",
+    });
+    localStorage.setItem("fusion:quick-chat-last-session:proj-123", lastOpenedSession.id);
+    mockFetchResumeChatSession.mockResolvedValue({ session: autoResolvedSession });
+
+    const { result } = renderHook(() => useQuickChat("proj-123"));
+
+    await act(async () => {
+      await result.current.selectSession(lastOpenedSession);
+    });
+
+    await waitFor(() => {
+      expect(result.current.activeSession?.id).toBe(lastOpenedSession.id);
+      expect(getPersistedLastQuickChatSessionId("proj-123")).toBe(lastOpenedSession.id);
+    });
+
+    await act(async () => {
+      await result.current.switchSession(FN_AGENT_ID, "openai", "gpt-4o");
+    });
+
+    await waitFor(() => {
+      expect(result.current.activeSession?.id).toBe(lastOpenedSession.id);
+      expect(getPersistedLastQuickChatSessionId("proj-123")).toBe(lastOpenedSession.id);
+    });
+    expect(mockFetchResumeChatSession).not.toHaveBeenCalled();
+  });
+
   it("switchSession with different model selections creates distinct sessions", async () => {
     const modelASession = makeSession({
       id: "session-model-a",

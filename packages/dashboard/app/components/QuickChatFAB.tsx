@@ -1458,9 +1458,14 @@ export function QuickChatFAB({
       const parsed = Date.parse(value);
       return Number.isFinite(parsed) ? parsed : 0;
     };
+    /*
+    FNXC:QuickChatRestore 2026-06-17-00:17:
+    Quick Chat must resume the exact direct session the user last opened; only stale or missing persisted ids may fall back.
+    Rank fallback sessions by conversation activity first because metadata-only updatedAt bumps can make an older same-target thread look newer than the user's last real chat.
+    */
     const latestSession = [...activeSessions].sort((a, b) => {
-      const aLastTouched = Math.max(timestamp(a.lastMessageAt), timestamp(a.updatedAt));
-      const bLastTouched = Math.max(timestamp(b.lastMessageAt), timestamp(b.updatedAt));
+      const aLastTouched = timestamp(a.lastMessageAt) || timestamp(a.updatedAt);
+      const bLastTouched = timestamp(b.lastMessageAt) || timestamp(b.updatedAt);
       return bLastTouched - aLastTouched;
     })[0];
     const sessionToRestore = persistedSession ?? latestSession;
@@ -1501,6 +1506,14 @@ export function QuickChatFAB({
       return;
     }
 
+    const persistedSessionId = getPersistedLastQuickChatSessionId(projectId);
+    const waitingForPersistedSessionRestore = !hasAppliedInitialSessionRef.current
+      && Boolean(persistedSessionId)
+      && sessionsLoading;
+    if (waitingForPersistedSessionRestore) {
+      return;
+    }
+
     if (!sessionTargetKey) {
       prevSessionTargetRef.current = "";
       return;
@@ -1520,6 +1533,11 @@ export function QuickChatFAB({
       && !sessionsLoading;
 
     if (restoredFromExistingSessionRef.current) {
+      /*
+      FNXC:QuickChatRestore 2026-06-17-00:18:
+      A restored direct session is id-specific, not just target-specific.
+      Skip the first automatic same-target switch so fetchResumeChatSession cannot replace the restored session with a different thread that shares the agent or model target and then clobber localStorage.
+      */
       restoredFromExistingSessionRef.current = false;
       prevSessionTargetRef.current = sessionTargetKey;
       return;
@@ -1550,6 +1568,7 @@ export function QuickChatFAB({
     startModelChat,
     switchSession,
     skipNextSessionInitRef,
+    projectId,
   ]);
 
   useEffect(() => {

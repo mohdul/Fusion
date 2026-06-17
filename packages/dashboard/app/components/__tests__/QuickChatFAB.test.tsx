@@ -12,6 +12,7 @@ import { useChatRooms } from "../../hooks/useChatRooms";
 import * as mobileScrollLock from "../../hooks/useMobileScrollLock";
 import { QuickChatFAB } from "../QuickChatFAB";
 import { FileBrowserProvider } from "../../context/FileBrowserContext";
+import { getPersistedLastQuickChatSessionId } from "../../hooks/quickChatLastSessionStorage";
 
 vi.mock("../../api", () => ({
   fetchResumeChatSession: vi.fn(),
@@ -434,6 +435,128 @@ describe("QuickChatFAB session-first UX", () => {
     expect(screen.getByTestId("quick-chat-new-model-select")).toBeInTheDocument();
   });
 
+  it("keeps a persisted model session through same-target auto-init before sessions load", async () => {
+    localStorage.setItem("fusion:quick-chat-last-session:proj-1", "model-last-opened");
+    const sessionsDeferred = createDeferredPromise<{ sessions: ChatSession[] }>();
+    mockFetchChatSessions.mockReturnValueOnce(sessionsDeferred.promise);
+    mockFetchResumeChatSession.mockResolvedValue({
+      session: {
+        ...modelSession,
+        id: "model-auto-resolved",
+        updatedAt: "2026-05-13T12:00:00.000Z",
+        lastMessageAt: "2026-05-13T12:00:00.000Z",
+      },
+    });
+
+    render(<QuickChatFAB addToast={vi.fn()} projectId="proj-1" />);
+    fireEvent.click(screen.getByTestId("quick-chat-fab"));
+
+    await waitFor(() => {
+      expect(mockFetchChatSessions).toHaveBeenCalledWith("proj-1");
+    });
+    expect(mockFetchResumeChatSession).not.toHaveBeenCalled();
+    expect(getPersistedLastQuickChatSessionId("proj-1")).toBe("model-last-opened");
+
+    sessionsDeferred.resolve({
+      sessions: [
+        {
+          ...modelSession,
+          id: "model-last-opened",
+          updatedAt: "2026-05-13T10:00:00.000Z",
+          lastMessageAt: "2026-05-13T10:00:00.000Z",
+        },
+        {
+          ...modelSession,
+          id: "model-auto-resolved",
+          updatedAt: "2026-05-13T12:00:00.000Z",
+          lastMessageAt: "2026-05-13T12:00:00.000Z",
+        },
+      ],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("quick-chat-session-dropdown")).toHaveValue("model-last-opened");
+      expect(getPersistedLastQuickChatSessionId("proj-1")).toBe("model-last-opened");
+    });
+  });
+
+  it("restores the persisted session from the mobile FAB path", async () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    window.dispatchEvent(new Event("resize"));
+    mockUseViewportMode.mockReturnValue("mobile");
+    localStorage.setItem("fusion:quick-chat-last-session:proj-1", "mobile-last-opened");
+    mockFetchChatSessions.mockResolvedValueOnce({
+      sessions: [
+        {
+          ...modelSession,
+          id: "mobile-last-opened",
+          updatedAt: "2026-05-13T10:00:00.000Z",
+          lastMessageAt: "2026-05-13T10:00:00.000Z",
+        },
+        {
+          ...modelSession,
+          id: "mobile-newer-same-target",
+          updatedAt: "2026-05-13T12:00:00.000Z",
+          lastMessageAt: "2026-05-13T12:00:00.000Z",
+        },
+      ],
+    });
+
+    render(<QuickChatFAB addToast={vi.fn()} projectId="proj-1" />);
+    fireEvent.click(screen.getByTestId("quick-chat-fab"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("quick-chat-session-dropdown")).toHaveValue("mobile-last-opened");
+      expect(getPersistedLastQuickChatSessionId("proj-1")).toBe("mobile-last-opened");
+    });
+  });
+
+  it("keeps a persisted agent session through same-target auto-init before sessions load", async () => {
+    localStorage.setItem("fusion:quick-chat-last-session:proj-1", "agent-last-opened");
+    const sessionsDeferred = createDeferredPromise<{ sessions: ChatSession[] }>();
+    mockFetchChatSessions.mockReturnValueOnce(sessionsDeferred.promise);
+    mockFetchResumeChatSession.mockResolvedValue({
+      session: {
+        ...agentSession,
+        id: "agent-auto-resolved",
+        updatedAt: "2026-05-13T12:00:00.000Z",
+        lastMessageAt: "2026-05-13T12:00:00.000Z",
+      },
+    });
+
+    render(<QuickChatFAB addToast={vi.fn()} projectId="proj-1" />);
+    fireEvent.click(screen.getByTestId("quick-chat-fab"));
+
+    await waitFor(() => {
+      expect(mockFetchChatSessions).toHaveBeenCalledWith("proj-1");
+    });
+    expect(mockFetchResumeChatSession).not.toHaveBeenCalled();
+    expect(getPersistedLastQuickChatSessionId("proj-1")).toBe("agent-last-opened");
+
+    sessionsDeferred.resolve({
+      sessions: [
+        {
+          ...agentSession,
+          id: "agent-last-opened",
+          updatedAt: "2026-05-13T10:00:00.000Z",
+          lastMessageAt: "2026-05-13T10:00:00.000Z",
+        },
+        {
+          ...agentSession,
+          id: "agent-auto-resolved",
+          updatedAt: "2026-05-13T12:00:00.000Z",
+          lastMessageAt: "2026-05-13T12:00:00.000Z",
+        },
+      ],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("quick-chat-session-dropdown")).toHaveValue("agent-last-opened");
+      expect(screen.getByTestId("quick-chat-input")).toHaveAttribute("placeholder", "Message Agent One");
+      expect(getPersistedLastQuickChatSessionId("proj-1")).toBe("agent-last-opened");
+    });
+  });
+
   it("restores the persisted last opened active session before latest activity", async () => {
     localStorage.setItem("fusion:quick-chat-last-session:proj-1", "older-updated");
     mockFetchChatSessions.mockResolvedValueOnce({
@@ -463,14 +586,14 @@ describe("QuickChatFAB session-first UX", () => {
     expect(mockFetchResumeChatSession).not.toHaveBeenCalled();
   });
 
-  it("falls back to the latest touched session when the persisted id is stale", async () => {
+  it("falls back to the latest conversation session when the persisted id is stale", async () => {
     localStorage.setItem("fusion:quick-chat-last-session:proj-1", "missing-session");
     mockFetchChatSessions.mockResolvedValueOnce({
       sessions: [
         {
           ...modelSession,
           id: "older-updated",
-          updatedAt: "2026-05-13T10:00:00.000Z",
+          updatedAt: "2026-05-13T12:00:00.000Z",
           lastMessageAt: "2026-05-13T10:00:00.000Z",
         },
         {
@@ -491,7 +614,8 @@ describe("QuickChatFAB session-first UX", () => {
     });
   });
 
-  it("skips archived newest sessions and restores the newest active session", async () => {
+  it("skips archived persisted sessions and restores the newest active session", async () => {
+    localStorage.setItem("fusion:quick-chat-last-session:proj-1", "archived-newest");
     mockFetchChatSessions.mockResolvedValueOnce({
       sessions: [
         {
