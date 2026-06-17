@@ -65,7 +65,7 @@ homebrew-tap/
 # never meant to be committed.
 .DONE
 improvements.md
-docs/screenshots/
+# FNXC:RepoHygiene 2026-06-17-00:38: Published Markdown docs embed `docs/screenshots/*.png`; keep that directory trackable so GitHub, npm-rendered docs, and fresh clones do not show broken images.
 .claude/
 
 # Local kb state and backups
