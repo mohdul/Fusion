@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type, type TSchema } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
+import * as fusionCore from "@fusion/core";
 import {
   TaskStore,
   COLUMNS,
@@ -28,7 +29,7 @@ import {
   resolveSecretAccessPolicy,
   getProjectRootFromWorktree,
   resolveTaskGithubTracking,
-  clampTaskListText,
+  formatTaskListText,
   type SecretScope,
 } from "@fusion/core";
 import {
@@ -825,9 +826,12 @@ export default function kbExtension(pi: ExtensionAPI) {
       /*
       FNXC:TaskListOutput 2026-06-16-17:47:
       FN-6492 routes CLI fn_task_list through the shared clamp so large column-filtered board reads remain text-only instead of being converted to host attachments.
+
+      FNXC:TaskListOutput 2026-06-17-05:46:
+      FN-6570 resolves the clamp from the runtime @fusion/core namespace and lets formatTaskListText fall back when stale dist/interoperability paths omit clampTaskListText, preventing heartbeat board reads from crashing.
       */
       return {
-        content: [{ type: "text", text: clampTaskListText(lines).trimEnd() }],
+        content: [{ type: "text", text: formatTaskListText(lines, { clamp: fusionCore.clampTaskListText }).trimEnd() }],
         details: { count: tasks.length },
       };
     },

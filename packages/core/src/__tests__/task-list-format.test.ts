@@ -5,8 +5,9 @@ import { describe, expect, it } from "vitest";
 import {
   clampTaskListText as sourceBarrelClampTaskListText,
   MAX_TASK_LIST_TEXT_CHARS as SOURCE_BARREL_MAX_TASK_LIST_TEXT_CHARS,
+  formatTaskListText as sourceBarrelFormatTaskListText,
 } from "../index.js";
-import { clampTaskListText, MAX_TASK_LIST_TEXT_CHARS } from "../task-list-format.js";
+import { clampTaskListText, formatTaskListText, MAX_TASK_LIST_TEXT_CHARS } from "../task-list-format.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -15,6 +16,7 @@ type RuntimeCoreTaskListModule = {
   COLUMN_LABELS: Record<string, string>;
   MAX_TASK_LIST_TEXT_CHARS: number;
   clampTaskListText: (lines: string[]) => string;
+  formatTaskListText?: (lines: string[]) => string;
 };
 
 type RuntimeTask = {
@@ -81,6 +83,7 @@ describe("@fusion/core dist barrel export wiring (FN-6515/FN-6535)", () => {
 
   it("re-exports task-list formatting helpers from the source barrel", () => {
     expect(typeof sourceBarrelClampTaskListText).toBe("function");
+    expect(typeof sourceBarrelFormatTaskListText).toBe("function");
     expect(typeof SOURCE_BARREL_MAX_TASK_LIST_TEXT_CHARS).toBe("number");
   });
 
@@ -90,6 +93,7 @@ describe("@fusion/core dist barrel export wiring (FN-6515/FN-6535)", () => {
     const mod = await import(pathToFileURL(distIndex).href);
 
     expect(typeof mod.clampTaskListText).toBe("function");
+    expect(typeof mod.formatTaskListText).toBe("function");
     expect(typeof mod.MAX_TASK_LIST_TEXT_CHARS).toBe("number");
   });
 
@@ -138,6 +142,49 @@ describe("@fusion/core dist barrel export wiring (FN-6515/FN-6535)", () => {
     expect(todoText).toContain("[deps: FN-001]");
     expect(todoText).toContain("truncated to fit; narrow with column/limit");
     expect(todoResult.details.count).toBe(95);
+  });
+});
+
+describe("formatTaskListText", () => {
+  it("returns an empty string for empty input", () => {
+    expect(formatTaskListText([])).toBe("");
+  });
+
+  it("uses the canonical clamp path for small input without a marker", () => {
+    const lines = ["Todo (2):", "  FN-001  First task", "  FN-002  Second task"];
+
+    expect(formatTaskListText(lines)).toBe(lines.join("\n"));
+    expect(formatTaskListText(lines)).not.toContain("truncated to fit");
+  });
+
+  it("uses the canonical clamp path for large input with the FN-6492 marker", () => {
+    const lines = Array.from({ length: 20 }, (_, index) => `FN-${String(index + 1).padStart(3, "0")}  ${"x".repeat(20)}`);
+
+    const text = formatTaskListText(lines, { maxChars: 150 });
+
+    expect(text.length).toBeLessThanOrEqual(150);
+    expect(text).toContain("truncated to fit; narrow with column/limit");
+  });
+
+  it("falls back to bounded text when the clamp helper is missing", () => {
+    const lines = Array.from({ length: 500 }, (_, index) => `FN-${String(index + 1).padStart(3, "0")}  ${"x".repeat(80)}`);
+
+    const text = formatTaskListText(lines, { clamp: undefined });
+
+    expect(text).toBeTruthy();
+    expect(text.length).toBeLessThanOrEqual(MAX_TASK_LIST_TEXT_CHARS);
+  });
+
+  it("falls back to bounded text when the clamp binding is not a function", () => {
+    const lines = ["FN-001  " + "x".repeat(200)];
+    const text = formatTaskListText(lines, {
+      maxChars: 40,
+      clamp: "not-a-function" as unknown as (lines: string[], opts?: { maxChars?: number }) => string,
+    });
+
+    expect(text).toBeTruthy();
+    expect(text.length).toBeLessThanOrEqual(40);
+    expect(text.endsWith("…")).toBe(true);
   });
 });
 

@@ -43,3 +43,38 @@ export function clampTaskListText(
 
   return marker.slice(0, Math.max(0, maxChars - 1)) + "…";
 }
+
+function fallbackClampTaskListText(lines: string[], maxChars: number): string {
+  const text = lines.join("\n");
+  if (text.length <= maxChars) {
+    return text;
+  }
+
+  return text.slice(0, Math.max(0, maxChars - 1)) + "…";
+}
+
+/**
+ * FNXC:TaskListOutput 2026-06-17-05:44:
+ * FN-6570 requires fn_task_list tool surfaces to resolve the formatter defensively because stale or mismatched @fusion/core builds can omit the clampTaskListText export and crash ambient heartbeat agents as `(0 , _core.clampTaskListText) is not a function`.
+ * Keep the canonical clamp as the normal path, but degrade to a bounded inline fallback so board listing tools return text instead of throwing.
+ */
+export function formatTaskListText(
+  lines: string[],
+  opts: {
+    maxChars?: number;
+    clamp?: (lines: string[], opts?: { maxChars?: number }) => string;
+  } = {},
+): string {
+  const maxChars = Math.max(1, Math.floor(opts.maxChars ?? MAX_TASK_LIST_TEXT_CHARS));
+  const clamp = opts.clamp ?? clampTaskListText;
+  if (typeof clamp !== "function") {
+    return fallbackClampTaskListText(lines, maxChars);
+  }
+
+  try {
+    const text = clamp(lines, { maxChars });
+    return typeof text === "string" ? text : fallbackClampTaskListText(lines, maxChars);
+  } catch {
+    return fallbackClampTaskListText(lines, maxChars);
+  }
+}

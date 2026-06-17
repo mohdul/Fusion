@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import * as fusionCore from "@fusion/core";
 import type {
   TaskStore,
   Task,
@@ -26,7 +27,7 @@ import {
   findNearDuplicates,
   isNearDuplicateCanonicalInactive,
   applyFrontendUxCriteria,
-  clampTaskListText,
+  formatTaskListText,
   type NearDuplicateCandidate,
 } from "@fusion/core";
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -1471,9 +1472,12 @@ export class TriageProcessor {
         /*
         FNXC:TaskListOutput 2026-06-16-17:47:
         FN-6492 keeps engine triage duplicate-detection listings bounded with the shared fn_task_list text clamp so large active boards never require attachment/image fallback.
+
+        FNXC:TaskListOutput 2026-06-17-05:47:
+        FN-6570 guards the triage fn_task_list formatter against stale @fusion/core runtime namespaces where clampTaskListText is absent, so duplicate-detection board reads degrade to bounded text instead of throwing.
         */
         return {
-          content: [{ type: "text" as const, text: clampTaskListText(lines) }],
+          content: [{ type: "text" as const, text: formatTaskListText(lines, { clamp: fusionCore.clampTaskListText }) }],
           details: {},
         };
       },

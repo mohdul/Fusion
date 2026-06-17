@@ -24,7 +24,7 @@ vi.mock("../commands/task.js", () => ({
 }));
 
 import kbExtension from "../extension.js";
-import { TaskStore, AgentStore, MANUAL_RETRY_RESET_COUNTER_KEYS, RESEARCH_RUN_STATUSES, MAX_TASK_LIST_TEXT_CHARS } from "@fusion/core";
+import { TaskStore, AgentStore, MANUAL_RETRY_RESET_COUNTER_KEYS, RESEARCH_RUN_STATUSES, MAX_TASK_LIST_TEXT_CHARS, formatTaskListText } from "@fusion/core";
 import type { WorkflowIr } from "@fusion/core";
 import { isGhAvailable, isGhAuthenticated, runGhJsonAsync } from "@fusion/core/gh-cli";
 import { runTaskPlan } from "../commands/task.js";
@@ -2552,6 +2552,35 @@ describe("fn pi extension (runnable structured-output regression slice)", () => 
   });
 
   describe("fn_task_list", () => {
+    function expectSingleBoundedTextBlock(result: any) {
+      expect(result.content).toHaveLength(1);
+      expect(result.content[0].type).toBe("text");
+      expect(result.content[0].text).toBeTruthy();
+      expect(result.content[0].text.length).toBeLessThanOrEqual(MAX_TASK_LIST_TEXT_CHARS);
+    }
+
+    it("returns bounded text for omitted and provided column/limit params", async () => {
+      const store = new TaskStore(tmpDir);
+      await store.init();
+      try {
+        await store.createTask({ description: "Planning task one" });
+        await store.createTask({ description: "Todo task one", column: "todo" });
+      } finally {
+        store.close();
+      }
+
+      const listTool = api.tools.get("fn_task_list")!;
+      for (const [callId, params] of [
+        ["list-all-default", {}],
+        ["list-todo-default", { column: "todo" }],
+        ["list-todo-large-limit", { column: "todo", limit: 50 }],
+      ] as const) {
+        const result = await listTool.execute(callId, params, undefined, undefined, makeCtx(tmpDir));
+        expectSingleBoundedTextBlock(result);
+        expect(result.details.count).toBe(2);
+      }
+    });
+
     it("keeps small column-filtered listings complete without the clamp marker", async () => {
       const store = new TaskStore(tmpDir);
       await store.init();
@@ -2737,6 +2766,32 @@ describe("fn pi extension (runnable structured-output regression slice)", () => 
         }
       },
     );
+
+    it("degrades to bounded text when the clamp export is unavailable", () => {
+      const boardLinesWithoutParams = [
+        "Planning (2):",
+        `  FN-001  Planning task ${"x".repeat(6_000)}`,
+        `  FN-002  Planning task ${"x".repeat(6_000)}`,
+        "",
+      ];
+      const boardLinesWithColumnAndLimit = [
+        "Todo (2):",
+        `  FN-003  Todo task ${"x".repeat(6_000)}`,
+        "  ... and 1 more",
+        "",
+      ];
+
+      /*
+      FNXC:TaskListOutput 2026-06-17-05:55:
+      FN-6570 exercises the formatter boundary called by the CLI surface because the existing extension harness imports @fusion/core before per-test mocks can safely replace only clampTaskListText with a stale-dist missing export.
+      The two line sets mirror fn_task_list with omitted params and with column/limit provided, proving the surface path now receives bounded text instead of a crashing `(0 , _core.clampTaskListText) is not a function` call.
+      */
+      for (const lines of [boardLinesWithoutParams, boardLinesWithColumnAndLimit]) {
+        const text = formatTaskListText(lines, { clamp: undefined }).trimEnd();
+        expect(text).toBeTruthy();
+        expect(text.length).toBeLessThanOrEqual(MAX_TASK_LIST_TEXT_CHARS);
+      }
+    });
   });
 
   it("returns structured details for invalid task assignment", async () => {
