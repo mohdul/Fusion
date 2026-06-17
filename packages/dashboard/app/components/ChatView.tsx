@@ -3132,11 +3132,12 @@ export function ChatView({ projectId, addToast, experimentalFeatures }: ChatView
 
   /**
    * FNXC:ChatTabletKeyboard 2026-06-16-17:46:
-   * FN-6494 reverses the FN-6178/FN-6210 tablet-keyboard auto-hide: a visible chat sidebar must stay visible while the software keyboard is up, but use the minimum bounded width so the session list is not too wide in the reduced viewport. The user's persisted width remains untouched and returns when the keyboard closes; mobile keeps CSS-driven one-pane sizing.
+   * FN-6494 reverses the FN-6178/FN-6210 tablet-keyboard auto-hide: a visible chat sidebar must stay visible while the software keyboard is up. The user's persisted width remains untouched and returns when the keyboard closes; mobile keeps CSS-driven one-pane sizing.
+   *
+   * FNXC:ChatTabletKeyboard 2026-06-16-22:59:
+   * FN-6516 refines the tablet keyboard behavior: keep the sidebar at the same persisted width while the keyboard is open instead of narrowing to the minimum. The FN-6210 CSS max-width guard remains the upper bound, and resize controls still stay disabled while typing.
    */
-  const sidebarInlineStyle: React.CSSProperties | undefined = isMobile
-    ? undefined
-    : { width: `${tabletKeyboardOpen ? Math.min(sidebarWidth, CHAT_SIDEBAR_MIN_WIDTH) : sidebarWidth}px` };
+  const sidebarInlineStyle: React.CSSProperties | undefined = isMobile ? undefined : { width: `${sidebarWidth}px` };
 
   return (
     <div className="chat-view">
