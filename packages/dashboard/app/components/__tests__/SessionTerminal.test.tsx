@@ -70,10 +70,8 @@ function splitFontFamilies(stack: string): string[] {
 
 function expectMeasurementSafeFontStack(stack: string): void {
   const families = splitFontFamilies(stack);
-  const symbolsIndex = families.indexOf(TERMINAL_SYMBOLS_FONT_FAMILY);
-  const firstTextIndex = families.findIndex((family) => family !== TERMINAL_SYMBOLS_FONT_FAMILY);
-  expect(firstTextIndex).toBeGreaterThan(-1);
-  expect(symbolsIndex).toBeGreaterThan(firstTextIndex);
+  expect(families.length).toBeGreaterThan(0);
+  expect(families).not.toContain(TERMINAL_SYMBOLS_FONT_FAMILY);
 }
 
 beforeEach(() => {
@@ -140,7 +138,7 @@ describe("SessionTerminal", () => {
     await waitFor(() => expect(FakeWS.instances.length).toBe(1));
     expect(Terminal).toHaveBeenCalledWith(
       expect.objectContaining({
-        fontFamily: expect.stringContaining("Fusion Terminal Nerd Font Symbols"),
+        fontFamily: resolveTerminalFontFamily("nerd-font"),
         fontSize: DEFAULT_TERMINAL_PREFERENCES.fontSize,
         cursorStyle: DEFAULT_TERMINAL_PREFERENCES.cursorStyle,
         cursorBlink: DEFAULT_TERMINAL_PREFERENCES.cursorBlink,
@@ -175,7 +173,8 @@ describe("SessionTerminal", () => {
 
     await waitFor(() => {
       expect(FakeWS.instances.length).toBe(1);
-      expect(load).toHaveBeenCalledWith(
+      expect(load).toHaveBeenCalledWith(expect.stringContaining("MesloLGS NF"));
+      expect(load).not.toHaveBeenCalledWith(
         expect.stringContaining("Fusion Terminal Nerd Font Symbols"),
       );
     });
@@ -228,12 +227,13 @@ describe("SessionTerminal", () => {
     await waitFor(() => expect(FakeWS.instances.length).toBe(1));
     expect(Terminal).toHaveBeenCalledWith(
       expect.objectContaining({
-        fontFamily: expect.stringContaining("Fusion Terminal Nerd Font Symbols"),
+        fontFamily: resolveTerminalFontFamily("nerd-font"),
         fontSize: DEFAULT_TERMINAL_PREFERENCES.fontSize,
         cursorStyle: DEFAULT_TERMINAL_PREFERENCES.cursorStyle,
         cursorBlink: true,
       }),
     );
+    expectMeasurementSafeFontStack(mockTerm.options.fontFamily as string);
   });
 
   it.each([

@@ -1,6 +1,6 @@
 import "./SessionTerminal.css";
 import "@xterm/xterm/css/xterm.css";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Terminal as TerminalIcon, ShieldAlert, Settings, Eye } from "lucide-react";
 import type { Terminal as XTerm, ITerminalAddon } from "@xterm/xterm";
@@ -12,6 +12,7 @@ import {
   TERMINAL_PREFERENCES_KEY,
   readTerminalPreferences,
   resolveTerminalFontFamily,
+  resolveTerminalGlyphFontFamily,
   waitForTerminalFontMetrics,
 } from "../utils/terminalPreferences";
 
@@ -263,6 +264,10 @@ export function SessionTerminal({
 
     const terminalPreferences = readTerminalPreferences();
     terminal.options.fontFamily = resolveTerminalFontFamily(terminalPreferences.fontFamily);
+    containerRef.current?.style.setProperty(
+      "--terminal-glyph-font-family",
+      resolveTerminalGlyphFontFamily(terminalPreferences.fontFamily),
+    );
     terminal.options.fontSize = terminalPreferences.fontSize;
     terminal.options.cursorStyle = terminalPreferences.cursorStyle;
     terminal.options.cursorBlink = terminalPreferences.cursorBlink && !readOnly && mode === "live";
@@ -342,10 +347,14 @@ export function SessionTerminal({
 
       const terminalPreferences = readTerminalPreferences();
       const resolvedFontFamily = resolveTerminalFontFamily(terminalPreferences.fontFamily);
+      containerRef.current.style.setProperty(
+        "--terminal-glyph-font-family",
+        resolveTerminalGlyphFontFamily(terminalPreferences.fontFamily),
+      );
 
       /*
-      FNXC:Terminal 2026-06-17-18:25:
-      SessionTerminal shares the FN-6603 wide-cell hazard because it passes the same resolved font stack to xterm's mobile DOM/canvas renderer. The shared terminalPreferences stack keeps real monospace faces before the symbols fallback so this attach surface inherits the durable cell-measurement fix instead of relying on a separate SessionTerminal-only font path.
+      FNXC:Terminal 2026-06-18-15:42:
+      SessionTerminal shares TerminalModal's recurrence #5 root cause: FN-6638's 66.76px diagnostic compared only symbols-inclusive stacks, so real iOS Safari still let the loaded symbols @font-face pollute xterm's ASCII measurement. Pass only the symbols-free resolved family to xterm on this attach surface too; DOM glyph fallback is scoped to the viewport CSS variable and never to the xterm font option used by DOM/canvas measurement or desktop WebGL.
 
       FNXC:Terminal 2026-06-17-00:50:
       SessionTerminal consumes the shared localStorage terminal preferences for parity with TerminalModal, but replay safety still owns input posture: cursor blink is the user preference AND-gated by !readOnly && mode === "live" so read-only, idle, and ended sessions never blink.
@@ -546,6 +555,11 @@ export function SessionTerminal({
 
   const elevated = Boolean(posture?.elevated);
   const flagSummary = posture?.elevatedFlags?.join(", ");
+  const terminalGlyphStyle = {
+    "--terminal-glyph-font-family": resolveTerminalGlyphFontFamily(
+      readTerminalPreferences().fontFamily,
+    ),
+  } as CSSProperties;
 
   return (
     <div
@@ -627,6 +641,7 @@ export function SessionTerminal({
         className="cli-session-terminal__viewport"
         ref={containerRef}
         data-testid="cli-terminal-viewport"
+        style={terminalGlyphStyle}
       />
 
       {showConfirmAdvance && !advanceDismissed && (

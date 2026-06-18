@@ -1,5 +1,5 @@
 import "./TerminalModal.css";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { getErrorMessage } from "@fusion/core";
 import {
@@ -24,6 +24,7 @@ import {
   clampTerminalFontSize,
   readTerminalPreferences,
   resolveTerminalFontFamily,
+  resolveTerminalGlyphFontFamily,
   waitForTerminalFontMetrics,
   writeTerminalPreferences,
   type TerminalPreferences,
@@ -243,6 +244,15 @@ export function TerminalModal({ isOpen, onClose, initialCommand, initialCommandG
   );
   const fontSize = terminalPreferences.fontSize;
   const resolvedFontFamily = resolveTerminalFontFamily(terminalPreferences.fontFamily);
+  /*
+  FNXC:Terminal 2026-06-18-15:40:
+  TerminalModal must pass a symbols-free family to xterm so iOS WebKit measures ASCII cells against real monospace metrics. Keep the symbols fallback only in a scoped DOM glyph CSS variable; this preserves powerline glyph availability for DOM rows without reintroducing the loaded symbols @font-face into xterm's measurement, fit, or WebGL/canvas option path.
+  */
+  const terminalGlyphStyle = {
+    "--terminal-glyph-font-family": resolveTerminalGlyphFontFamily(
+      terminalPreferences.fontFamily,
+    ),
+  } as CSSProperties;
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showPreferences, setShowPreferences] = useState(false);
   const [stickyModifier, setStickyModifier] = useState<null | "ctrl" | "alt">(null);
@@ -1507,6 +1517,7 @@ export function TerminalModal({ isOpen, onClose, initialCommand, initialCommandG
             ref={terminalRef}
             className="terminal-xterm"
             data-testid="terminal-xterm"
+            style={terminalGlyphStyle}
             onPointerDown={handleTerminalGestureFocus}
             onTouchStart={handleTerminalGestureFocus}
           />

@@ -108,10 +108,8 @@ function splitFontFamilies(stack: string): string[] {
 
 function expectMeasurementSafeFontStack(stack: string): void {
   const families = splitFontFamilies(stack);
-  const symbolsIndex = families.indexOf(TERMINAL_SYMBOLS_FONT_FAMILY);
-  const firstTextIndex = families.findIndex((family) => family !== TERMINAL_SYMBOLS_FONT_FAMILY);
-  expect(firstTextIndex).toBeGreaterThan(-1);
-  expect(symbolsIndex).toBeGreaterThan(firstTextIndex);
+  expect(families.length).toBeGreaterThan(0);
+  expect(families).not.toContain(TERMINAL_SYMBOLS_FONT_FAMILY);
 }
 
 /** Pull the parsed input frames a WS has sent. */

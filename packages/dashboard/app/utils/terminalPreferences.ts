@@ -7,11 +7,11 @@ export const MAX_TERMINAL_FONT_SIZE = 32;
 export const TERMINAL_SYMBOLS_FONT_FAMILY = '"Fusion Terminal Nerd Font Symbols"';
 
 /*
-FNXC:Terminal 2026-06-17-18:12:
-Mobile WebKit can render ASCII through a later text fallback while xterm's canvas/DOM cell-measurement probe still binds metrics from the first listed symbols-only face. Keep real monospace text faces first for stable cell widths across mobile DOM/canvas and desktop WebGL renderers, then use the unicode-range-scoped symbols face as a fallback for powerline/Nerd-Font codepoints in every preset.
+FNXC:Terminal 2026-06-18-15:38:
+FN-6659 recurrence #5 showed the FN-6638 66.76px diagnostic compared only symbols-inclusive stacks: symbols-first, symbols-last, and system-mono all still contained the loaded unicode-range symbols @font-face. Real iOS Safari therefore implicated the symbols face's mere presence in xterm's measured font shorthand, not stack order. Keep xterm's measured family symbols-free for every preset and both terminal surfaces; a separate DOM glyph CSS layer may append the symbols face where it does not feed xterm's ASCII cell measurement.
 */
 export const XTERM_FONT_FAMILY =
-  `"MesloLGS NF", "MesloLGM Nerd Font", "JetBrainsMono Nerd Font", "FiraCode Nerd Font", "Hack Nerd Font", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace, ${TERMINAL_SYMBOLS_FONT_FAMILY}`;
+  '"MesloLGS NF", "MesloLGM Nerd Font", "JetBrainsMono Nerd Font", "FiraCode Nerd Font", "Hack Nerd Font", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
 
 export const TERMINAL_FONT_FAMILY_PRESETS = [
   {
@@ -22,17 +22,17 @@ export const TERMINAL_FONT_FAMILY_PRESETS = [
   {
     id: "system-mono",
     label: "System monospace",
-    css: `ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace, ${TERMINAL_SYMBOLS_FONT_FAMILY}`,
+    css: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
   },
   {
     id: "jetbrains-mono",
     label: "JetBrains Mono",
-    css: `"JetBrains Mono", "JetBrainsMono Nerd Font", ui-monospace, SFMono-Regular, monospace, ${TERMINAL_SYMBOLS_FONT_FAMILY}`,
+    css: '"JetBrains Mono", "JetBrainsMono Nerd Font", ui-monospace, SFMono-Regular, monospace',
   },
   {
     id: "fira-code",
     label: "Fira Code",
-    css: `"Fira Code", "FiraCode Nerd Font", ui-monospace, SFMono-Regular, monospace, ${TERMINAL_SYMBOLS_FONT_FAMILY}`,
+    css: '"Fira Code", "FiraCode Nerd Font", ui-monospace, SFMono-Regular, monospace',
   },
 ] as const;
 
@@ -69,6 +69,10 @@ export function resolveTerminalFontFamily(fontFamily: TerminalFontFamily): strin
     TERMINAL_FONT_FAMILY_PRESETS.find((preset) => preset.id === fontFamily)?.css ??
     XTERM_FONT_FAMILY
   );
+}
+
+export function resolveTerminalGlyphFontFamily(fontFamily: TerminalFontFamily): string {
+  return `${resolveTerminalFontFamily(fontFamily)}, ${TERMINAL_SYMBOLS_FONT_FAMILY}`;
 }
 
 const CSS_GENERIC_FONT_FAMILIES = new Set([

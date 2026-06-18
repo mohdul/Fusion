@@ -4849,7 +4849,8 @@ describe("TerminalModal — xterm focus initialization (FN-1602)", () => {
 
     await waitFor(() => {
       expect(mockTerminalInstance.open).toHaveBeenCalled();
-      expect(load).toHaveBeenCalledWith(
+      expect(load).toHaveBeenCalledWith(expect.stringContaining("MesloLGS NF"));
+      expect(load).not.toHaveBeenCalledWith(
         expect.stringContaining("Fusion Terminal Nerd Font Symbols"),
       );
     });
@@ -4886,7 +4887,8 @@ describe("TerminalModal — xterm focus initialization (FN-1602)", () => {
 
     await waitFor(() => {
       expect(mockTerminalInstance.open).toHaveBeenCalled();
-      expect(load).toHaveBeenCalledWith(
+      expect(load).toHaveBeenCalledWith(expect.stringContaining("MesloLGS NF"));
+      expect(load).not.toHaveBeenCalledWith(
         expect.stringContaining("Fusion Terminal Nerd Font Symbols"),
       );
     });
@@ -4898,6 +4900,9 @@ describe("TerminalModal — xterm focus initialization (FN-1602)", () => {
 
     await waitFor(() => {
       expect(mockTerminalInstance.options.fontFamily).toBe(XTERM_FONT_FAMILY);
+      expect(mockTerminalInstance.options.fontFamily).not.toContain(
+        "Fusion Terminal Nerd Font Symbols",
+      );
       expect(mockTerminalInstance.options.fontSize).toBe(DEFAULT_TERMINAL_PREFERENCES.fontSize);
       expect(mockFitAddonFit.mock.calls.length).toBeGreaterThan(fitCallBaseline);
       expect(mockResize).toHaveBeenCalledWith(

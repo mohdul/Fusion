@@ -10,7 +10,7 @@ symptoms:
   - "Terminal glyphs render with oversized inter-character spacing after the symbols font loads"
   - "Mobile DOM/canvas xterm output wraps after very few columns even for ASCII commands"
   - "Powerline prompt glyphs are needed, but ASCII must measure against a real monospace text font"
-root_cause: symbols_only_font_face_without_unicode_range_or_symbols_first_stack_participated_in_ascii_cell_measurement
+root_cause: symbols_only_font_face_participated_in_ios_xterm_ascii_cell_measurement_even_when_unicode_range_scoped
 resolution_type: code_fix
 severity: high
 related_components:
@@ -21,6 +21,8 @@ related_components:
   - FN-6390
   - FN-6424
   - FN-6603
+  - FN-6638
+  - FN-6659
 tags:
   - xterm
   - font-loading
@@ -34,16 +36,19 @@ tags:
 
 ## Problem
 
-A symbols-only Nerd Font can corrupt xterm.js cell measurement when it appears first in the terminal `fontFamily` stack. FN-6390 correctly added an async post-font-load remeasure, but FN-6424 found the recurrence: the browser could still measure ASCII cells against `SymbolsNerdFontMono` after `font-display: swap`, producing huge gaps such as `p n p m  b u i l d` on mobile.
+A symbols-only Nerd Font can corrupt xterm.js cell measurement when it participates in the terminal `fontFamily` stack. FN-6390 correctly added an async post-font-load remeasure, but FN-6424 found the recurrence: the browser could still measure ASCII cells against `SymbolsNerdFontMono` after `font-display: swap`, producing huge gaps such as `p n p m  b u i l d` on mobile.
 
 FN-6603 found the third recurrence: the FN-6390 remeasure and FN-6424 `unicode-range` were both present, but the shared terminal preference stack still listed the symbols face first. Mobile WebKit/xterm canvas measurement could still use that first face for cell metrics while actual ASCII glyph rendering fell through to a later monospace font. The visible symptom was the same wide-cell layout (`A G E N T S . m d`) with intact powerline glyphs.
 
+FN-6638 then added a `text-size-adjust: 100%` pin plus best-effort `document.fonts` settlement and unconditional xterm option reapply/fit/refresh. That recurrence's diagnostic measured `66.76px for AGENTS.md` across symbols-first, symbols-last, and system-mono stacks and was initially read as "font-stack ordering is inert." FN-6659 corrected that reading: all three diagnostic stacks were still symbols-inclusive because every preset appended `"Fusion Terminal Nerd Font Symbols"`, and that symbols face was the only bundled/loaded terminal `@font-face`. Playwright/desktop WebKit emulation and the unfinished real-iOS acceptance gate let four blind fixes ship despite the real iOS Safari symptom remaining.
+
 ## Solution
 
-Keep the symbols font available for powerline/Nerd-Font codepoints, but apply both guards:
+Keep the symbols font available for powerline/Nerd-Font codepoints, but do not let it participate in xterm's measured `fontFamily` option:
 
 1. Scope its `@font-face` with `unicode-range` so printable ASCII is never resolved through that family during normal glyph fallback.
-2. Keep real monospace text faces before the symbols family in every xterm `fontFamily` preset. The symbols family should be a fallback, not the first measurement candidate, because xterm's DOM/canvas metrics path is less reliable than normal DOM text fallback on mobile WebKit.
+2. Keep `XTERM_FONT_FAMILY` and every terminal preset symbols-free. `TerminalModal` and `SessionTerminal` must pass only real text monospace stacks to `new Terminal(...)`, remeasure, and live-preference updates.
+3. If a DOM-renderer symbols fallback is needed, attach it through a separate scoped CSS variable/rule for `.xterm-rows span` (for example `--terminal-glyph-font-family`) rather than the xterm option that drives ASCII cell measurement. Do not re-tune ordering: FN-6659 showed symbols-last was still unsafe on real iOS because the symbols face's mere presence polluted the measured shorthand.
 
 Use the standard Symbols Nerd Font ranges, including powerline and private-use blocks, for example:
 
@@ -56,7 +61,7 @@ Use the standard Symbols Nerd Font ranges, including powerline and private-use b
 }
 ```
 
-Do not replace this with fixed `letterSpacing`, hardcoded column counts, or by removing the async remeasure. xterm should still refit after web fonts load; the font face and stack ordering together must prevent symbols-only metrics from applying to ASCII.
+Do not replace this with fixed `letterSpacing`, hardcoded column counts, or by removing the async remeasure. xterm should still refit after web fonts load; the measured xterm font stack must stay symbols-free so symbols-only metrics cannot apply to ASCII on real iOS Safari.
 
 ## Regression coverage
 
@@ -65,6 +70,7 @@ Automated jsdom tests cannot validate font advance widths, so cover the enforcea
 - Parse emitted/app CSS and assert the terminal symbols `@font-face` has a `unicode-range`.
 - Assert the range contains required Nerd-Font/powerline blocks such as `U+E0A0-E0D7`, `U+E700-E8EF`, and `U+F0001-F1AF0`.
 - Assert no range overlaps printable ASCII (`U+0020-007E`).
-- Assert the shared default stack and every terminal font preset place a real text monospace face before `"Fusion Terminal Nerd Font Symbols"`.
-- Check every xterm consumer: `TerminalModal` and `SessionTerminal` both use `resolveTerminalFontFamily()`, so both are affected by stack ordering and both need component-level coverage that the stack passed to `new Terminal(...)` is measurement-safe.
-- Verify in a mobile/touch browser path that ASCII output renders tightly while the powerline glyph still renders for the default `nerd-font` and `system-mono` presets.
+- Assert the shared default stack and every terminal font preset do **not** include `"Fusion Terminal Nerd Font Symbols"` in the xterm-measured family.
+- Assert the retained symbols-rendering mechanism is separate from xterm measurement (for example CSS rules using `--terminal-glyph-font-family` on DOM row spans).
+- Check every xterm consumer: `TerminalModal` and `SessionTerminal` both use `resolveTerminalFontFamily()`, so both need component-level coverage that the stack passed to `new Terminal(...)`, remeasure, and live preference updates is symbols-free.
+- Verify on a real iOS Safari device/cloud path (not Playwright/desktop WebKit emulation) that ASCII output renders tightly while the powerline glyph still renders for the default `nerd-font` and `system-mono` presets on both `TerminalModal` and `SessionTerminal`.

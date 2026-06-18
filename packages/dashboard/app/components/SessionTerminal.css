@@ -132,6 +132,14 @@ SessionTerminal hosts the same xterm DOM/canvas measurement subtree as TerminalM
   text-size-adjust: 100%;
 }
 
+/*
+FNXC:Terminal 2026-06-18-15:45:
+Recurrence #5 requires the attach terminal to mirror TerminalModal: xterm receives a symbols-free measured family, and only DOM row spans receive the optional glyph fallback. This keeps the real-iOS WebKit measurement invariant shared across DOM/canvas fallback and desktop WebGL while avoiding a SessionTerminal-only recurrence.
+*/
+.cli-session-terminal__viewport .xterm-rows span {
+  font-family: var(--terminal-glyph-font-family, inherit) !important;
+}
+
 .cli-session-terminal__advance-strip {
   display: flex;
   align-items: center;

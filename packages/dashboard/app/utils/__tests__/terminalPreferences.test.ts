@@ -111,7 +111,7 @@ describe("terminalPreferences", () => {
 
     expect(load).toHaveBeenCalledWith(expect.stringContaining("MesloLGS NF"));
     expect(load).toHaveBeenCalledWith("12px \"MesloLGS NF\"");
-    expect(load).toHaveBeenCalledWith("12px \"Fusion Terminal Nerd Font Symbols\"");
+    expect(load).not.toHaveBeenCalledWith("12px \"Fusion Terminal Nerd Font Symbols\"");
     expect(readyAwaited).toBe(true);
   });
 });

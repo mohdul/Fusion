@@ -556,6 +556,14 @@ Real iOS Safari recurrence #4 kept wide ASCII cells even after unicode-range sco
 }
 
 /*
+FNXC:Terminal 2026-06-18-15:44:
+FN-6659 keeps the loaded symbols @font-face out of xterm's measured font option because every FN-6638 diagnostic stack that measured 66.76px still included that face. Limit the symbols fallback to DOM renderer row spans via a CSS custom property so ASCII measurement, fit, refresh, and WebGL/canvas option paths stay symbols-free while powerline glyphs can still resolve when xterm emits DOM text nodes.
+*/
+.terminal-xterm .xterm-rows span {
+  font-family: var(--terminal-glyph-font-family, inherit) !important;
+}
+
+/*
  * xterm fit may apply inline pixel heights on the `.xterm` root after
  * row/line-height recomputation (e.g. after font-size changes). Keep the root
  * stretched to the wrapper height so the terminal always fills the modal.

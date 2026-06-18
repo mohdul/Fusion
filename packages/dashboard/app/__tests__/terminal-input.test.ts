@@ -26,6 +26,18 @@ function findSessionTerminalTextSizingRule(): string {
   return match?.[1] ?? "";
 }
 
+function findTerminalGlyphFallbackRule(): string {
+  const match = css.match(/\.terminal-xterm\s+\.xterm-rows\s+span\s*\{([^}]*)\}/);
+  return match?.[1] ?? "";
+}
+
+function findSessionTerminalGlyphFallbackRule(): string {
+  const match = css.match(
+    /\.cli-session-terminal__viewport\s+\.xterm-rows\s+span\s*\{([^}]*)\}/,
+  );
+  return match?.[1] ?? "";
+}
+
 function expectTextSizeAdjustPinned(ruleBody: string): void {
   expect(ruleBody).not.toBe("");
   expect(ruleBody).toMatch(/-webkit-text-size-adjust\s*:\s*100%\s*;/);
@@ -103,6 +115,11 @@ describe("terminal helper textarea CSS contract", () => {
   it("pins iOS text-size adjustment on the SessionTerminal xterm viewport", () => {
     expectTextSizeAdjustPinned(findSessionTerminalTextSizingRule());
   });
+
+  it("keeps a DOM glyph fallback mechanism outside xterm measurement options", () => {
+    expect(findTerminalGlyphFallbackRule()).toMatch(/--terminal-glyph-font-family/);
+    expect(findSessionTerminalGlyphFallbackRule()).toMatch(/--terminal-glyph-font-family/);
+  });
 });
 
 describe("FN-6424 terminal symbols font CSS contract", () => {
@@ -118,7 +135,7 @@ describe("FN-6424 terminal symbols font CSS contract", () => {
   });
 });
 
-describe("FN-6603 terminal font stack measurement contract", () => {
+describe("FN-6659 terminal font stack measurement contract", () => {
   const symbolsFamily = '"Fusion Terminal Nerd Font Symbols"';
 
   function splitFontFamilies(stack: string): string[] {
@@ -128,28 +145,19 @@ describe("FN-6603 terminal font stack measurement contract", () => {
       .filter(Boolean);
   }
 
-  it("keeps the default symbols fallback after real monospace text fonts", () => {
+  it("keeps the default xterm measurement family free of the symbols face", () => {
     const families = splitFontFamilies(XTERM_FONT_FAMILY);
-    const symbolsIndex = families.indexOf(symbolsFamily);
-    const firstTextFontIndex = families.findIndex((family) => family !== symbolsFamily);
 
-    expect(symbolsIndex).toBeGreaterThan(-1);
-    expect(firstTextFontIndex).toBeGreaterThan(-1);
-    expect(symbolsIndex).toBeGreaterThan(firstTextFontIndex);
+    expect(families).not.toContain(symbolsFamily);
+    expect(families.length).toBeGreaterThan(0);
   });
 
-  it("gives every terminal font preset a measurement-safe text face before symbols", () => {
+  it("keeps every terminal preset free of the symbols face xterm measures", () => {
     for (const preset of TERMINAL_FONT_FAMILY_PRESETS) {
       const families = splitFontFamilies(preset.css);
-      const symbolsIndex = families.indexOf(symbolsFamily);
-      const firstTextFontIndex = families.findIndex((family) => family !== symbolsFamily);
 
-      expect(firstTextFontIndex, `${preset.id} has a text font`).toBeGreaterThan(-1);
-      if (symbolsIndex >= 0) {
-        expect(symbolsIndex, `${preset.id} symbols fallback order`).toBeGreaterThan(
-          firstTextFontIndex,
-        );
-      }
+      expect(families, `${preset.id} xterm measurement stack`).not.toContain(symbolsFamily);
+      expect(families.length, `${preset.id} has a text font`).toBeGreaterThan(0);
     }
   });
 });
