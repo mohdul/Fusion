@@ -5,6 +5,7 @@ import { computeMaxWorkers } from "./src/__test-utils__/vitest-workers";
 const maxWorkers = computeMaxWorkers();
 
 const quarantinedCoreTests = [
+  "src/__tests__/task-list-format.test.ts",
   /*
   FNXC:CoreTests 2026-06-13-17:43:
   The full workspace suite must not fail on suite-load-sensitive tests that pass standalone or only fail after excessive wall time. Quarantine observed core offenders after package-lane hook timeouts instead of appeasing them with wider hook timeouts.

@@ -325,11 +325,13 @@ export function useQuickChat(
     }
   }, []);
 
-  const loadMessagesForSession = useCallback(async (sessionId: string) => {
+  const loadMessagesForSession = useCallback(async (sessionId: string, opts?: { commitForStreamingAttach?: boolean }) => {
     setMessagesLoading(true);
     try {
       const data = await fetchChatMessages(sessionId, { limit: 50, order: "desc" }, projectId);
-      if (activeSessionRef.current?.id === sessionId) {
+      const shouldCommitMessages = activeSessionRef.current?.id === sessionId
+        || (opts?.commitForStreamingAttach === true && lastAttachedGenerationRef.current?.sessionId === sessionId);
+      if (shouldCommitMessages) {
         setMessages(data.messages.slice().reverse().map(mapChatMessageToInfo));
       }
     } catch (err) {
@@ -351,13 +353,19 @@ export function useQuickChat(
     cancelledByUserRef.current = false;
     const currentMessages = messagesRef.current;
     const needsPriorThreadLoad = currentMessages.length === 0 || currentMessages[0]?.sessionId !== sessionId;
+    lastAttachedGenerationRef.current = {
+      sessionId,
+      replayFromEventId: typeof inFlightGeneration?.replayFromEventId === "number"
+        ? inFlightGeneration.replayFromEventId
+        : null,
+    };
     if (needsPriorThreadLoad) {
       /*
-      FNXC:ChatStreaming 2026-06-16-18:16:
-      QuickChat has the same streaming visibility contract as the full chat view: a resumed in-flight assistant bubble must not hide prior user turns or assistant responses.
-      Because QuickChat has no message cache and streaming suppresses persisted echo handling, attach fetches the session thread directly by id instead of relying on activeSession-bound loaders that may see stale state.
+      FNXC:ChatStreaming 2026-06-17-16:58:
+      QuickChat mirrors main chat: a resumed in-flight assistant bubble must not hide prior user turns or assistant responses, even when attach runs before activeSessionRef observes the selected session.
+      Because streaming suppresses persisted echo handling, attach-triggered thread loads commit for the attached session instead of depending only on activeSession-bound state.
       */
-      void loadMessagesForSession(sessionId);
+      void loadMessagesForSession(sessionId, { commitForStreamingAttach: true });
     }
     if (inFlightGeneration) {
       setStreamingText(inFlightGeneration.streamingText);
@@ -414,12 +422,6 @@ export function useQuickChat(
         ? { lastEventId: inFlightGeneration.replayFromEventId }
         : {}),
     });
-    lastAttachedGenerationRef.current = {
-      sessionId,
-      replayFromEventId: typeof inFlightGeneration?.replayFromEventId === "number"
-        ? inFlightGeneration.replayFromEventId
-        : null,
-    };
     return true;
   }, [addToast, loadMessagesForSession, flushPendingMessage, t, projectId]);
 
@@ -632,6 +634,7 @@ export function useQuickChat(
 
     resetTransientComposerState();
     setActiveSession(session);
+    activeSessionRef.current = session;
 
     void Promise.resolve(fetchChatSession(session.id, projectId))
       .then(({ session: refreshedSession }) => {

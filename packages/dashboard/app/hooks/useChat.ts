@@ -438,7 +438,7 @@ export function useChat(
   );
 
   const hydrateMessagesFromCache = useCallback(
-    (sessionId?: string | null) => {
+    (sessionId?: string | null, opts?: { clearOnMiss?: boolean }) => {
       const cachedMessages = readCachedMessages(projectId, sessionId);
       if (cachedMessages.length > 0) {
         setMessages(cachedMessages);
@@ -446,7 +446,9 @@ export function useChat(
         return true;
       }
 
-      setMessages([]);
+      if (opts?.clearOnMiss !== false) {
+        setMessages([]);
+      }
       return false;
     },
     [projectId, readCachedMessages],
@@ -454,7 +456,7 @@ export function useChat(
 
   // Load messages when active session changes
   const loadMessages = useCallback(
-    async (sessionId: string, opts?: { offset?: number; before?: string }) => {
+    async (sessionId: string, opts?: { offset?: number; before?: string; commitForStreamingAttach?: boolean }) => {
       const isPaginationRequest = (typeof opts?.offset === "number" && opts.offset > 0) || typeof opts?.before === "string";
       const cacheKey = getChatMessagesCacheKey(projectId, sessionId);
       const cachedMessages = !isPaginationRequest ? readCachedMessages(projectId, sessionId) : [];
@@ -471,13 +473,15 @@ export function useChat(
         const data = await fetchChatMessages(sessionId, { limit: 50, order: "desc", ...opts }, projectId);
         // API returns newest-first (order=desc); reverse so display is oldest-first.
         const mappedMessages = data.messages.slice().reverse().map(mapChatMessageToInfo);
+        const shouldCommitMessages = activeSessionRef.current?.id === sessionId
+          || (opts?.commitForStreamingAttach === true && lastAttachedGenerationRef.current?.sessionId === sessionId);
         if (isPaginationRequest) {
-          if (activeSessionRef.current?.id === sessionId) {
+          if (shouldCommitMessages) {
             setMessages((prev) => [...mappedMessages, ...prev]);
             setHasMoreMessages(data.messages.length >= 50);
           }
         } else {
-          if (activeSessionRef.current?.id === sessionId) {
+          if (shouldCommitMessages) {
             setMessages(mappedMessages);
             setHasMoreMessages(data.messages.length >= 50);
             if (cacheKey) writeCache(cacheKey, mappedMessages, { maxBytes: 500_000 });
@@ -537,14 +541,20 @@ export function useChat(
     cancelledByUserRef.current = false;
     const currentMessages = messagesRef.current;
     const needsPriorThreadLoad = currentMessages.length === 0 || currentMessages[0]?.sessionId !== sessionId;
+    lastAttachedGenerationRef.current = {
+      sessionId,
+      replayFromEventId: typeof inFlightGeneration?.replayFromEventId === "number"
+        ? inFlightGeneration.replayFromEventId
+        : null,
+    };
     if (needsPriorThreadLoad && !options?.priorThreadLoadAlreadyStarted) {
       /*
-      FNXC:ChatStreaming 2026-06-16-18:10:
-      In-flight attach must keep the persisted prior thread visible while the assistant bubble streams.
-      The chat:message:added SSE echo is suppressed during streaming to avoid duplicate local bubbles, so attach has to hydrate cached history and start a thread load itself when messages are empty or from another session.
+      FNXC:ChatStreaming 2026-06-17-16:50:
+      Main chat must keep the persisted prior thread visible while an assistant response streams, including attach paths that run before React commits activeSession into activeSessionRef.
+      Because chat:message:added echoes are suppressed during streaming, attach-triggered thread loads must commit for the attached session and cache misses must not blank an existing thread while the load is in flight.
       */
-      hydrateMessagesFromCache(sessionId);
-      void loadMessages(sessionId);
+      hydrateMessagesFromCache(sessionId, { clearOnMiss: false });
+      void loadMessages(sessionId, { commitForStreamingAttach: true });
     }
     if (inFlightGeneration) {
       setStreamingText(inFlightGeneration.streamingText);
@@ -610,12 +620,6 @@ export function useChat(
         : {}),
     });
     streamRef.current = stream;
-    lastAttachedGenerationRef.current = {
-      sessionId,
-      replayFromEventId: typeof inFlightGeneration?.replayFromEventId === "number"
-        ? inFlightGeneration.replayFromEventId
-        : null,
-    };
     return true;
   }, [addToast, hydrateMessagesFromCache, loadMessages, projectId, flushPendingMessage]);
 
@@ -636,6 +640,7 @@ export function useChat(
       // Find and set active session
       const session = sessionOverride ?? sessions.find((s) => s.id === id);
       setActiveSession(session || null);
+      activeSessionRef.current = session || null;
 
       if (id) {
         void fetchChatSession(id, projectId)

@@ -2973,6 +2973,57 @@ describe("useChat", () => {
       });
     });
 
+    it("FN-6599 keeps restored main-chat prior thread visible during selectSession recovery attach", async () => {
+      const generatingSession = {
+        ...makeSession({
+          id: "session-restore-generating",
+          agentId: "agent-001",
+          title: "Restored generating",
+        }),
+        isGenerating: true,
+        inFlightGeneration: {
+          status: "generating" as const,
+          streamingText: "restored partial",
+          streamingThinking: "thinking",
+          toolCalls: [],
+          replayFromEventId: 101,
+          updatedAt: "2026-04-08T00:00:00.000Z",
+        },
+      };
+      const priorThreadNewestFirst = [
+        makeMessage({ id: "msg-004", sessionId: generatingSession.id, role: "assistant", content: "Second answer" }),
+        makeMessage({ id: "msg-003", sessionId: generatingSession.id, role: "user", content: "Second question" }),
+        makeMessage({ id: "msg-002", sessionId: generatingSession.id, role: "assistant", content: "First answer" }),
+        makeMessage({ id: "msg-001", sessionId: generatingSession.id, role: "user", content: "First question" }),
+      ];
+
+      mockGetScopedItem.mockImplementation((key) => key === "kb-chat-active-session" ? generatingSession.id : undefined);
+      mockFetchChatSessions.mockResolvedValueOnce({ sessions: [generatingSession] });
+      mockFetchChatMessages.mockResolvedValueOnce({ messages: priorThreadNewestFirst });
+
+      const { result } = renderHook(() => useChat("proj-123"));
+
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(true);
+        expect(result.current.streamingText).toBe("restored partial");
+        expect(mockAttachChatStream).toHaveBeenCalledWith(
+          generatingSession.id,
+          expect.any(Object),
+          "proj-123",
+          { lastEventId: 101 },
+        );
+      });
+
+      await waitFor(() => {
+        expect(result.current.messages.map((message) => message.content)).toEqual([
+          "First question",
+          "First answer",
+          "Second question",
+          "Second answer",
+        ]);
+      });
+    });
+
     it("FN-6496 loads prior thread during chat:session:updated in-flight attach", async () => {
       const session = makeSession({ id: "session-001", agentId: "agent-001", title: "Existing" });
       const priorThreadNewestFirst = [

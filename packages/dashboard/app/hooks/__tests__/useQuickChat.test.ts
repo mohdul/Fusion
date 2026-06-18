@@ -2327,6 +2327,45 @@ describe("useQuickChat", () => {
       });
     });
 
+    it("FN-6599 keeps QuickChat prior thread visible when selectSession attaches before active ref settles", async () => {
+      const session = {
+        ...makeSession({ id: "session-select-generating", agentId: "agent-001" }),
+        isGenerating: true,
+        inFlightGeneration: {
+          status: "generating" as const,
+          streamingText: "quick partial",
+          streamingThinking: "thinking",
+          toolCalls: [],
+          replayFromEventId: 22,
+          updatedAt: "2026-04-08T00:00:00.000Z",
+        },
+      };
+      const priorThreadNewestFirst = [
+        makeMessage({ id: "msg-004", sessionId: session.id, role: "assistant", content: "Second answer" }),
+        makeMessage({ id: "msg-003", sessionId: session.id, role: "user", content: "Second question" }),
+        makeMessage({ id: "msg-002", sessionId: session.id, role: "assistant", content: "First answer" }),
+        makeMessage({ id: "msg-001", sessionId: session.id, role: "user", content: "First question" }),
+      ];
+      mockFetchChatMessages.mockResolvedValue({ messages: priorThreadNewestFirst });
+
+      const { result } = renderHook(() => useQuickChat("proj-123"));
+
+      await act(async () => {
+        await result.current.selectSession(session);
+      });
+
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(true);
+        expect(result.current.streamingText).toBe("quick partial");
+        expect(result.current.messages.map((message) => message.content)).toEqual([
+          "First question",
+          "First answer",
+          "Second question",
+          "Second answer",
+        ]);
+      });
+    });
+
     it("FN-6496 loads prior thread when initializing a generating QuickChat session", async () => {
       const session = { ...makeSession({ id: "session-001", agentId: "agent-001" }), isGenerating: true };
       const priorThreadNewestFirst = [

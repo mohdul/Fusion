@@ -20,6 +20,11 @@
       "file": "packages/core/src/__tests__/test-project.test.ts",
       "reason": "FN-6596 verification: pnpm test failed in the broad changed-package @fusion/core lane with a test timeout in test-project after the merge gate had passed; immediate isolated rerun of the file passed. Quarantined as a suite-load timeout flake without timeout bumps, retries, or assertion loosening.",
       "quarantinedAt": "2026-06-17"
+    },
+    {
+      "file": "packages/core/src/__tests__/task-list-format.test.ts",
+      "reason": "FN-6599 broad pnpm test: @fusion/core package lane timed out in the file beforeAll hook after the merge gate and impacted dashboard tests had passed; immediate file-specific rerun passed. Classified as unrelated package-lane hook-timeout flake and quarantined without timeout bumps or assertion changes.",
+      "quarantinedAt": "2026-06-17"
     }
   ]
 }
