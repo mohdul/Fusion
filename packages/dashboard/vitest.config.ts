@@ -6,6 +6,12 @@ import { computeMaxWorkers } from "../core/src/__test-utils__/vitest-workers";
 
 const maxWorkers = computeMaxWorkers({ defaultCap: 3 });
 
+/*
+FNXC:DashboardTests 2026-06-17-17:02:
+Dashboard tests must be insulated from release-oriented shells that export NODE_ENV=production. Force test mode before Vitest resolves React and Testing Library so jsdom projects keep React.act and do not fail after slow browser-environment startup.
+*/
+process.env.NODE_ENV = "test";
+
 // Curated-gate skip-list (plan U2 / R7). Files listed here run in NO project on
 // purpose (pre-existing failures discovered when the curated-gate hole was
 // closed). The skip-list is the single source of truth shared with

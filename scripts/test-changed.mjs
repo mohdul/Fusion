@@ -1184,8 +1184,19 @@ export function createIsolatedHomeEnv(env = process.env) {
   return { env: nextEnv, isolatedHome };
 }
 
+export function createTestProcessEnv(env = process.env) {
+  /*
+  FNXC:TestInfrastructure 2026-06-17-17:02:
+  Developer shells and release scripts can export NODE_ENV=production, but Vitest must resolve React, Testing Library, and Vite transforms through their test/development paths. Normalize spawned test processes here so pnpm test cannot inherit production React test-utils and stall/fail jsdom lanes.
+  */
+  return {
+    ...env,
+    NODE_ENV: "test",
+  };
+}
+
 const fullSuiteEnv = {
-  ...process.env,
+  ...createTestProcessEnv(process.env),
   FUSION_TEST_TOTAL_WORKERS: process.env.FUSION_TEST_TOTAL_WORKERS || String(totalWorkers),
   FUSION_TEST_CONCURRENCY: process.env.FUSION_TEST_CONCURRENCY || String(concurrency),
 };

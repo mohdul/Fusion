@@ -4,6 +4,12 @@ import { computeMaxWorkers } from "../../packages/core/src/__test-utils__/vitest
 
 const maxWorkers = computeMaxWorkers();
 
+/*
+FNXC:CompoundEngineeringTests 2026-06-17-17:02:
+Direct CE plugin test commands must behave like the central pnpm test runner even when the caller's shell exports NODE_ENV=production. Force test mode before Vitest resolves React Testing Library so jsdom tests use React's act-capable test path.
+*/
+process.env.NODE_ENV = "test";
+
 const coreSetup = fileURLToPath(
   new URL("../../packages/core/src/__test-utils__/vitest-setup.ts", import.meta.url),
 );
@@ -12,10 +18,18 @@ const dashboardSetup = fileURLToPath(new URL("./src/dashboard/test-setup.ts", im
 /*
 FNXC:CompoundEngineeringTests 2026-06-17-12:35:
 FN-6587 quarantines the CE broad-pnpm-test timeout flakes without timeout appeasement. Keep these excludes mirrored in scripts/lib/test-quarantine.json and remove or delete the files when the 14-day ratchet resolves.
+
+FNXC:CompoundEngineeringTests 2026-06-17-17:18:
+The CE broad package lane still times out in sync/work-bridge hooks under project concurrency while both files pass in isolation. Quarantine the files under the deletion ratchet instead of raising hook timeouts or serializing the whole plugin lane.
 */
 const quarantinedCompoundEngineeringTests = [
   "src/__tests__/orchestrator-flow.test.ts",
   "src/__tests__/skill-wiring.test.ts",
+  "src/__tests__/sync.test.ts",
+  "src/__tests__/work-bridge.test.ts",
+];
+const nodeOnlyDashboardTests = [
+  "src/dashboard/__tests__/theme-tokens.test.ts",
 ];
 
 export default defineConfig({
@@ -42,8 +56,6 @@ export default defineConfig({
     ],
   },
   test: {
-    // coreSetup runs for all projects via extends: true inheritance.
-    setupFiles: [coreSetup],
     globalSetup: [fileURLToPath(new URL("../../packages/core/src/__test-utils__/vitest-teardown.ts", import.meta.url))],
     pool: "threads",
     maxWorkers,
@@ -55,7 +67,18 @@ export default defineConfig({
           name: "compound-engineering-dashboard",
           environment: "jsdom",
           include: ["src/dashboard/**/__tests__/**/*.test.{ts,tsx}", "src/dashboard/**/*.test.{ts,tsx}"],
-          // jsdom-specific setup; coreSetup is inherited via extends: true.
+          exclude: nodeOnlyDashboardTests,
+          globalSetup: [],
+          /*
+          FNXC:CompoundEngineeringTests 2026-06-17-16:50:
+          Dashboard tests run in jsdom and must not inherit the core Node-only isolation setup. That setup imports node:module/node:worker_threads and makes Vite externalize built-ins during browser-style setup, which regressed the CE test lane into slow startup followed by ERR_UNKNOWN_BUILTIN_MODULE.
+
+          FNXC:CompoundEngineeringTests 2026-06-17-16:54:
+          File-inspection dashboard tests that read CSS from disk are Node tests even though they live beside React tests. Keep them out of the jsdom project so fs/path/url imports are not browser-externalized.
+
+          FNXC:CompoundEngineeringTests 2026-06-17-17:10:
+          Projects that do not run the core isolation setup must not inherit its global teardown. Otherwise a completed dashboard project can remove FUSION_TEST_WORKER_ROOT while the CE Node project is still redirecting tmpdir writes there.
+          */
           setupFiles: [dashboardSetup],
         },
       },
@@ -65,11 +88,22 @@ export default defineConfig({
           name: "compound-engineering-node",
           environment: "node",
           include: ["src/**/__tests__/**/*.test.{ts,tsx}", "src/**/*.test.{ts,tsx}"],
+          setupFiles: [coreSetup],
           exclude: [
             "src/dashboard/**/__tests__/**/*.test.{ts,tsx}",
             "src/dashboard/**/*.test.{ts,tsx}",
             ...quarantinedCompoundEngineeringTests,
           ],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "compound-engineering-dashboard-node",
+          environment: "node",
+          include: nodeOnlyDashboardTests,
+          globalSetup: [],
+          setupFiles: [],
         },
       },
     ],
