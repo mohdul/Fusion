@@ -939,8 +939,19 @@ export function TerminalModal({ isOpen, onClose, initialCommand, initialCommandG
       return;
     }
 
-    pendingInitialCommandRef.current = null;
+    /*
+    FNXC:Terminal 2026-06-18-14:58:
+    Quick-script injection must survive the transient connected -> connecting -> connected sequence that happens while the freshly created script tab replaces the previous active PTY session. Keep the pending command until the delay callback actually writes it so effect cleanup can cancel an obsolete timer without dropping the still-valid command.
+    */
     const timeout = setTimeout(() => {
+      const latestPendingCommand = pendingInitialCommandRef.current;
+      if (
+        latestPendingCommand?.commandKey !== pendingCommand.commandKey ||
+        latestPendingCommand.sessionId !== pendingCommand.sessionId
+      ) {
+        return;
+      }
+      pendingInitialCommandRef.current = null;
       sendInputRef.current(pendingCommand.command + "\n");
     }, 500);
 

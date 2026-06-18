@@ -1160,6 +1160,182 @@ describe("TerminalModal", () => {
       }
     });
 
+    it("keeps the pending quick-script command when a session transition interrupts the delay", async () => {
+      vi.useFakeTimers();
+      const newScriptTab = scriptTab("tab-script", "script-session-456");
+      const mockCreateTab = vi.fn().mockResolvedValue(newScriptTab);
+      useConnectedTerminal();
+      mockUseTerminalSessions.mockReturnValue({
+        ...defaultSessionState,
+        createTab: mockCreateTab,
+      });
+
+      try {
+        const { rerender } = render(
+          <TerminalModal isOpen={true} onClose={mockOnClose} initialCommand="pnpm build" initialCommandGeneration={1} />
+        );
+
+        await flushCreateTabPromise();
+        expect(mockCreateTab).toHaveBeenCalledTimes(1);
+        expect(mockSendInput).not.toHaveBeenCalled();
+
+        mockUseTerminalSessions.mockReturnValue({
+          ...defaultSessionState,
+          tabs: [{ ...defaultTab, isActive: false }, newScriptTab],
+          activeTab: newScriptTab,
+          createTab: mockCreateTab,
+        });
+        rerender(
+          <TerminalModal isOpen={true} onClose={mockOnClose} initialCommand="pnpm build" initialCommandGeneration={1} />
+        );
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(250);
+        });
+        expect(mockSendInput).not.toHaveBeenCalled();
+
+        mockUseTerminal.mockReturnValue(
+          createMockTerminalState({ connectionStatus: "connecting" })
+        );
+        rerender(
+          <TerminalModal isOpen={true} onClose={mockOnClose} initialCommand="pnpm build" initialCommandGeneration={1} />
+        );
+
+        await flushInitialCommandDelay();
+        expect(mockSendInput).not.toHaveBeenCalled();
+
+        useConnectedTerminal();
+        rerender(
+          <TerminalModal isOpen={true} onClose={mockOnClose} initialCommand="pnpm build" initialCommandGeneration={1} />
+        );
+
+        await flushInitialCommandDelay();
+        expect(mockUseTerminal).toHaveBeenLastCalledWith("script-session-456", undefined);
+        expect(mockSendInput).toHaveBeenCalledTimes(1);
+        expect(mockSendInput).toHaveBeenCalledWith("pnpm build\n");
+        expectCommandSentAfterCreateTab(mockCreateTab);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("waits for the new script session to connect before sending the quick-script command", async () => {
+      vi.useFakeTimers();
+      const newScriptTab = scriptTab("tab-script", "script-session-456");
+      const mockCreateTab = vi.fn().mockResolvedValue(newScriptTab);
+      useConnectedTerminal();
+      mockUseTerminalSessions.mockReturnValue({
+        ...defaultSessionState,
+        createTab: mockCreateTab,
+      });
+
+      try {
+        const { rerender } = render(
+          <TerminalModal isOpen={true} onClose={mockOnClose} initialCommand="pnpm build" initialCommandGeneration={1} />
+        );
+
+        await flushCreateTabPromise();
+        expect(mockCreateTab).toHaveBeenCalledTimes(1);
+
+        mockUseTerminal.mockReturnValue(
+          createMockTerminalState({ connectionStatus: "connecting" })
+        );
+        mockUseTerminalSessions.mockReturnValue({
+          ...defaultSessionState,
+          tabs: [{ ...defaultTab, isActive: false }, newScriptTab],
+          activeTab: newScriptTab,
+          createTab: mockCreateTab,
+        });
+        rerender(
+          <TerminalModal isOpen={true} onClose={mockOnClose} initialCommand="pnpm build" initialCommandGeneration={1} />
+        );
+
+        await flushInitialCommandDelay();
+        expect(mockUseTerminal).toHaveBeenLastCalledWith("script-session-456", undefined);
+        expect(mockSendInput).not.toHaveBeenCalledWith("pnpm build\n");
+
+        useConnectedTerminal();
+        rerender(
+          <TerminalModal isOpen={true} onClose={mockOnClose} initialCommand="pnpm build" initialCommandGeneration={1} />
+        );
+
+        await flushInitialCommandDelay();
+        expect(mockUseTerminal).toHaveBeenLastCalledWith("script-session-456", undefined);
+        expect(mockSendInput).toHaveBeenCalledTimes(1);
+        expect(mockSendInput).toHaveBeenCalledWith("pnpm build\n");
+        expectCommandSentAfterCreateTab(mockCreateTab);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps the quick-script command pending if the user switches tabs during the delay", async () => {
+      vi.useFakeTimers();
+      const newScriptTab = scriptTab("tab-script", "script-session-456");
+      const existingTab = { ...defaultTab, title: "Terminal 1", isActive: true };
+      const mockCreateTab = vi.fn().mockResolvedValue(newScriptTab);
+      useConnectedTerminal();
+      mockUseTerminalSessions.mockReturnValue({
+        ...defaultSessionState,
+        tabs: [existingTab],
+        activeTab: existingTab,
+        createTab: mockCreateTab,
+      });
+
+      try {
+        const { rerender } = render(
+          <TerminalModal isOpen={true} onClose={mockOnClose} initialCommand="pnpm build" initialCommandGeneration={1} />
+        );
+
+        await flushCreateTabPromise();
+        mockUseTerminalSessions.mockReturnValue({
+          ...defaultSessionState,
+          tabs: [{ ...existingTab, isActive: false }, newScriptTab],
+          activeTab: newScriptTab,
+          createTab: mockCreateTab,
+        });
+        rerender(
+          <TerminalModal isOpen={true} onClose={mockOnClose} initialCommand="pnpm build" initialCommandGeneration={1} />
+        );
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(250);
+        });
+        expect(mockSendInput).not.toHaveBeenCalled();
+
+        mockUseTerminalSessions.mockReturnValue({
+          ...defaultSessionState,
+          tabs: [{ ...existingTab, isActive: true }, { ...newScriptTab, isActive: false }],
+          activeTab: existingTab,
+          createTab: mockCreateTab,
+        });
+        rerender(
+          <TerminalModal isOpen={true} onClose={mockOnClose} initialCommand="pnpm build" initialCommandGeneration={1} />
+        );
+
+        await flushInitialCommandDelay();
+        expect(mockUseTerminal).toHaveBeenLastCalledWith("test-session-123", undefined);
+        expect(mockSendInput).not.toHaveBeenCalled();
+
+        mockUseTerminalSessions.mockReturnValue({
+          ...defaultSessionState,
+          tabs: [{ ...existingTab, isActive: false }, newScriptTab],
+          activeTab: newScriptTab,
+          createTab: mockCreateTab,
+        });
+        rerender(
+          <TerminalModal isOpen={true} onClose={mockOnClose} initialCommand="pnpm build" initialCommandGeneration={1} />
+        );
+
+        await flushInitialCommandDelay();
+        expect(mockUseTerminal).toHaveBeenLastCalledWith("script-session-456", undefined);
+        expect(mockSendInput).toHaveBeenCalledTimes(1);
+        expect(mockSendInput).toHaveBeenCalledWith("pnpm build\n");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("dedupes same initialCommand generation on ordinary re-renders", async () => {
       vi.useFakeTimers();
       const newScriptTab = scriptTab("tab-script", "script-session-456");
