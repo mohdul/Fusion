@@ -2866,18 +2866,18 @@ describe("Workflow Steps Execution", () => {
         };
         return { session };
       } else {
-        // Workflow step agent that passes with an explicit parseable verdict.
-        let subscribeHandler: any;
+        let stepSubscribeHandler: any;
+        // Workflow step agent that passes with the structured verdict required by the workflow-step parser.
         return {
           session: {
             prompt: vi.fn().mockImplementation(async () => {
-              subscribeHandler?.({
+              stepSubscribeHandler?.({
                 type: "message_update",
-                assistantMessageEvent: { type: "text_delta", delta: "Verdict: APPROVE\n\nWorkflow step passed." },
+                assistantMessageEvent: { type: "text_delta", delta: '{"verdict":"APPROVE","notes":""}' },
               });
             }),
             dispose: vi.fn(),
-            subscribe: vi.fn((handler: any) => { subscribeHandler = handler; }),
+            subscribe: vi.fn((handler: any) => { stepSubscribeHandler = handler; }),
             state: {},
           },
         };

@@ -7730,6 +7730,8 @@ export class TaskExecutor {
           rootDir: this.rootDir,
           taskId: task.id,
           recordActivity: () => stuckDetector?.recordActivity(task.id),
+          onVerificationStart: (timeoutMs) => stuckDetector?.beginVerification(task.id, timeoutMs),
+          onVerificationEnd: () => stuckDetector?.endVerification(task.id),
           log: {
             info: (s) => executorLog.log(s),
             warn: (s) => executorLog.warn(s),

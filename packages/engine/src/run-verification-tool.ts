@@ -520,6 +520,16 @@ export interface CreateRunVerificationToolOpts {
   taskId: string;
   /** Called on every output line AND on synthetic quiet-interval heartbeats. */
   recordActivity: () => void;
+  /**
+   * FNXC:Reliability 2026-06-17-16:12:
+   * FN-6598 brackets fn_run_verification subprocesses so the stuck detector treats bounded, actively running verification as progress instead of no-progress loop churn.
+   */
+  onVerificationStart?: (timeoutMs: number) => void;
+  /**
+   * FNXC:Reliability 2026-06-17-16:12:
+   * The end signal must fire from a finally block on success, failure, timeout, and spawn errors so detector suppression cannot leak after a verification command exits.
+   */
+  onVerificationEnd?: () => void;
   log: {
     info: (s: string) => void;
     warn: (s: string) => void;
@@ -536,7 +546,7 @@ export interface CreateRunVerificationToolOpts {
 export function createRunVerificationTool(
   opts: CreateRunVerificationToolOpts,
 ): ToolDefinition {
-  const { worktreePath, rootDir, taskId, recordActivity, log } = opts;
+  const { worktreePath, rootDir, taskId, recordActivity, onVerificationStart, onVerificationEnd, log } = opts;
 
   return {
     name: "fn_run_verification",
@@ -615,13 +625,20 @@ export function createRunVerificationTool(
       );
 
       // ── Run ───────────────────────────────────────────────────────────────
-      const result = await runVerificationCommand({
-        command: effectiveCommand,
-        cwd: resolvedCwd,
-        timeoutMs,
-        expectFailure,
-        onHeartbeat: recordActivity,
-      });
+      onVerificationStart?.(timeoutMs);
+      const result = await (async () => {
+        try {
+          return await runVerificationCommand({
+            command: effectiveCommand,
+            cwd: resolvedCwd,
+            timeoutMs,
+            expectFailure,
+            onHeartbeat: recordActivity,
+          });
+        } finally {
+          onVerificationEnd?.();
+        }
+      })();
 
       // ── Merge warnings from auto-bootstrap / scope check ─────────────────
       const allWarnings = [...warnings, ...result.warnings];

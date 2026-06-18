@@ -190,6 +190,61 @@ describe("reliability interactions: non-progress churn", () => {
     manager.stop();
   });
 
+  it("does not route active verification churn into loop recovery or stuck-kill budget", async () => {
+    const task = baseTask({ id: "FN-6598-RI" });
+    const store = createStore(task);
+    const manager = new SelfHealingManager(store, { rootDir: "/tmp/repo" });
+    const beforeRequeue = vi.fn((taskId, reason, event) => manager.checkStuckBudget(taskId, reason, event));
+    const onLoopDetected = vi.fn().mockResolvedValue(false);
+    const detector = new StuckTaskDetector(store, { beforeRequeue, onLoopDetected });
+    const session = { dispose: vi.fn() };
+
+    detector.trackTask(task.id, session as any);
+    detector.beginVerification(task.id, 120_000);
+    vi.advanceTimersByTime(61_000);
+    for (let i = 0; i < 80; i++) {
+      detector.recordActivity(task.id);
+    }
+
+    await detector.checkNow();
+
+    expect(onLoopDetected).not.toHaveBeenCalled();
+    expect(beforeRequeue).not.toHaveBeenCalled();
+    expect(session.dispose).not.toHaveBeenCalled();
+    expect(task.column).toBe("in-progress");
+    expect(task.stuckKillCount).toBe(0);
+
+    manager.stop();
+  });
+
+  it("control: identical churn without active verification still reaches loop recovery and budget", async () => {
+    const task = baseTask({ id: "FN-6598-RI-CONTROL" });
+    const store = createStore(task);
+    const manager = new SelfHealingManager(store, { rootDir: "/tmp/repo" });
+    const beforeRequeue = vi.fn((taskId, reason, event) => manager.checkStuckBudget(taskId, reason, event));
+    const onLoopDetected = vi.fn().mockResolvedValue(false);
+    const detector = new StuckTaskDetector(store, { beforeRequeue, onLoopDetected });
+    const session = { dispose: vi.fn() };
+
+    detector.trackTask(task.id, session as any);
+    vi.advanceTimersByTime(61_000);
+    for (let i = 0; i < 80; i++) {
+      detector.recordActivity(task.id);
+    }
+
+    await detector.checkNow();
+
+    expect(onLoopDetected).toHaveBeenCalledWith(expect.objectContaining({ taskId: task.id, reason: "loop" }));
+    expect(beforeRequeue).toHaveBeenCalledWith(
+      task.id,
+      "loop",
+      expect.objectContaining({ taskId: task.id, reason: "loop" }),
+    );
+    expect(session.dispose).toHaveBeenCalledTimes(1);
+
+    manager.stop();
+  });
+
   it("parks incomplete STUCK_LOOP_EXHAUSTED tasks in todo when the churn signal does not fire", async () => {
     const task = baseTask({ id: "FN-5168-LOOP", stuckKillCount: 6 });
     const store = createStore(task);

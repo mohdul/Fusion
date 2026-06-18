@@ -371,6 +371,7 @@ Prefer `it.each` over copy-pasted `it()` blocks. When trimming, keep: first case
 Copy this checklist into a bug-fix or UI-affordance add/remove task's `## Surface Enumeration` section and make the implementation tests prove the invariant across every checked surface. This checklist applies to bug-fix tasks and UI-affordance add/remove tasks that add, remove, or restructure icons, buttons, chevrons/arrows, toggles, badges, menu entries, or click targets. See `AGENTS.md` → **Standing Rule: Fix the Invariant, Not the Repro (FN-5893)** for the enforced planning/review contract.
 
 - [ ] Providers / bridges / execution paths touched by the invariant
+- [ ] Long-running subprocess or verification-active surfaces when the invariant involves engine liveness, stuck detection, or command execution (`fn_run_verification`, configured commands, timeout/deadline behavior)
 - [ ] Desktop + mobile breakpoints / platforms that exercise the behavior
 - [ ] Empty / undefined / duplicate / populated data states
 - [ ] Shared hooks / components / modules / helpers reusing the logic

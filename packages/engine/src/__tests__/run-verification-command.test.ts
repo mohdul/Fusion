@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { runVerificationCommand, normalizeVerificationCommand, type RunVerificationOptions } from "../run-verification-tool.js";
+import { createRunVerificationTool, runVerificationCommand, normalizeVerificationCommand, type RunVerificationOptions } from "../run-verification-tool.js";
 
 // Some tests use platform-appropriate shell syntax. On Windows, sh-style
 // quoting and pipes through `printf` are different — these tests are skipped
@@ -80,6 +80,49 @@ describe("runVerificationCommand", { timeout: 30000 }, () => {
       expect(result.command).toBe(
         "pnpm --filter @runfusion/fusion exec vitest run src/__tests__/cli.test.ts --silent=passed-only --reporter=dot",
       );
+    });
+  });
+
+  describe("tool verification lifecycle callbacks", () => {
+    it("brackets a successful verification run with start and end callbacks", async () => {
+      const onVerificationStart = vi.fn();
+      const onVerificationEnd = vi.fn();
+      const tool = createRunVerificationTool({
+        worktreePath: tempDir,
+        rootDir: workspaceRoot,
+        taskId: "FN-6598",
+        recordActivity: vi.fn(),
+        onVerificationStart,
+        onVerificationEnd,
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      });
+
+      await tool.execute("call-1", { command: "exit 0", scope: "package" });
+
+      expect(onVerificationStart).toHaveBeenCalledTimes(1);
+      expect(onVerificationStart).toHaveBeenCalledWith(300_000);
+      expect(onVerificationEnd).toHaveBeenCalledTimes(1);
+      expect(onVerificationStart.mock.invocationCallOrder[0]).toBeLessThan(onVerificationEnd.mock.invocationCallOrder[0]);
+    });
+
+    it("fires the end callback when the verification command fails", async () => {
+      const onVerificationStart = vi.fn();
+      const onVerificationEnd = vi.fn();
+      const tool = createRunVerificationTool({
+        worktreePath: tempDir,
+        rootDir: workspaceRoot,
+        taskId: "FN-6598",
+        recordActivity: vi.fn(),
+        onVerificationStart,
+        onVerificationEnd,
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      });
+
+      const result = await tool.execute("call-2", { command: "exit 7", scope: "package" });
+
+      expect(result.details).toEqual(expect.objectContaining({ success: false, exitCode: 7 }));
+      expect(onVerificationStart).toHaveBeenCalledTimes(1);
+      expect(onVerificationEnd).toHaveBeenCalledTimes(1);
     });
   });
 
