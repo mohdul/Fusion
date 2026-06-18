@@ -12,6 +12,7 @@ import {
   TERMINAL_PREFERENCES_KEY,
   readTerminalPreferences,
   resolveTerminalFontFamily,
+  waitForTerminalFontMetrics,
 } from "../utils/terminalPreferences";
 
 /**
@@ -400,6 +401,34 @@ export function SessionTerminal({
       } catch {
         /* container not measurable yet */
       }
+
+      void (async () => {
+        const fontMetricsSettled = await waitForTerminalFontMetrics(
+          terminalPreferences.fontSize,
+          resolvedFontFamily,
+        );
+        if (
+          !fontMetricsSettled ||
+          disposed ||
+          xtermRef.current !== term ||
+          fitAddonRef.current !== fitAddon
+        ) {
+          return;
+        }
+        try {
+          /*
+          FNXC:Terminal 2026-06-18-07:15:
+          SessionTerminal shares TerminalModal's real-iOS DOM/canvas measurement path and the same user-selectable font presets. FN-6638 ruled out stack ordering with the 66.76px-identical diagnostic, so this attach surface must also reapply font options and refit after best-effort FontFaceSet settlement even when iOS rejects the multi-family shorthand; WebGL desktop remains safe because the same invalidation path refreshes renderer metrics without changing renderer selection.
+          */
+          term.options.fontFamily = resolvedFontFamily;
+          term.options.fontSize = terminalPreferences.fontSize;
+          (fitAddon as unknown as { fit: () => void }).fit();
+          sendResize(term.cols, term.rows);
+          term.refresh(0, Math.max(0, term.rows - 1));
+        } catch {
+          /* ignore teardown or transient measure failures */
+        }
+      })();
 
       // term.onData → input frames (skip entirely when read-only).
       if (!readOnly) {

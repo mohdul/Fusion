@@ -546,6 +546,16 @@ FN-6603 found that unicode-range scoping is not enough when the symbols face is 
 }
 
 /*
+FNXC:Terminal 2026-06-18-07:04:
+Real iOS Safari recurrence #4 kept wide ASCII cells even after unicode-range scoping and symbols-last ordering; the supplied harness measured AGENTS.md at the same 66.76px for every stack, so ordering is ruled out. Pin text-size adjustment across xterm's measurement subtree so mobile WebKit cannot inflate DOM/canvas cell metrics, while WebGL/desktop keep the same 100% text scale and every terminal preset still resolves through terminalPreferences.
+*/
+.terminal-xterm,
+.terminal-xterm * {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/*
  * xterm fit may apply inline pixel heights on the `.xterm` root after
  * row/line-height recomputation (e.g. after font-size changes). Keep the root
  * stretched to the wrapper height so the terminal always fills the modal.

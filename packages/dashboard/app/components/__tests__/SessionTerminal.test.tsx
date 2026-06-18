@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 // ── Mock xterm + addon dynamic imports (jsdom has no canvas/WebGL) ──────────
 const mockFitAddon = { fit: vi.fn() };
@@ -9,6 +9,7 @@ const mockTerm = {
   onData: vi.fn(),
   attachCustomKeyEventHandler: vi.fn(),
   write: vi.fn((_data: string, cb?: () => void) => cb?.()),
+  refresh: vi.fn(),
   dispose: vi.fn(),
   unicode: { activeVersion: "6" },
   options: {} as Record<string, unknown>,
@@ -85,8 +86,13 @@ beforeEach(() => {
   mockTerm.onData.mockReset();
   mockTerm.attachCustomKeyEventHandler.mockClear();
   mockTerm.write.mockClear();
+  mockTerm.refresh.mockClear();
   mockTerm.dispose.mockClear();
   mockTerm.options = {};
+  Object.defineProperty(document, "fonts", {
+    value: undefined,
+    configurable: true,
+  });
   mockFitAddon.fit.mockClear();
   apiMock.mockReset();
   apiMock.mockResolvedValue({ ticket: "tkt-1", expiresAt: "", readOnly: false });
@@ -152,6 +158,39 @@ describe("SessionTerminal", () => {
     expect(FakeWS.instances[0].sent).toEqual([
       JSON.stringify({ type: "input", data: "paste once\n" }),
     ]);
+  });
+
+  it("refits after font settlement even when iOS rejects the font-load shorthand", async () => {
+    const load = vi.fn(() => Promise.reject(new DOMException("Invalid font shorthand")));
+    Object.defineProperty(document, "fonts", {
+      value: {
+        load,
+        ready: Promise.resolve(),
+      },
+      configurable: true,
+    });
+    const fitCallBaseline = mockFitAddon.fit.mock.calls.length;
+
+    render(<SessionTerminal sessionId="s1" />);
+
+    await waitFor(() => {
+      expect(FakeWS.instances.length).toBe(1);
+      expect(load).toHaveBeenCalledWith(
+        expect.stringContaining("Fusion Terminal Nerd Font Symbols"),
+      );
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mockTerm.options.fontFamily).toBe(resolveTerminalFontFamily("nerd-font"));
+      expect(mockTerm.options.fontSize).toBe(DEFAULT_TERMINAL_PREFERENCES.fontSize);
+      expect(mockFitAddon.fit.mock.calls.length).toBeGreaterThan(fitCallBaseline);
+      expect(mockTerm.refresh).toHaveBeenCalledWith(0, mockTerm.rows - 1);
+    });
   });
 
   it("applies validated terminal preferences at xterm init", async () => {

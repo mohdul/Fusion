@@ -4694,6 +4694,44 @@ describe("TerminalModal — xterm focus initialization (FN-1602)", () => {
     });
   });
 
+  it("still refits xterm when iOS rejects the multi-family font-load shorthand", async () => {
+    const load = vi.fn(() => Promise.reject(new DOMException("Invalid font shorthand")));
+    Object.defineProperty(document, "fonts", {
+      value: {
+        load,
+        ready: Promise.resolve(),
+      },
+      configurable: true,
+    });
+
+    const fitCallBaseline = mockFitAddonFit.mock.calls.length;
+
+    render(<TerminalModal isOpen={true} onClose={mockOnClose} />);
+
+    await waitFor(() => {
+      expect(mockTerminalInstance.open).toHaveBeenCalled();
+      expect(load).toHaveBeenCalledWith(
+        expect.stringContaining("Fusion Terminal Nerd Font Symbols"),
+      );
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mockTerminalInstance.options.fontFamily).toBe(XTERM_FONT_FAMILY);
+      expect(mockTerminalInstance.options.fontSize).toBe(DEFAULT_TERMINAL_PREFERENCES.fontSize);
+      expect(mockFitAddonFit.mock.calls.length).toBeGreaterThan(fitCallBaseline);
+      expect(mockResize).toHaveBeenCalledWith(
+        mockTerminalInstance.cols,
+        mockTerminalInstance.rows,
+      );
+      expect(mockTerminalInstance.refresh).toHaveBeenCalledWith(0, mockTerminalInstance.rows - 1);
+    });
+  });
+
   it("leaves unrelated key handling untouched", async () => {
     render(<TerminalModal isOpen={true} onClose={mockOnClose} />);
 

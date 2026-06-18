@@ -14,6 +14,24 @@ function findHelperTextareaRule(): string {
   return match?.[1] ?? "";
 }
 
+function findTerminalTextSizingRule(): string {
+  const match = css.match(/\.terminal-xterm\s*,\s*\.terminal-xterm \*\s*\{([^}]*)\}/);
+  return match?.[1] ?? "";
+}
+
+function findSessionTerminalTextSizingRule(): string {
+  const match = css.match(
+    /\.cli-session-terminal__viewport\s*,\s*\.cli-session-terminal__viewport \*\s*\{([^}]*)\}/,
+  );
+  return match?.[1] ?? "";
+}
+
+function expectTextSizeAdjustPinned(ruleBody: string): void {
+  expect(ruleBody).not.toBe("");
+  expect(ruleBody).toMatch(/-webkit-text-size-adjust\s*:\s*100%\s*;/);
+  expect(ruleBody).toMatch(/text-size-adjust\s*:\s*100%\s*;/);
+}
+
 function findTerminalSymbolsFontFaceRule(): string {
   const fontFaceRules = css.match(/@font-face\s*\{[^}]*\}/g) ?? [];
   return (
@@ -76,6 +94,14 @@ describe("terminal helper textarea CSS contract", () => {
   it("keeps the helper textarea effectively invisible", () => {
     const ruleBody = findHelperTextareaRule();
     expect(ruleBody).toMatch(/opacity:\s*0\.01\b/);
+  });
+
+  it("pins iOS text-size adjustment across the xterm measurement subtree", () => {
+    expectTextSizeAdjustPinned(findTerminalTextSizingRule());
+  });
+
+  it("pins iOS text-size adjustment on the SessionTerminal xterm viewport", () => {
+    expectTextSizeAdjustPinned(findSessionTerminalTextSizingRule());
   });
 });
 

@@ -1,9 +1,11 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_TERMINAL_PREFERENCES,
   LEGACY_TERMINAL_FONT_SIZE_KEY,
   TERMINAL_PREFERENCES_KEY,
+  XTERM_FONT_FAMILY,
   readTerminalPreferences,
+  waitForTerminalFontMetrics,
   writeTerminalPreferences,
 } from "../terminalPreferences";
 
@@ -86,5 +88,30 @@ describe("terminalPreferences", () => {
     });
     expect(readTerminalPreferences()).toEqual(written);
     expect(localStorage.getItem(LEGACY_TERMINAL_FONT_SIZE_KEY)).toBe("22");
+  });
+
+  it("keeps terminal font metrics wait best-effort when iOS rejects the full stack shorthand", async () => {
+    let readyAwaited = false;
+    const load = vi.fn((font: string) => {
+      if (font.includes(",")) {
+        return Promise.reject(new DOMException("Invalid font shorthand"));
+      }
+      return Promise.resolve([]);
+    });
+    const ready = Promise.resolve().then(() => {
+      readyAwaited = true;
+    });
+
+    await expect(
+      waitForTerminalFontMetrics(12, XTERM_FONT_FAMILY, {
+        load,
+        ready,
+      }),
+    ).resolves.toBe(true);
+
+    expect(load).toHaveBeenCalledWith(expect.stringContaining("MesloLGS NF"));
+    expect(load).toHaveBeenCalledWith("12px \"MesloLGS NF\"");
+    expect(load).toHaveBeenCalledWith("12px \"Fusion Terminal Nerd Font Symbols\"");
+    expect(readyAwaited).toBe(true);
   });
 });

@@ -24,6 +24,7 @@ import {
   clampTerminalFontSize,
   readTerminalPreferences,
   resolveTerminalFontFamily,
+  waitForTerminalFontMetrics,
   writeTerminalPreferences,
   type TerminalPreferences,
   type TerminalRenderer,
@@ -490,16 +491,12 @@ export function TerminalModal({ isOpen, onClose, initialCommand, initialCommandG
       terminal: XTerm,
       fitAddon: InstanceType<typeof import("@xterm/addon-fit").FitAddon>,
     ) => {
-      if (typeof document === "undefined" || !document.fonts?.load) {
-        return;
-      }
+      const fontMetricsSettled = await waitForTerminalFontMetrics(
+        fontSizeRef.current,
+        resolvedFontFamilyRef.current,
+      );
 
-      try {
-        await document.fonts.load(`${fontSizeRef.current}px ${resolvedFontFamilyRef.current}`);
-        await document.fonts.ready;
-      } catch {
-        // Font loading support is best-effort; keep the terminal usable if the
-        // browser rejects due to permissions, syntax, or unsupported APIs.
+      if (!fontMetricsSettled) {
         return;
       }
 
@@ -512,11 +509,10 @@ export function TerminalModal({ isOpen, onClose, initialCommand, initialCommandG
       }
 
       try {
-        // xterm measures cell geometry at open() time. The terminal Nerd Font
-        // is loaded with font-display: swap, so a cold load can replace the
-        // fallback font after open(); re-applying font options and fitting after
-        // FontFaceSet resolution forces the DOM/canvas and WebGL renderers to
-        // remeasure against the actual glyph metrics.
+        /*
+        FNXC:Terminal 2026-06-18-07:23:
+        FN-6638 recurrence #4 showed the previous symbols-last stack-order fix was inert: the supplied diagnostic measured AGENTS.md at the same 66.76px for symbols-first, symbols-last, and system-mono stacks while real iOS Safari still widened ASCII cells. xterm measures cell geometry at open() time, so after best-effort FontFaceSet settlement we must always reapply the active preset's font options, fit, resize, and refresh; that invalidates stale DOM/canvas metrics on real iOS when the full shorthand is rejected and keeps desktop WebGL using the same renderer-neutral metric refresh.
+        */
         terminal.options.fontFamily = resolvedFontFamilyRef.current;
         terminal.options.fontSize = fontSizeRef.current;
         fitAddon.fit();

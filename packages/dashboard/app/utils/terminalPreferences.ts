@@ -71,6 +71,113 @@ export function resolveTerminalFontFamily(fontFamily: TerminalFontFamily): strin
   );
 }
 
+const CSS_GENERIC_FONT_FAMILIES = new Set([
+  "serif",
+  "sans-serif",
+  "monospace",
+  "cursive",
+  "fantasy",
+  "system-ui",
+  "ui-serif",
+  "ui-sans-serif",
+  "ui-monospace",
+  "ui-rounded",
+  "emoji",
+  "math",
+  "fangsong",
+]);
+
+type TerminalFontFaceSet = {
+  load?: (font: string, text?: string) => PromiseLike<unknown>;
+  ready?: PromiseLike<unknown>;
+};
+
+export function splitTerminalFontFamilies(stack: string): string[] {
+  return stack
+    .split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
+    .map((family) => family.trim())
+    .filter(Boolean);
+}
+
+function normalizeFontFamilyName(family: string): string {
+  const trimmed = family.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function isLoadableConcreteFontFamily(family: string): boolean {
+  const normalized = normalizeFontFamilyName(family).toLowerCase();
+  return normalized !== "" && !CSS_GENERIC_FONT_FAMILIES.has(normalized);
+}
+
+function getDocumentFonts(): TerminalFontFaceSet | undefined {
+  if (typeof document === "undefined") {
+    return undefined;
+  }
+  return document.fonts;
+}
+
+async function settleFontLoad(fonts: TerminalFontFaceSet, font: string): Promise<boolean> {
+  if (!fonts.load) {
+    return false;
+  }
+
+  try {
+    await fonts.load(font);
+    return true;
+  } catch {
+    // Best-effort: strict iOS FontFaceSet parsing can reject one shorthand while
+    // later declarations or fonts.ready still give xterm a safe remeasure point.
+    return false;
+  }
+}
+
+export async function waitForTerminalFontMetrics(
+  fontSize: number,
+  fontFamily: string,
+  fonts: TerminalFontFaceSet | undefined = getDocumentFonts(),
+): Promise<boolean> {
+  if (!fonts?.load) {
+    return false;
+  }
+
+  const fontSizeCss = `${fontSize}px`;
+  const declarations = [
+    `${fontSizeCss} ${fontFamily}`,
+    ...splitTerminalFontFamilies(fontFamily)
+      .filter(isLoadableConcreteFontFamily)
+      .map((family) => `${fontSizeCss} ${family}`),
+  ];
+
+  /*
+  FNXC:Terminal 2026-06-18-07:02:
+  FN-6638 recurrence #4 showed font-stack order was inert: the supplied diagnostic measured AGENTS.md at the same 66.76px with symbols-first, symbols-last, and system-mono stacks while real iOS Safari still rendered wide ASCII cells. Treat FontFaceSet loading as best-effort and always leave callers free to reapply xterm font options; strict iOS WebKit can reject the long multi-family shorthand, and that rejection must not suppress DOM/canvas or WebGL metric invalidation for any preset.
+  */
+  const [fullStackDeclaration, ...individualDeclarations] = declarations;
+  const fullStackLoaded = fullStackDeclaration
+    ? await settleFontLoad(fonts, fullStackDeclaration)
+    : false;
+
+  if (!fullStackLoaded) {
+    for (const declaration of individualDeclarations) {
+      await settleFontLoad(fonts, declaration);
+    }
+  }
+
+  try {
+    await fonts.ready;
+  } catch {
+    // Continue to xterm remeasure even if the FontFaceSet settles rejected.
+  }
+
+  return true;
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
