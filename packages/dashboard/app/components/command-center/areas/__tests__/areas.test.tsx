@@ -7,8 +7,11 @@ import { render, screen, fireEvent, waitFor, within, act, renderHook } from "@te
 
 // Mock the api() helper so the areas fetch deterministic fixtures.
 const apiMock = vi.fn();
+const backfillGithubSourceIssueClosedAtMock = vi.fn();
 vi.mock("../../../../api/legacy", () => ({
   api: (path: string, opts?: RequestInit) => apiMock(path, opts),
+  apiBackfillGithubSourceIssueClosedAt: (options?: { offset?: number; limit?: number }, projectId?: string) =>
+    backfillGithubSourceIssueClosedAtMock(options, projectId),
 }));
 
 import { TokensArea } from "../TokensArea";
@@ -139,6 +142,7 @@ function activityFixture() {
 
 beforeEach(() => {
   apiMock.mockReset();
+  backfillGithubSourceIssueClosedAtMock.mockReset();
 });
 
 afterEach(() => {
@@ -578,7 +582,9 @@ describe("GithubArea", () => {
     apiMock.mockResolvedValue({ ...githubFixture(), filed: 0, fixed: 0, net: 0, daily: [], byRepo: [] });
     render(<GithubArea range={range7d} />);
 
-    await screen.findByTestId("cc-area-github-empty");
+    await screen.findByTestId("cc-area-github");
+    expect(screen.getByTestId("cc-area-github").textContent).toContain("No GitHub issue activity");
+    expect(screen.getByTestId("cc-github-backfill-button")).toBeTruthy();
     expect(screen.queryByTestId("cc-github-daily-trend")).toBeNull();
     expect(screen.queryByTestId("cc-github-by-repo")).toBeNull();
   });
@@ -608,6 +614,138 @@ describe("GithubArea", () => {
   it("rejects an inverted custom range client-side without fetching", async () => {
     render(<GithubArea range={customRange("2026-06-10", "2026-06-01")} />);
     await waitFor(() => expect(apiMock).not.toHaveBeenCalled());
+  });
+
+  it("runs a single backfill batch and renders accumulated result counts", async () => {
+    apiMock.mockResolvedValue(githubFixture());
+    backfillGithubSourceIssueClosedAtMock.mockResolvedValueOnce({
+      scanned: 4,
+      filled: 2,
+      skipped: 1,
+      errors: 0,
+      hasMore: false,
+    });
+
+    render(<GithubArea range={range7d} />);
+    await screen.findByTestId("cc-area-github");
+
+    fireEvent.click(screen.getByTestId("cc-github-backfill-button"));
+
+    await screen.findByText(/Backfill complete/i);
+    expect(backfillGithubSourceIssueClosedAtMock).toHaveBeenCalledWith({ offset: 0, limit: 100 }, undefined);
+    const result = screen.getByTestId("cc-github-backfill-result");
+    expect(result.textContent).toContain("Scanned 4, filled 2, skipped 1, errors 0");
+  });
+
+  it("paginates multi-batch backfills with advancing offsets and summed counts", async () => {
+    apiMock.mockResolvedValue(githubFixture());
+    backfillGithubSourceIssueClosedAtMock
+      .mockResolvedValueOnce({ scanned: 100, filled: 4, skipped: 90, errors: 1, hasMore: true })
+      .mockResolvedValueOnce({ scanned: 25, filled: 3, skipped: 22, errors: 0, hasMore: false });
+
+    render(<GithubArea range={range7d} />);
+    await screen.findByTestId("cc-area-github");
+    fireEvent.click(screen.getByTestId("cc-github-backfill-button"));
+
+    await waitFor(() => expect(backfillGithubSourceIssueClosedAtMock).toHaveBeenCalledTimes(2));
+    expect(backfillGithubSourceIssueClosedAtMock).toHaveBeenNthCalledWith(1, { offset: 0, limit: 100 }, undefined);
+    expect(backfillGithubSourceIssueClosedAtMock).toHaveBeenNthCalledWith(2, { offset: 100, limit: 100 }, undefined);
+    const result = await screen.findByTestId("cc-github-backfill-result");
+    expect(result.textContent).toContain("Scanned 125, filled 7, skipped 112, errors 1");
+    expect(result.className).toContain("cc-github-backfill-status--error");
+  });
+
+  it("shows the all-zero backfill as nothing to backfill instead of an error", async () => {
+    apiMock.mockResolvedValue(githubFixture());
+    backfillGithubSourceIssueClosedAtMock.mockResolvedValueOnce({
+      scanned: 0,
+      filled: 0,
+      skipped: 0,
+      errors: 0,
+      hasMore: false,
+    });
+
+    render(<GithubArea range={range7d} />);
+    await screen.findByTestId("cc-area-github");
+    fireEvent.click(screen.getByTestId("cc-github-backfill-button"));
+
+    const result = await screen.findByTestId("cc-github-backfill-result");
+    expect(result.textContent).toContain("Nothing to backfill");
+    expect(result.className).not.toContain("cc-github-backfill-status--error");
+  });
+
+  it("surfaces nonzero backfill error counts without throwing", async () => {
+    apiMock.mockResolvedValue(githubFixture());
+    backfillGithubSourceIssueClosedAtMock.mockResolvedValueOnce({
+      scanned: 8,
+      filled: 1,
+      skipped: 5,
+      errors: 2,
+      hasMore: false,
+    });
+
+    render(<GithubArea range={range7d} />);
+    await screen.findByTestId("cc-area-github");
+    fireEvent.click(screen.getByTestId("cc-github-backfill-button"));
+
+    const result = await screen.findByTestId("cc-github-backfill-result");
+    expect(result.textContent).toContain("errors 2");
+    expect(result.className).toContain("cc-github-backfill-status--error");
+  });
+
+  it("captures endpoint failures in local error UI", async () => {
+    apiMock.mockResolvedValue(githubFixture());
+    backfillGithubSourceIssueClosedAtMock.mockRejectedValueOnce(new Error("endpoint failed"));
+
+    render(<GithubArea range={range7d} />);
+    await screen.findByTestId("cc-area-github");
+    fireEvent.click(screen.getByTestId("cc-github-backfill-button"));
+
+    const result = await screen.findByTestId("cc-github-backfill-result");
+    expect(result.textContent).toContain("endpoint failed");
+    expect(result.className).toContain("cc-github-backfill-status--error");
+  });
+
+  it("disables and guards the button while a backfill is in flight", async () => {
+    apiMock.mockResolvedValue(githubFixture());
+    let resolveBackfill: ((value: { scanned: number; filled: number; skipped: number; errors: number; hasMore: boolean }) => void) | null = null;
+    backfillGithubSourceIssueClosedAtMock.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveBackfill = resolve;
+      }),
+    );
+
+    render(<GithubArea range={range7d} />);
+    await screen.findByTestId("cc-area-github");
+    const button = screen.getByTestId("cc-github-backfill-button") as HTMLButtonElement;
+    fireEvent.click(button);
+
+    await waitFor(() => expect(button.disabled).toBe(true));
+    fireEvent.click(button);
+    expect(backfillGithubSourceIssueClosedAtMock).toHaveBeenCalledTimes(1);
+
+    resolveBackfill?.({ scanned: 1, filled: 1, skipped: 0, errors: 0, hasMore: false });
+    await screen.findByText(/Backfill complete/i);
+  });
+
+  it("stops a pathological always-has-more response at the max iteration guard", async () => {
+    apiMock.mockResolvedValue(githubFixture());
+    backfillGithubSourceIssueClosedAtMock.mockResolvedValue({
+      scanned: 1,
+      filled: 0,
+      skipped: 1,
+      errors: 0,
+      hasMore: true,
+    });
+
+    render(<GithubArea range={range7d} />);
+    await screen.findByTestId("cc-area-github");
+    fireEvent.click(screen.getByTestId("cc-github-backfill-button"));
+
+    const result = await screen.findByText(/safety limit/i);
+    expect(result.textContent).toContain("safety limit");
+    expect(backfillGithubSourceIssueClosedAtMock).toHaveBeenCalledTimes(1000);
+    expect(screen.getByTestId("cc-github-backfill-result").textContent).toContain("Scanned 1000");
   });
 });
 

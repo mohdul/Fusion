@@ -130,6 +130,45 @@ Command Center chart/stat surfaces share one tokenized card rhythm so new chart 
 }
 
 /*
+FNXC:CommandCenterGithub 2026-06-18-19:27:
+The GitHub closed-at backfill control lives inside the existing Fixed by Fusion card and must use tokenized spacing/status colors so the operator result row stays readable on desktop and mobile without creating a separate layout surface.
+*/
+.cc-github-backfill-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.cc-github-backfill-status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.cc-github-backfill-status--error {
+  color: var(--color-error);
+}
+
+.cc-github-backfill-status--warning {
+  color: var(--color-warning);
+}
+
+@media (max-width: 768px) {
+  .cc-github-backfill-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cc-github-backfill-actions .btn {
+    justify-content: center;
+    inline-size: 100%;
+  }
+}
+
+/*
 FNXC:CommandCenterStyling 2026-06-18-00:00:
 Command Center live/chart containers must shrink inside the mobile tabpanel without creating a second scroll owner or clipping chart height (FN-6664).
 */

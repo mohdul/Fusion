@@ -7196,6 +7196,14 @@ export interface KillVitestResponse {
   pids: number[];
 }
 
+export interface GithubSourceIssueClosedAtBackfillResult {
+  scanned: number;
+  filled: number;
+  skipped: number;
+  errors: number;
+  hasMore: boolean;
+}
+
 export function fetchSystemStats(projectId?: string): Promise<SystemStatsResponse> {
   return api<SystemStatsResponse>(withProjectId("/system-stats", projectId));
 }
@@ -7204,6 +7212,23 @@ export function killVitestProcesses(projectId?: string): Promise<KillVitestRespo
   return api<KillVitestResponse>(withProjectId("/kill-vitest", projectId), {
     method: "POST",
   });
+}
+
+/**
+ * FNXC:GithubSourceIssueBackfill 2026-06-18-19:20:
+ * Thin client for the FN-6674 manual source-issue closed-at backfill endpoint. Callers own bounded pagination until `hasMore === false`; this helper keeps the GitHub lookup in the explicit operator action path and out of analytics/render-time data loading.
+ */
+export function apiBackfillGithubSourceIssueClosedAt(
+  options: { offset?: number; limit?: number } = {},
+  projectId?: string,
+): Promise<GithubSourceIssueClosedAtBackfillResult> {
+  return api<GithubSourceIssueClosedAtBackfillResult>(
+    withProjectId("/git/github/backfill-source-issue-closed-at", projectId),
+    {
+      method: "POST",
+      body: JSON.stringify({ offset: options.offset, limit: options.limit }),
+    },
+  );
 }
 
 /** Fetch unified activity feed */
