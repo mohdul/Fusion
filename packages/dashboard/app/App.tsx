@@ -115,7 +115,6 @@ const ChatView = lazy(() => import("./components/ChatView").then((m) => ({ defau
 const SkillsView = lazy(() => import("./components/SkillsView").then((m) => ({ default: m.SkillsView })));
 const MemoryView = lazy(() => import("./components/MemoryView").then((m) => ({ default: m.MemoryView })));
 const SecretsView = lazy(() => import("./components/SecretsView").then((m) => ({ default: m.SecretsView })));
-const ReliabilityView = lazy(() => import("./components/ReliabilityView").then((m) => ({ default: m.ReliabilityView })));
 const CommandCenter = lazy(() => import("./components/command-center/CommandCenter").then((m) => ({ default: m.CommandCenter })));
 const DevServerView = lazy(() => import("./components/DevServerView").then((m) => ({ default: m.DevServerView })));
 const _TodoView = lazy(() => import("./components/TodoView").then((m) => ({ default: m.TodoView })));
@@ -146,7 +145,6 @@ function prefetchLazyViews() {
     void import("./components/SkillsView");
     void import("./components/MemoryView");
     void import("./components/SecretsView");
-    void import("./components/ReliabilityView");
     void import("./components/command-center/CommandCenter");
     void import("./components/DevServerView");
     void import("./components/TodoView");
@@ -1812,16 +1810,6 @@ function AppInner() {
         <PageErrorBoundary>
           <Suspense fallback={null}>
             <GoalsView anchorGoalId={goalAnchorId} onNavigateToMission={handleOpenMission} />
-          </Suspense>
-        </PageErrorBoundary>
-      );
-    }
-
-    if (taskView === "reliability") {
-      return (
-        <PageErrorBoundary>
-          <Suspense fallback={null}>
-            <ReliabilityView />
           </Suspense>
         </PageErrorBoundary>
       );

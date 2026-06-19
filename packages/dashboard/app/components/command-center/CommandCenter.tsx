@@ -14,6 +14,7 @@ import { GithubArea } from "./areas/GithubArea";
 import { SignalsArea } from "./areas/SignalsArea";
 import { SystemStatsArea } from "./areas/SystemStatsArea";
 import { MissionControlPanel } from "./MissionControlPanel";
+import { ReliabilityView } from "../ReliabilityView";
 import { SdlcFunnel } from "./SdlcFunnel";
 import { Bar, type BarDatum } from "./charts/Bar";
 import { Sparkline } from "./charts/Sparkline";
@@ -34,6 +35,7 @@ type SubViewId =
   | "github"
   | "signals"
   | "system"
+  | "reliability"
   | "mission-control";
 
 interface SubView {
@@ -44,6 +46,9 @@ interface SubView {
 /*
 FNXC:CommandCenter 2026-06-18-16:57:
 Team tab shows each agent's tokens/cost/files-changed/tasks-completed with live status and bar charts, reusing existing analytics primitives; GitHub-issue per-agent stats are FN-6653, not here.
+
+FNXC:CommandCenter 2026-06-19-00:00:
+FN-6702 moves Reliability from a top-level dashboard view into a Command Center tab next to System telemetry. Reuse ReliabilityView unchanged so its /api/health/reliability loading, error, insufficient-data, and populated states keep the same data flow.
 */
 function useSubViews(): SubView[] {
   const { t } = useTranslation("app");
@@ -58,6 +63,7 @@ function useSubViews(): SubView[] {
     { id: "github", label: t("commandCenter.tabs.github", "GitHub") },
     { id: "signals", label: t("commandCenter.tabs.signals", "Signals") },
     { id: "system", label: t("commandCenter.tabs.system", "System") },
+    { id: "reliability", label: t("commandCenter.tabs.reliability", "Reliability") },
     { id: "mission-control", label: t("commandCenter.tabs.missionControl", "Mission Control") },
   ];
 }
@@ -483,6 +489,8 @@ export function CommandCenter() {
         return <SignalsArea range={range} />;
       case "system":
         return <SystemStatsArea />;
+      case "reliability":
+        return <ReliabilityView />;
       case "mission-control":
         return <MissionControlPanel />;
       default:

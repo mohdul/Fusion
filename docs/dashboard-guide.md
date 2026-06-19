@@ -684,7 +684,7 @@ Rendering invariants:
 - The dashboard browser-layout smoke includes a `[data-smoke="command-center-charts"]` fixture that loads emitted lazy Command Center CSS and verifies representative recharts pie, line, and empty states at mobile (390×844) and desktop breakpoints. The fixture asserts non-zero chart and SVG heights, visible empty-state text, no internal/page horizontal overflow, and no chart-level vertical scroll owner before chart layout changes are considered verified.
 
 Data states:
-- Overview shows a loading state while core analytics settle, then shows `No usage data yet. Run some agents to populate the Command Center.` only after the selected range has settled with no core usage data. Overview, Tokens, Tools, Activity, Productivity, Team, Ecosystem, GitHub, Signals, and System omit their additive recharts cards in loading/error/empty states, so non-populated data never leaves an empty chart shell.
+- Overview shows a loading state while core analytics settle, then shows `No usage data yet. Run some agents to populate the Command Center.` only after the selected range has settled with no core usage data. Overview, Tokens, Tools, Activity, Productivity, Team, Ecosystem, GitHub, Signals, System, and Reliability omit their additive recharts cards in loading/error/empty states, so non-populated data never leaves an empty chart shell.
 - GitHub issue analytics is local and additive: empty filed/fixed totals keep the stat cards and historical backfill button available while omitting empty chart shells; malformed historical `githubTracking` JSON is skipped instead of breaking the Command Center.
 - Team analytics renders its shared loading/error/empty states for null or zero-agent responses, omits empty chart shells for zero-value datasets, and keeps the Command Center tab panel as the mobile scroll owner.
 - System telemetry keeps the previous snapshot visible during refresh failures, renders a first-sample CPU `Sampling…` state without NaN values, shows zero-value task/agent bars for empty collections while omitting the zero-value task-distribution pie, and keeps the Command Center tab panel as the mobile scroll owner.
@@ -695,8 +695,8 @@ Data states:
 Reliability view summarizes in-review pipeline health so operators can spot bounce/merge instability trends without leaving the dashboard.
 
 Navigation:
-- Desktop: **Header → More views → Reliability**
-- Mobile: **More** sheet → **Reliability**
+- Desktop and mobile: **Command Center → Reliability** tab
+- Legacy persisted `reliability` view state redirects to Command Center so existing browser sessions land on the new tab container instead of an invalid top-level view.
 
 Features:
 - Headline 7-day in-review success rate (derived as `1 - inReviewFailureRate7d`) with color thresholds: success for `≥95%`, warning for `≥90%`, error below `90%`; shows **Insufficient data** when the metric is null
@@ -1301,7 +1301,7 @@ Manage project and global secrets directly inside **Settings → Project → Sec
 
 ### Lazy-Loaded Heavy Views
 
-These 23 views are lazy-loaded via `React.lazy()` with `<Suspense fallback={null}>`. `prefetchLazyViews()` warms App-level chunks once on mount via `requestIdleCallback`; AppModals lazy modal imports (`SettingsModal`, `WorkflowNodeEditor`, `SetupWizardModal`) are part of the same inventory. **Do not make these eager.**
+These 22 views are lazy-loaded via `React.lazy()` with `<Suspense fallback={null}>`. `prefetchLazyViews()` warms App-level chunks once on mount via `requestIdleCallback`; AppModals lazy modal imports (`SettingsModal`, `WorkflowNodeEditor`, `SetupWizardModal`) are part of the same inventory. **Do not make these eager.**
 
 - `AgentsView`
 - `NodesView`
@@ -1313,7 +1313,6 @@ These 23 views are lazy-loaded via `React.lazy()` with `<Suspense fallback={null
 - `DocumentsView`
 - `SkillsView`
 - `ResearchView`
-- `ReliabilityView`
 - `CommandCenter`
 - `EvalsView`
 - `TodoView`

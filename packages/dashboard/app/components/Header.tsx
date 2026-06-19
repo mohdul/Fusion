@@ -1110,7 +1110,7 @@ export function Header({
               <>
                 <button
                   ref={viewOverflowTriggerRef}
-                  className={`view-toggle-btn${["research", "skills", "insights", "memory", "secrets", "reliability", "dev-server", "devserver", "graph", "stash-recovery"].includes(view) || (!isTablet && view === "command-center") || (isTablet && view === "documents") || (experimentalFeatures?.evalsView && view === "evals") || (experimentalFeatures?.goalsView && view === "goalsView") || (todosEnabled && todosOpen) || isPluginViewId(view) ? " active" : ""}`}
+                  className={`view-toggle-btn${["research", "skills", "insights", "memory", "secrets", "dev-server", "devserver", "graph", "stash-recovery"].includes(view) || (!isTablet && view === "command-center") || (isTablet && view === "documents") || (experimentalFeatures?.evalsView && view === "evals") || (experimentalFeatures?.goalsView && view === "goalsView") || (todosEnabled && todosOpen) || isPluginViewId(view) ? " active" : ""}`}
                   onClick={() => setIsViewOverflowOpen((prev) => !prev)}
                   title={t("header.moreViews", "More views")}
                   aria-label={t("header.moreViews", "More views")}
@@ -1237,18 +1237,6 @@ export function Header({
                     >
                       <Lock size={14} />
                       <span>{t("header.secretsView", "Secrets")}</span>
-                    </button>
-                    <button
-                      className={`view-toggle-overflow-item${view === "reliability" ? " active" : ""}`}
-                      onClick={() => {
-                        onChangeView("reliability");
-                        setIsViewOverflowOpen(false);
-                      }}
-                      role="menuitem"
-                      data-testid="view-overflow-reliability"
-                    >
-                      <Activity size={14} />
-                      <span>{t("header.reliabilityView", "Reliability")}</span>
                     </button>
                     {isTablet && (
                       <button

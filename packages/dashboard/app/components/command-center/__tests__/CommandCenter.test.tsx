@@ -189,6 +189,28 @@ function liveFixture(columns: Array<{ column: string; count: number }> = [{ colu
   };
 }
 
+function reliabilityFixture() {
+  return {
+    windowDays: 7,
+    generatedAt: "2026-06-19T00:00:00.000Z",
+    resetAt: null,
+    headline: { inReviewFailureRate7d: 0.25 },
+    perDay: [
+      {
+        date: "2026-06-19",
+        tasksEnteredInReview: 4,
+        tasksBouncedToInProgress: 1,
+        postMergeAuditFailures: { block: 0, warn: 0, off: 0 },
+        fileScopeInvariantFailures: 0,
+        recoverAlreadyMergedReviewTasksRecoveries: 0,
+        hasSamples: true,
+      },
+    ],
+    duration: { p50Ms: 60_000, p95Ms: 120_000, sampleCount: 2 },
+    mergeAttempts: { mean: 1.5, max: 2, histogram: { "1": 1, "2": 1 } },
+  };
+}
+
 function systemStatsFixture() {
   const gb = 1024 * 1024 * 1024;
   const mb = 1024 * 1024;
@@ -575,8 +597,8 @@ describe("CommandCenter shell", () => {
     render(<CommandCenter />);
     const tablist = screen.getByRole("tablist");
     const tabs = within(tablist).getAllByRole("tab");
-    // Overview, Tokens, Tools, Activity, Productivity, Team, Ecosystem, GitHub, Signals, System, Mission Control.
-    expect(tabs.length).toBe(11);
+    // Overview, Tokens, Tools, Activity, Productivity, Team, Ecosystem, GitHub, Signals, System, Reliability, Mission Control.
+    expect(tabs.length).toBe(12);
     // roving tabindex: exactly one tab is focusable.
     const focusable = tabs.filter((tab) => tab.getAttribute("tabindex") === "0");
     expect(focusable.length).toBe(1);
@@ -614,6 +636,26 @@ describe("CommandCenter shell", () => {
     await screen.findByTestId("cc-area-github");
     expect(screen.getByTestId("cc-github-filed").textContent).toContain("4");
     expect(screen.getByTestId("cc-github-fixed").textContent).toContain("2");
+  });
+
+  it("renders and routes the Reliability tab exactly once", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => reliabilityFixture(),
+    } as Response);
+
+    try {
+      render(<CommandCenter />);
+      expect(screen.getAllByTestId("command-center-tab-reliability")).toHaveLength(1);
+
+      fireEvent.click(screen.getByTestId("command-center-tab-reliability"));
+      expect(screen.getByTestId("command-center-tab-reliability").getAttribute("aria-selected")).toBe("true");
+      expect(screen.getByTestId("command-center-panel-reliability")).toBeTruthy();
+      expect(await screen.findByRole("heading", { name: "Reliability" })).toBeTruthy();
+      expect(fetchSpy).toHaveBeenCalledWith("/api/health/reliability");
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it("renders the Team tab with sortable per-agent stats and charts", async () => {
@@ -710,6 +752,7 @@ describe("CommandCenter shell", () => {
       "github",
       "signals",
       "system",
+      "reliability",
       "mission-control",
       "team",
     ]) {
@@ -725,6 +768,13 @@ describe("CommandCenter shell", () => {
     const tokensTab = screen.getByTestId("command-center-tab-tokens");
     expect(tokensTab.getAttribute("aria-selected")).toBe("true");
     expect(document.activeElement).toBe(tokensTab);
+
+    const systemTab = screen.getByTestId("command-center-tab-system");
+    systemTab.focus();
+    fireEvent.keyDown(systemTab, { key: "ArrowRight" });
+    const reliabilityTab = screen.getByTestId("command-center-tab-reliability");
+    expect(reliabilityTab.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(reliabilityTab);
   });
 
   it("wraps with ArrowLeft from the first tab to the last", () => {
