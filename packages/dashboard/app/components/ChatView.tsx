@@ -2892,7 +2892,11 @@ export function ChatView({ projectId, addToast, experimentalFeatures }: ChatView
               renderAssistantContent(streamingText, showAllAsPlain)
             ) : (
               <div className="chat-message-content chat-message-content--waiting">
-                {streamingThinking ? t("chat.thinkingStatus", "Thinking…") : t("chat.connectingStatus", "Connecting…")}
+                {/*
+                FNXC:ChatLoadingCopy 2026-06-19-06:13:
+                The post-send waiting indicator reads "Working…" when no streamed text or thinking content has arrived yet, because the UI is waiting on work rather than a transport connection.
+                */}
+                {streamingThinking ? t("chat.thinkingStatus", "Thinking…") : t("chat.workingStatus", "Working…")}
               </div>
             )}
             {showProviderResponseCopy && streamingText && renderCopyAction("__streaming__", streamingText, "chat-copy-response-streaming")}

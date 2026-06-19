@@ -684,8 +684,8 @@ export function useChat(
 
       // Recover streaming state if the server reports an active generation.
       // After a reload/HMR, the server keeps generating but the UI loses
-      // all streaming state. Showing "Connecting…" immediately tells the
-      // user the AI is still working.
+      // all streaming state. Showing "Working…" immediately tells the
+      // user the AI is still processing the request.
       if (session?.isGenerating) {
         attachIfGenerating(session.id, session.inFlightGeneration, { priorThreadLoadAlreadyStarted: true });
       }

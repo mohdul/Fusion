@@ -1685,7 +1685,7 @@ describe("QuickChatFAB session-first UX", () => {
     fireEvent.click(screen.getByTestId("quick-chat-send"));
 
     expect(await screen.findByTestId("quick-chat-streaming-message")).toBeInTheDocument();
-    expect(screen.getByTestId("quick-chat-waiting")).toHaveTextContent("Connecting…");
+    expect(screen.getByTestId("quick-chat-waiting")).toHaveTextContent("Working…");
     expect(mockStreamChatResponse).toHaveBeenCalledTimes(2);
   });
 
@@ -1747,7 +1747,7 @@ describe("QuickChatFAB session-first UX", () => {
     fireEvent.click(screen.getByTestId("quick-chat-send"));
 
     expect(await screen.findByTestId("quick-chat-streaming-message")).toBeInTheDocument();
-    expect(screen.getByTestId("quick-chat-waiting")).toHaveTextContent("Connecting…");
+    expect(screen.getByTestId("quick-chat-waiting")).toHaveTextContent("Working…");
     expect(screen.queryByText("Loading conversation…")).not.toBeInTheDocument();
   });
 

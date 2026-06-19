@@ -3231,7 +3231,7 @@ export function QuickChatFAB({
                     </>
                   ) : (
                     <p className="quick-chat-panel-waiting" data-testid="quick-chat-waiting">
-                      {streamingThinking ? t("chat.thinkingStatus", "Thinking…") : t("chat.connectingStatus", "Connecting…")}
+                      {streamingThinking ? t("chat.thinkingStatus", "Thinking…") : t("chat.workingStatus", "Working…")}
                     </p>
                   )}
                   {renderToolCalls(streamingToolCalls, true, t, {

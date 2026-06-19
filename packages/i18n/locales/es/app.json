@@ -1194,7 +1194,7 @@
     "cancelButton": "Cancelar",
     "clearConversationFailed": "Error al borrar la conversación",
     "closeQuickChat": "Cerrar chat rápido",
-    "connectingStatus": "Conectando…",
+    "workingStatus": "Trabajando…",
     "conversationArchived": "Conversación archivada",
     "conversationDeleted": "Conversación eliminada",
     "copyFailed": "Error al copiar",

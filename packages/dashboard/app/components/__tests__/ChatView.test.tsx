@@ -2469,10 +2469,10 @@ describe("ChatView", () => {
 
       const { rerender } = await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} />);
 
-      expect(document.querySelector(".chat-message--streaming")?.textContent).toContain("Connecting");
+      expect(document.querySelector(".chat-message--streaming")?.textContent).toContain("Working");
       rerender(<ChatView projectId="proj-123" addToast={vi.fn()} />);
 
-      expect(document.querySelector(".chat-message--streaming")?.textContent).toContain("Connecting");
+      expect(document.querySelector(".chat-message--streaming")?.textContent).toContain("Working");
       expect(screen.queryByText("Start a new conversation")).not.toBeInTheDocument();
       expect(screen.queryByText("No messages yet. Start the conversation!")).not.toBeInTheDocument();
       expect(screen.getByTestId("chat-back-btn")).toBeInTheDocument();
@@ -2494,7 +2494,7 @@ describe("ChatView", () => {
 
       const streamingMessage = document.querySelector(".chat-message--streaming") as HTMLElement | null;
       expect(streamingMessage).toBeInTheDocument();
-      expect(streamingMessage?.textContent).toContain("Connecting");
+      expect(streamingMessage?.textContent).toContain("Working");
       expect(screen.queryByText("Loading messages...")).not.toBeInTheDocument();
     });
 
@@ -2511,10 +2511,10 @@ describe("ChatView", () => {
 
       await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} />);
 
-      // Streaming message should show with "Connecting..." text
+      // Streaming message should show with "Working..." text
       const streamingMessage = document.querySelector(".chat-message--streaming") as HTMLElement | null;
       expect(streamingMessage).toBeInTheDocument();
-      expect(streamingMessage?.textContent).toContain("Connecting");
+      expect(streamingMessage?.textContent).toContain("Working");
 
       // Waiting class should be present
       const waitingContent = streamingMessage?.querySelector(".chat-message-content--waiting");

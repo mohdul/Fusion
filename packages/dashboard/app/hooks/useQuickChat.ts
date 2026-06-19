@@ -457,7 +457,7 @@ export function useQuickChat(
 
           // Recover streaming state if server is still generating for this session.
           // After a reload/HMR, the server keeps generating but the UI loses
-          // all streaming state. Show the "Connecting…" indicator immediately.
+          // all streaming state. Show the "Working…" indicator immediately.
           if (existingSession.isGenerating) {
             attachIfGenerating(existingSession.id, existingSession.inFlightGeneration);
           }

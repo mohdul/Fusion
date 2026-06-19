@@ -1197,7 +1197,7 @@ export default interface Resources {
       "cancelButton": "Cancel",
       "clearConversationFailed": "Failed to clear conversation",
       "closeQuickChat": "Close quick chat",
-      "connectingStatus": "Connecting…",
+      "workingStatus": "Working…",
       "conversationArchived": "Conversation archived",
       "conversationDeleted": "Conversation deleted",
       "copyFailed": "Copy failed",
