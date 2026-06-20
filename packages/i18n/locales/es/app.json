@@ -1869,6 +1869,7 @@
     "title": "Crear sala"
   },
   "dashboard": {
+    "brandName": "Fusion",
     "initializingDashboard": "Inicializando panel...",
     "loadingMessage": "Cargando panel de Fusion",
     "loadingProgress": "Progreso de carga del panel",
@@ -7416,6 +7417,14 @@
     "templatePickerLabel": "Comenzar desde",
     "templateSectionBuiltin": "Flujos de trabajo integrados",
     "templateSectionYours": "Tus flujos de trabajo"
+  },
+  "workflowSwitcher": {
+    "countsAria": "{{todoLabel}}: {{todo}}, {{inProgressLabel}}: {{inProgress}}, {{doneLabel}}: {{done}}",
+    "done": "Done",
+    "inProgress": "In Progress",
+    "label": "Workflow",
+    "todo": "Todo",
+    "triggerAria": "Select workflow. Current workflow: {{name}}"
   },
   "workflowSelector": {
     "switchActiveMessage": "",

@@ -412,7 +412,7 @@ export function LeftSidebarNav({
     >
       <div className="left-sidebar-nav__brand" data-testid="sidebar-nav-brand">
         <FusionLogo />
-        <span className="left-sidebar-nav__wordmark">Fusion</span>
+        <span className="left-sidebar-nav__wordmark">{t("dashboard.brandName", "Fusion")}</span>
         <button
           type="button"
           className="btn-icon left-sidebar-nav__collapse-toggle"

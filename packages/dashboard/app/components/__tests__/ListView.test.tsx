@@ -251,6 +251,17 @@ const keyDownAndFlush = async (element: Element, init: Parameters<typeof fireEve
   });
 };
 
+async function openWorkflowSwitcher() {
+  const trigger = await screen.findByTestId("workflow-switcher");
+  fireEvent.click(trigger);
+  return trigger;
+}
+
+async function selectWorkflow(workflowId: string) {
+  await openWorkflowSwitcher();
+  fireEvent.click(screen.getByTestId(`workflow-switcher-option-${workflowId}`));
+}
+
 const enterBulkEditMode = () => {
   clickInAct(screen.getByRole("button", { name: "Bulk Edit" }));
 };
@@ -686,9 +697,9 @@ describe("ListView", () => {
       tasks: [createMockTask({ id: "FN-001", column: "todo", title: "Preserved workflow task" })],
     });
 
-    const selector = await screen.findByLabelText("Select workflow") as HTMLSelectElement;
+    const selector = await screen.findByTestId("workflow-switcher");
     await waitFor(() => expect(screen.getByText("Preserved workflow task")).toBeInTheDocument());
-    expect(selector.value).toBe("builtin:coding");
+    expect(selector).toHaveTextContent("Coding");
 
     await act(async () => {
       listViewSseHandlers["workflow:updated"]?.();
@@ -697,8 +708,65 @@ describe("ListView", () => {
     await waitFor(() => expect(fetchBoardWorkflows).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByText("Preserved workflow task")).not.toBeInTheDocument());
 
-    fireEvent.change(selector, { target: { value: "wf-preserved" } });
+    await selectWorkflow("wf-preserved");
     await waitFor(() => expect(screen.getByText("Preserved workflow task")).toBeInTheDocument());
+  });
+
+  it("shows inline workflow counts in desktop and mobile switchers", async () => {
+    const workflowPayload = {
+      flagEnabled: true,
+      defaultWorkflowId: "builtin:coding",
+      workflows: [
+        {
+          id: "builtin:coding",
+          name: "Coding",
+          columns: [
+            { id: "triage", name: "Triage", flags: { intake: true } },
+            { id: "done", name: "Done", flags: { complete: true } },
+          ],
+        },
+        {
+          id: "wf-custom",
+          name: "Custom",
+          columns: [
+            { id: "backlog", name: "Backlog", flags: { intake: true } },
+            { id: "complete", name: "Complete", flags: { complete: true } },
+          ],
+        },
+      ],
+      taskWorkflowIds: { "FN-001": "builtin:coding", "FN-002": "wf-custom" },
+    };
+    vi.mocked(fetchBoardWorkflows).mockResolvedValue(workflowPayload);
+    const desktopSpy = mockDesktopViewport();
+    const desktop = renderListView({
+      tasks: [
+        createMockTask({ id: "FN-001", column: "triage", title: "Coding task" }),
+        createMockTask({ id: "FN-002", column: "complete", title: "Custom done task" }),
+      ],
+    });
+
+    const desktopTrigger = await screen.findByTestId("workflow-switcher");
+    expect(desktopTrigger).toHaveTextContent("Coding");
+    expect(desktopTrigger).toHaveTextContent("1");
+    await openWorkflowSwitcher();
+    expect(screen.getByTestId("workflow-switcher-option-wf-custom")).toHaveTextContent("1");
+    fireEvent.keyDown(desktopTrigger, { key: "Escape" });
+    desktop.unmount();
+    desktopSpy.mockRestore();
+
+    vi.mocked(fetchBoardWorkflows).mockResolvedValue(workflowPayload);
+    const mobileSpy = mockMobileViewport();
+    renderListView({
+      tasks: [
+        createMockTask({ id: "FN-001", column: "triage", title: "Coding task" }),
+        createMockTask({ id: "FN-002", column: "complete", title: "Custom done task" }),
+      ],
+    });
+
+    const mobileTrigger = await screen.findByTestId("workflow-switcher");
+    expect(mobileTrigger).toHaveTextContent("Coding");
+    expect(mobileTrigger).toHaveTextContent("1");
+    mobileSpy.mockRestore();
   });
 
   it("shows a new-workflow action next to the workflow selector", async () => {
@@ -732,7 +800,7 @@ describe("ListView", () => {
       onCreateWorkflow,
     });
 
-    await screen.findByLabelText("Select workflow");
+    await screen.findByTestId("workflow-switcher");
     const createButtons = screen.getAllByRole("button", { name: "New workflow" });
     expect(createButtons.length).toBeGreaterThan(0);
     fireEvent.click(createButtons[0]);
@@ -2503,8 +2571,7 @@ describe("ListView Quick Entry", () => {
     });
     renderListView({ onQuickCreate: mockOnQuickCreate });
 
-    const selector = await screen.findByLabelText("Select workflow") as HTMLSelectElement;
-    fireEvent.change(selector, { target: { value: "builtin:coding" } });
+    await selectWorkflow("builtin:coding");
     const input = screen.getByTestId("quick-entry-input");
     fireEvent.change(input, { target: { value: "Built-in workflow task" } });
     fireEvent.keyDown(input, { key: "Enter" });

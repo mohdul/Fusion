@@ -1869,6 +1869,7 @@
     "title": "创建房间"
   },
   "dashboard": {
+    "brandName": "Fusion",
     "initializingDashboard": "初始化仪表板...",
     "loadingMessage": "加载 Fusion 仪表板",
     "loadingProgress": "仪表板加载进度",
@@ -7416,6 +7417,14 @@
     "templatePickerLabel": "从…开始",
     "templateSectionBuiltin": "内置工作流",
     "templateSectionYours": "我的工作流"
+  },
+  "workflowSwitcher": {
+    "countsAria": "{{todoLabel}}: {{todo}}, {{inProgressLabel}}: {{inProgress}}, {{doneLabel}}: {{done}}",
+    "done": "Done",
+    "inProgress": "In Progress",
+    "label": "Workflow",
+    "todo": "Todo",
+    "triggerAria": "Select workflow. Current workflow: {{name}}"
   },
   "workflowSelector": {
     "switchActiveMessage": "",

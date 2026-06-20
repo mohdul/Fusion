@@ -1869,6 +1869,7 @@
     "title": "Create room"
   },
   "dashboard": {
+    "brandName": "Fusion",
     "initializingDashboard": "Initializing dashboard...",
     "loadingMessage": "Loading Fusion dashboard",
     "loadingProgress": "Dashboard loading progress",
@@ -7416,6 +7417,14 @@
     "templatePickerLabel": "Start from",
     "templateSectionBuiltin": "Built-in workflows",
     "templateSectionYours": "Your workflows"
+  },
+  "workflowSwitcher": {
+    "countsAria": "{{todoLabel}}: {{todo}}, {{inProgressLabel}}: {{inProgress}}, {{doneLabel}}: {{done}}",
+    "done": "Done",
+    "inProgress": "In Progress",
+    "label": "Workflow",
+    "todo": "Todo",
+    "triggerAria": "Select workflow. Current workflow: {{name}}"
   },
   "workflowSelector": {
     "switchActiveMessage": "This task has an active session. Switching workflows aborts it and re-homes the card into the new workflow's entry column. Continue?",

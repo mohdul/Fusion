@@ -1869,6 +1869,7 @@
     "title": "방 만들기"
   },
   "dashboard": {
+    "brandName": "Fusion",
     "initializingDashboard": "대시보드 초기화 중...",
     "loadingMessage": "Fusion 대시보드 로드 중",
     "loadingProgress": "대시보드 로딩 진행 상황",
@@ -7416,6 +7417,14 @@
     "templatePickerLabel": "시작점",
     "templateSectionBuiltin": "기본 제공 워크플로",
     "templateSectionYours": "내 워크플로"
+  },
+  "workflowSwitcher": {
+    "countsAria": "{{todoLabel}}: {{todo}}, {{inProgressLabel}}: {{inProgress}}, {{doneLabel}}: {{done}}",
+    "done": "Done",
+    "inProgress": "In Progress",
+    "label": "Workflow",
+    "todo": "Todo",
+    "triggerAria": "Select workflow. Current workflow: {{name}}"
   },
   "workflowSelector": {
     "switchActiveMessage": "",

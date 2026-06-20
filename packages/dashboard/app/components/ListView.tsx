@@ -21,6 +21,8 @@ import { getUnifiedTaskProgress } from "../utils/taskProgress";
 import { useConfirm } from "../hooks/useConfirm";
 import { extractDependencyDeleteConflict, extractLineageDeleteConflict } from "../utils/taskDelete";
 import { subscribeSse } from "../sse-bus";
+import { WorkflowSwitcher } from "./WorkflowSwitcher";
+import { computeWorkflowStatusCounts } from "./workflowStatusCounts";
 
 const COLUMN_COLOR_MAP: Record<Column, string> = {
   triage: "var(--triage)",
@@ -627,6 +629,11 @@ export function ListView({
     }
     return ids;
   }, [boardWorkflows, selectedWorkflow, tasks, workflowMode]);
+
+  const workflowStatusCounts = useMemo(
+    () => computeWorkflowStatusCounts(tasks, boardWorkflows),
+    [boardWorkflows, tasks],
+  );
 
   const createTargetColumn = useMemo(() => {
     const target = listColumns.find((column) => column.flags.intake && !column.flags.archived)
@@ -1578,22 +1585,14 @@ export function ListView({
     if (!showSelect && !onCreateWorkflow) return null;
     return (
       <div className="list-workflow-control">
-        {showSelect && (
-          <label className="list-workflow-selector">
-            <span>{t("listView.workflowLabel", "Workflow")}</span>
-            <select
-              className="select list-workflow-select"
-              value={selectedWorkflow!.id}
-              onChange={(event) => setSelectedWorkflowId(event.target.value)}
-              aria-label={t("listView.workflowSelectLabel", "Select workflow")}
-            >
-              {workflowOptions.map((workflow) => (
-                <option key={workflow.id} value={workflow.id}>
-                  {workflow.name}
-                </option>
-              ))}
-            </select>
-          </label>
+        {showSelect && selectedWorkflow && (
+          <WorkflowSwitcher
+            workflows={workflowOptions}
+            value={selectedWorkflow.id}
+            onChange={setSelectedWorkflowId}
+            counts={workflowStatusCounts}
+            label={t("listView.workflowLabel", "Workflow")}
+          />
         )}
         {onCreateWorkflow && (
           <button

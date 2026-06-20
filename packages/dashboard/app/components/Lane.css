@@ -39,7 +39,9 @@
 }
 
 .board-workflow-selector {
+  display: inline-flex;
   margin-left: auto;
+  min-width: 0;
 }
 
 .board-workflow-create-btn,

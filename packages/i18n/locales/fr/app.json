@@ -1869,6 +1869,7 @@
     "title": "Créer une salle"
   },
   "dashboard": {
+    "brandName": "Fusion",
     "initializingDashboard": "Initialisation du tableau de bord...",
     "loadingMessage": "Chargement du tableau de bord Fusion",
     "loadingProgress": "Progression du chargement du tableau de bord",
@@ -7416,6 +7417,14 @@
     "templatePickerLabel": "Partir de",
     "templateSectionBuiltin": "Workflows intégrés",
     "templateSectionYours": "Vos workflows"
+  },
+  "workflowSwitcher": {
+    "countsAria": "{{todoLabel}}: {{todo}}, {{inProgressLabel}}: {{inProgress}}, {{doneLabel}}: {{done}}",
+    "done": "Done",
+    "inProgress": "In Progress",
+    "label": "Workflow",
+    "todo": "Todo",
+    "triggerAria": "Select workflow. Current workflow: {{name}}"
   },
   "workflowSelector": {
     "switchActiveMessage": "",

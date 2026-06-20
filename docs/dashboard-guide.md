@@ -77,6 +77,7 @@ Features:
 - Task card header meta badges group priority, fast mode, agent-created provenance, and elapsed/created-time chips into one wrapping row; agent labels prefer `sourceMetadata.agentName` over raw agent IDs
 - Column ordering semantics: `todo` mirrors scheduler pickup order (priority descending, then oldest `createdAt`, then task ID); `triage`, `in-progress`, `in-review`, and `archived` remain priority-first with task-ID tie-breaks; `done` is ordered by most recent completion first (`columnMovedAt`, then `updatedAt`, then `createdAt` fallback)
 - On mobile, both default and workflow-mode boards fill the project viewport while the column strip remains the internal horizontal scroller with contained edge overscroll.
+- Board and List workflow switchers use a themed dropdown instead of a native select. The closed trigger and each workflow option show compact Todo / In Progress / Done counts derived from workflow column flags, excluding archived columns.
 
 ![Board view](./screenshots/dashboard-overview.png)
 
@@ -126,7 +127,7 @@ The workflow editor opens as a full-screen modal editor for inspecting built-ins
 
 Navigation:
 - Open a task or board surface that shows the workflow selector, then choose **Manage…**.
-- From the board workflow toolbar, use the edit workflow button beside the selector to open the currently selected workflow directly when one is selected.
+- From the board workflow toolbar, use the edit workflow button beside the selector to open the currently selected workflow directly when one is selected. The board/list workflow dropdown also previews each workflow's Todo / In Progress / Done task counts inline before switching.
 - Use the global **Workflow** / **Workflows** entry point from desktop header, compact header overflow, or mobile **More** navigation to browse definitions.
 - From Settings moved-setting stubs, choose **Open workflow settings** to jump to the default workflow's settings values.
 
