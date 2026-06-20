@@ -19,6 +19,16 @@ Using Back will first dismiss open modals and then step back through in-app view
 This behavior used to be mobile-only, and now applies across all viewports.
 Task Detail modal opens from onboarding, activity log, and task-to-task navigation now all register navigation history entries, so Android back swipe/button dismisses them consistently.
 
+## Left Sidebar Navigation (experimental)
+
+Enable **Left Sidebar Navigation** from **Settings → Experimental Features** to move the desktop/tablet project navigation out of the Header and into a persistent left sidebar.
+
+When enabled on desktop or tablet project screens, the sidebar contains the Fusion brand, project selector, the primary destinations (Board, List, Agents, Command Center, Missions, Chat, Documents, Mailbox, and plugin primary views), Header overflow destinations as regular entries (Research, Insights, Skills, Memory, Secrets, Stash Recovery, Evals, Goals, Dev Server, Todos, and plugin overflow views when their flags/plugins are enabled), and a Settings button pinned to the bottom. The Header keeps its non-navigation controls but hides the view-toggle row and **More views** trigger so there is only one canonical navigation surface.
+
+The sidebar can be collapsed to an icon-only rail with accessible labels/titles preserved, and the expanded width can be resized from the right-edge separator. Collapsed state and expanded width are saved in browser `localStorage` (`fusion:left-sidebar-collapsed` and `fusion:left-sidebar-width`) and restored on reload.
+
+On mobile viewports (`<=768px`), the sidebar is not rendered even when the experiment is enabled. The existing bottom `MobileNavBar` remains the navigation surface.
+
 ## Deep Links
 
 Use deep links to open a specific task directly from notifications, chat, or external tools.

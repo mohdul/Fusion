@@ -114,6 +114,8 @@ export interface HeaderProps {
   shellHost?: ShellHostContext;
   /** When true, the mobile bottom nav bar handles primary navigation and header nav controls are hidden. */
   mobileNavEnabled?: boolean;
+  /** When true on non-mobile screens, persistent left sidebar owns primary view navigation. */
+  leftSidebarNavActive?: boolean;
   /** Available nodes for the node selector */
   availableNodes?: NodeConfig[];
   /** Currently selected node (null for local) */
@@ -123,7 +125,7 @@ export interface HeaderProps {
   /** Whether the current view is a remote node */
   isRemote?: boolean;
   /** Experimental feature flags controlling visibility of nav items. */
-  experimentalFeatures?: { insights?: boolean; memoryView?: boolean; devServer?: boolean; devServerView?: boolean; researchView?: boolean; evalsView?: boolean; goalsView?: boolean };
+  experimentalFeatures?: { insights?: boolean; memoryView?: boolean; devServer?: boolean; devServerView?: boolean; researchView?: boolean; evalsView?: boolean; goalsView?: boolean; leftSidebarNav?: boolean };
   pluginDashboardViews?: PluginDashboardViewEntry[];
   shellConnectionControl?: ReactNode;
 }
@@ -175,6 +177,7 @@ export function Header({
   projectId,
   shellHost = { kind: "browser" },
   mobileNavEnabled,
+  leftSidebarNavActive = false,
   availableNodes = [],
   currentNode,
   onSelectNode,
@@ -189,6 +192,11 @@ export function Header({
   const isTablet = mode === "tablet";
   const isCompact = isMobile || isTablet;
   const hideFullNav = isMobile && mobileNavEnabled;
+  /*
+  FNXC:Navigation 2026-06-19-00:00:
+  When experimental left sidebar navigation is active on tablet/desktop, Header must suppress its view-toggle and More-views trigger so there is one canonical non-mobile navigation surface and no orphaned chevron remains.
+  */
+  const hideHeaderViewNav = leftSidebarNavActive && !isMobile;
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const [isNonMobileSearchOpen, setIsNonMobileSearchOpen] = useState(false);
   // Track when user has explicitly closed the search (used for toggle visibility)
@@ -983,7 +991,7 @@ export function Header({
         )}
 
         {/* View Toggle - always inline, even on mobile */}
-        {!hideFullNav && onChangeView && (
+        {!hideFullNav && !hideHeaderViewNav && onChangeView && (
           <div className="view-toggle">
             <button
               className={`view-toggle-btn${view === "board" ? " active" : ""}`}

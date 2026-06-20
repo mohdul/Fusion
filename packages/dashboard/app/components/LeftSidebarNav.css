@@ -1,0 +1,217 @@
+/*
+FNXC:Navigation 2026-06-19-00:00:
+The experimental sidebar is a persistent desktop/tablet navigation replacement for the Header view-toggle row. It uses the same tokenized visual rhythm as Header navigation so the flag can be toggled without changing dashboard information architecture.
+*/
+.left-sidebar-nav {
+  --left-sidebar-nav-width: calc(var(--space-2xl) * 8);
+  --left-sidebar-nav-rail-width: calc(var(--space-2xl) * 2);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: var(--left-sidebar-nav-width);
+  min-width: var(--left-sidebar-nav-width);
+  min-height: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  color: var(--text);
+}
+
+.left-sidebar-nav__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--border);
+  min-height: calc(var(--space-2xl) + var(--space-xl));
+}
+
+.left-sidebar-nav__logo-mark {
+  width: var(--space-xl);
+  height: var(--space-xl);
+  flex-shrink: 0;
+  color: var(--logo-accent);
+}
+
+.left-sidebar-nav__wordmark {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.left-sidebar-nav__collapse-toggle {
+  flex-shrink: 0;
+}
+
+.left-sidebar-nav__project-selector {
+  padding: var(--space-sm);
+  border-bottom: 1px solid var(--border);
+}
+
+.left-sidebar-nav__project-selector:empty {
+  display: none;
+}
+
+.left-sidebar-nav__project-selector .project-selector {
+  width: 100%;
+}
+
+.left-sidebar-nav__project-selector .project-selector-trigger {
+  width: 100%;
+  min-width: 0;
+}
+
+.left-sidebar-nav__list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-sm);
+}
+
+.left-sidebar-nav__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.left-sidebar-nav__section--secondary {
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border);
+}
+
+.left-sidebar-nav__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  min-height: calc(var(--space-xl) + var(--space-sm));
+  padding: 0 var(--space-sm);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.left-sidebar-nav__item:hover,
+.left-sidebar-nav__item:focus-visible {
+  background: var(--card);
+  color: var(--text);
+  outline: none;
+}
+
+.left-sidebar-nav__item:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+.left-sidebar-nav__item--active {
+  background: var(--todo-bg);
+  color: var(--todo);
+}
+
+.left-sidebar-nav__icon-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: currentColor;
+}
+
+.left-sidebar-nav__dot {
+  position: absolute;
+  top: calc(var(--space-xs) * -1);
+  right: calc(var(--space-xs) * -1);
+}
+
+.left-sidebar-nav__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.left-sidebar-nav__badge {
+  position: static;
+  flex-shrink: 0;
+}
+
+.left-sidebar-nav__footer {
+  margin-top: auto;
+  padding: var(--space-sm);
+  border-top: 1px solid var(--border);
+}
+
+.left-sidebar-nav__settings {
+  justify-content: flex-start;
+}
+
+.left-sidebar-nav__resize-handle {
+  position: absolute;
+  top: 0;
+  right: calc(var(--space-xs) * -1 / 2);
+  bottom: 0;
+  width: var(--space-xs);
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 1;
+}
+
+.left-sidebar-nav__resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: calc(var(--space-xs) / 2);
+  bottom: 0;
+  width: 1px;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.left-sidebar-nav__resize-handle:hover::after,
+.left-sidebar-nav__resize-handle:focus-visible::after {
+  background: var(--todo);
+}
+
+.left-sidebar-nav__resize-handle:focus-visible {
+  outline: none;
+}
+
+.left-sidebar-nav--collapsed {
+  width: var(--left-sidebar-nav-rail-width);
+  min-width: var(--left-sidebar-nav-rail-width);
+}
+
+.left-sidebar-nav--collapsed .left-sidebar-nav__wordmark,
+.left-sidebar-nav--collapsed .left-sidebar-nav__project-selector,
+.left-sidebar-nav--collapsed .left-sidebar-nav__label,
+.left-sidebar-nav--collapsed .left-sidebar-nav__badge {
+  display: none;
+}
+
+.left-sidebar-nav--collapsed .left-sidebar-nav__brand,
+.left-sidebar-nav--collapsed .left-sidebar-nav__item {
+  justify-content: center;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.left-sidebar-nav--collapsed .left-sidebar-nav__collapse-toggle {
+  width: auto;
+}
+
+@media (max-width: 768px) {
+  .left-sidebar-nav {
+    display: none;
+  }
+}

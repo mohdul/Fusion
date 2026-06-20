@@ -43,6 +43,7 @@ import {
 } from "./components/model-onboarding-state";
 import type { SectionId } from "./components/SettingsModal";
 import { MobileNavBar } from "./components/MobileNavBar";
+import { LeftSidebarNav } from "./components/LeftSidebarNav";
 import { QuickChatFAB } from "./components/QuickChatFAB";
 import { ToastContainer } from "./components/ToastContainer";
 import { useBackgroundSessions } from "./hooks/useBackgroundSessions";
@@ -1030,6 +1031,12 @@ function AppInner() {
   const nodesEnabled = experimentalFeatures.nodesView === true;
   const researchEnabled = experimentalFeatures.researchView === true;
   const evalsEnabled = experimentalFeatures.evalsView === true;
+  /*
+  FNXC:Navigation 2026-06-19-00:00:
+  Experimental left sidebar navigation replaces the Header view shortcuts with a persistent sidebar on non-mobile project screens, while mobile continues to use the bottom navigation bar as the only primary navigation surface.
+  */
+  const leftSidebarNavEnabled = experimentalFeatures.leftSidebarNav === true;
+  const sidebarActive = leftSidebarNavEnabled && !isMobile && viewMode === "project" && !!currentProject;
   const agentOnboardingEnabled = experimentalFeatures.agentOnboarding === true;
   const agentsEnabled = true;
 
@@ -1955,6 +1962,7 @@ function AppInner() {
         onViewAllProjects={handleViewAllProjects}
         projectId={currentProject?.id}
         mobileNavEnabled={isMobile}
+        leftSidebarNavActive={sidebarActive}
         // Node switching props
         availableNodes={nodes}
         currentNode={currentNode}
@@ -1974,6 +1982,7 @@ function AppInner() {
           researchView: researchEnabled,
           evalsView: evalsEnabled,
           goalsView: goalsEnabled,
+          leftSidebarNav: leftSidebarNavEnabled,
         }}
         pluginDashboardViews={pluginDashboardViews}
         shellConnectionControl={
@@ -2091,10 +2100,45 @@ function AppInner() {
           }}
         />
       )}
-      <div
-        className={`project-content${viewMode === "project" && currentProject && (!isMobile || !mobileKeyboardOpen) ? " project-content--with-footer" : ""}${isMobile && !mobileKeyboardOpen ? " project-content--with-mobile-nav" : ""}`}
-      >
-        {renderMainContent()}
+      {/*
+      FNXC:Navigation 2026-06-19-00:00:
+      The left sidebar experiment wraps only the project content region on non-mobile project screens; mobile keeps MobileNavBar as the navigation owner and the flag leaves project-content unwrapped when inactive.
+      */}
+      <div className={`dashboard-project-shell${sidebarActive ? " dashboard-project-shell--with-sidebar" : ""}`} data-testid="dashboard-project-shell">
+        {sidebarActive && (
+          <LeftSidebarNav
+            view={taskView}
+            onChangeView={handleTaskViewChange}
+            onOpenSettings={openSettingsWithNav}
+            onOpenTodos={openTodosWithNav}
+            todosOpen={modalManager.todosOpen}
+            todosEnabled={todosEnabled}
+            mailboxUnreadCount={mailboxUnreadCount}
+            mailboxPendingApprovalCount={mailboxPendingApprovalCount}
+            chatHasUnreadResponse={chatHasUnreadResponse}
+            stashOrphanCount={stashOrphanCount}
+            experimentalFeatures={{
+              insights: insightsEnabled,
+              memoryView: memoryEnabled,
+              devServerView: devServerEnabled,
+              researchView: researchEnabled,
+              evalsView: evalsEnabled,
+              goalsView: goalsEnabled,
+            }}
+            pluginDashboardViews={pluginDashboardViews}
+            showAgentsTab={agentsEnabled}
+            showSkillsTab={skillsEnabled}
+            projects={effectiveProjects}
+            currentProject={currentProject}
+            onSelectProject={handleSelectProject}
+            onViewAllProjects={handleViewAllProjects}
+          />
+        )}
+        <div
+          className={`project-content${viewMode === "project" && currentProject && (!isMobile || !mobileKeyboardOpen) ? " project-content--with-footer" : ""}${isMobile && !mobileKeyboardOpen ? " project-content--with-mobile-nav" : ""}`}
+        >
+          {renderMainContent()}
+        </div>
       </div>
       {viewMode === "project" && currentProject && (
         <ExecutorStatusBar

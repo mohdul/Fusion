@@ -19,16 +19,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MobileNavBar } from "../components/MobileNavBar";
-import { Header } from "../components/Header";
+import { Header, useViewportMode } from "../components/Header";
+import { LeftSidebarNav } from "../components/LeftSidebarNav";
 
-function mockViewport(mode: "mobile" | "desktop") {
+function mockViewport(mode: "mobile" | "tablet" | "desktop") {
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     value: vi.fn().mockImplementation((query: string) => {
       const isMobileQuery = query === "(max-width: 768px)" || query === "(max-width: 768px), (max-height: 480px)";
       const isTabletQuery = query === "(min-width: 769px) and (max-width: 1024px)";
       return {
-        matches: mode === "mobile" ? isMobileQuery : false,
+        matches: mode === "mobile" ? isMobileQuery : mode === "tablet" ? isTabletQuery : false,
         media: query,
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
@@ -61,6 +62,26 @@ const createDefaultMobileNavProps = () => ({
   onRunScript: vi.fn(),
   projectId: "proj_1",
 });
+
+function LeftSidebarAppGateHarness({ leftSidebarNavEnabled = true }: { leftSidebarNavEnabled?: boolean }) {
+  const mode = useViewportMode();
+  const isMobile = mode === "mobile";
+  const viewMode = "project";
+  const currentProject = createProjects()[0];
+  const sidebarActive = leftSidebarNavEnabled && !isMobile && viewMode === "project" && !!currentProject;
+
+  return sidebarActive ? (
+    <LeftSidebarNav
+      view="board"
+      onChangeView={vi.fn()}
+      onOpenSettings={vi.fn()}
+      projects={createProjects()}
+      currentProject={currentProject}
+      onSelectProject={vi.fn()}
+      onViewAllProjects={vi.fn()}
+    />
+  ) : null;
+}
 
 const createProjects = () => [
   {
@@ -210,6 +231,73 @@ describe("Mobile Feature Access Regression Guard", () => {
     mockViewport("mobile");
     const modalRender = render(<MobileNavBar {...createDefaultMobileNavProps()} modalOpen={true} />);
     expect(modalRender.container.querySelector(".mobile-nav-bar")).toBeNull();
+  });
+
+  it("desktop and tablet header view navigation is suppressed when left sidebar is active", () => {
+    for (const tier of ["desktop", "tablet"] as const) {
+      mockViewport(tier);
+      const { unmount } = render(
+        <Header
+          view="board"
+          onChangeView={vi.fn()}
+          mobileNavEnabled={false}
+          showAgentsTab={true}
+          leftSidebarNavActive={true}
+        />,
+      );
+
+      expect(screen.queryByTitle("Board view")).toBeNull();
+      expect(screen.queryByTestId("view-toggle-overflow-trigger")).toBeNull();
+      unmount();
+    }
+  });
+
+  it("desktop and tablet header view navigation remains intact when left sidebar is inactive", () => {
+    for (const tier of ["desktop", "tablet"] as const) {
+      mockViewport(tier);
+      const { unmount } = render(
+        <Header
+          view="board"
+          onChangeView={vi.fn()}
+          mobileNavEnabled={false}
+          showAgentsTab={true}
+        />,
+      );
+
+      expect(screen.getByTitle("Board view")).toBeDefined();
+      expect(screen.getByTitle("List view")).toBeDefined();
+      expect(screen.getByTestId("view-toggle-overflow-trigger")).toBeDefined();
+      unmount();
+    }
+  });
+
+  it("left sidebar app gate renders on desktop and tablet but not mobile", () => {
+    for (const tier of ["desktop", "tablet"] as const) {
+      mockViewport(tier);
+      const { unmount } = render(<LeftSidebarAppGateHarness />);
+      expect(screen.getByTestId("left-sidebar-nav")).toBeDefined();
+      unmount();
+    }
+
+    mockViewport("mobile");
+    render(<LeftSidebarAppGateHarness />);
+    expect(screen.queryByTestId("left-sidebar-nav")).toBeNull();
+  });
+
+  it("left sidebar suppression does not affect the mobile header fallback", () => {
+    mockViewport("mobile");
+    render(
+      <Header
+        view="board"
+        onChangeView={vi.fn()}
+        mobileNavEnabled={false}
+        showAgentsTab={true}
+        leftSidebarNavActive={true}
+      />,
+    );
+
+    expect(screen.getByTitle("Board view")).toBeDefined();
+    expect(screen.getByTitle("List view")).toBeDefined();
   });
 
   it("header view toggle fallback renders on mobile when mobile nav is disabled", () => {

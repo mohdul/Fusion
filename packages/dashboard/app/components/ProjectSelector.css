@@ -579,6 +579,19 @@
  *
  * On mobile the token is overridden to 32px to match the shorter footer.
  */
+.dashboard-project-shell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+}
+
+.dashboard-project-shell--with-sidebar {
+  align-items: stretch;
+  overflow: hidden;
+}
+
 .project-content {
   display: flex;
   flex: 1;
@@ -594,6 +607,13 @@
 }
 
 @media (max-width: 768px) {
+  .dashboard-project-shell {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+  }
+
   /* Hide project selector on mobile (belt-and-suspenders with conditional rendering) */
   .project-selector {
     display: none;

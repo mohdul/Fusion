@@ -1,0 +1,465 @@
+import "./LeftSidebarNav.css";
+import "./ProjectSelector.css";
+
+/*
+FNXC:Navigation 2026-06-19-00:00:
+When the leftSidebarNav experiment is active, this component owns the non-mobile primary navigation destinations that Header previously exposed through inline and overflow view controls. Mobile remains owned by MobileNavBar, so this sidebar keeps the desktop/tablet contract only.
+*/
+import { useCallback, useMemo, useState, type ComponentType, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useTranslation } from "react-i18next";
+import {
+  Bot,
+  Brain,
+  ChevronLeft,
+  ChevronRight,
+  CheckSquare,
+  FileText,
+  Gauge,
+  History,
+  LayoutGrid,
+  List,
+  Lock,
+  Mail,
+  MessageSquare,
+  Monitor,
+  Search,
+  Settings,
+  Sparkles,
+  Target,
+  Zap,
+  type LucideProps,
+} from "lucide-react";
+import type { ProjectInfo, PluginDashboardViewEntry } from "../api";
+import type { TaskView } from "../hooks/useViewState";
+import { buildPluginTaskViewId } from "../plugins/pluginViewRegistry";
+import { getPluginNavIcon } from "./pluginNavIcon";
+import { ProjectSelector as StandaloneProjectSelector } from "./ProjectSelector";
+
+export interface LeftSidebarExperimentalFeatures {
+  insights?: boolean;
+  memoryView?: boolean;
+  devServerView?: boolean;
+  researchView?: boolean;
+  evalsView?: boolean;
+  goalsView?: boolean;
+}
+
+interface SidebarNavEntry {
+  id: string;
+  label: string;
+  view?: TaskView;
+  isActive: boolean;
+  icon: ComponentType<LucideProps>;
+  testId: string;
+  badge?: number;
+  dot?: "pending" | "online";
+  onSelect: () => void;
+}
+
+const LEFT_SIDEBAR_DEFAULT_WIDTH = 256;
+const LEFT_SIDEBAR_MIN_WIDTH = 192;
+const LEFT_SIDEBAR_MAX_WIDTH = 384;
+const LEFT_SIDEBAR_WIDTH_STORAGE_KEY = "fusion:left-sidebar-width";
+const LEFT_SIDEBAR_COLLAPSED_STORAGE_KEY = "fusion:left-sidebar-collapsed";
+
+function clampSidebarWidth(width: number): number {
+  return Math.max(LEFT_SIDEBAR_MIN_WIDTH, Math.min(LEFT_SIDEBAR_MAX_WIDTH, width));
+}
+
+function readStoredSidebarWidth(): number {
+  if (typeof window === "undefined") return LEFT_SIDEBAR_DEFAULT_WIDTH;
+  const stored = window.localStorage.getItem(LEFT_SIDEBAR_WIDTH_STORAGE_KEY);
+  const parsed = stored ? Number(stored) : NaN;
+  return Number.isFinite(parsed) ? clampSidebarWidth(parsed) : LEFT_SIDEBAR_DEFAULT_WIDTH;
+}
+
+function readStoredCollapsed(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(LEFT_SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
+}
+
+function persistSidebarWidth(width: number): void {
+  try {
+    window.localStorage.setItem(LEFT_SIDEBAR_WIDTH_STORAGE_KEY, String(width));
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function persistCollapsed(collapsed: boolean): void {
+  try {
+    window.localStorage.setItem(LEFT_SIDEBAR_COLLAPSED_STORAGE_KEY, String(collapsed));
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+export interface LeftSidebarNavProps {
+  view: TaskView;
+  onChangeView: (view: TaskView) => void;
+  onOpenSettings?: () => void;
+  onOpenTodos?: () => void;
+  todosOpen?: boolean;
+  todosEnabled?: boolean;
+  mailboxUnreadCount?: number;
+  mailboxPendingApprovalCount?: number;
+  chatHasUnreadResponse?: boolean;
+  stashOrphanCount?: number;
+  experimentalFeatures?: LeftSidebarExperimentalFeatures;
+  pluginDashboardViews?: PluginDashboardViewEntry[];
+  showAgentsTab?: boolean;
+  showSkillsTab?: boolean;
+  projects?: ProjectInfo[];
+  currentProject?: ProjectInfo | null;
+  onSelectProject?: (project: ProjectInfo) => void;
+  onViewAllProjects?: () => void;
+}
+
+function FusionLogo() {
+  return (
+    <svg className="left-sidebar-nav__logo-mark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 2L3 7v10l9 5 9-5V7l-9-5z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      <path d="M12 7v10M7.5 9.5l9 5M16.5 9.5l-9 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function formatCount(count: number): string {
+  return count > 99 ? "99+" : String(count);
+}
+
+function getPluginEntryView(entry: PluginDashboardViewEntry): TaskView {
+  if (entry.pluginId === "fusion-plugin-dependency-graph" && entry.view.viewId === "graph") {
+    return "graph";
+  }
+  return buildPluginTaskViewId(entry.pluginId, entry.view.viewId);
+}
+
+function isPluginEntryActive(view: TaskView, entry: PluginDashboardViewEntry): boolean {
+  const pluginTaskView = buildPluginTaskViewId(entry.pluginId, entry.view.viewId);
+  return view === pluginTaskView || (view === "graph" && entry.pluginId === "fusion-plugin-dependency-graph" && entry.view.viewId === "graph");
+}
+
+function sortPluginViews(entries: PluginDashboardViewEntry[]): PluginDashboardViewEntry[] {
+  return [...entries].sort((a, b) => (a.view.order ?? Number.MAX_SAFE_INTEGER) - (b.view.order ?? Number.MAX_SAFE_INTEGER));
+}
+
+export function LeftSidebarNav({
+  view,
+  onChangeView,
+  onOpenSettings,
+  onOpenTodos,
+  todosOpen = false,
+  todosEnabled = false,
+  mailboxUnreadCount = 0,
+  mailboxPendingApprovalCount = 0,
+  chatHasUnreadResponse = false,
+  stashOrphanCount = 0,
+  experimentalFeatures,
+  pluginDashboardViews = [],
+  showAgentsTab = false,
+  showSkillsTab = false,
+  projects = [],
+  currentProject = null,
+  onSelectProject,
+  onViewAllProjects,
+}: LeftSidebarNavProps) {
+  const { t } = useTranslation("app");
+  const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth);
+  const [isCollapsed, setIsCollapsed] = useState(readStoredCollapsed);
+
+  const toggleCollapsed = useCallback(() => {
+    setIsCollapsed((current) => {
+      const next = !current;
+      persistCollapsed(next);
+      return next;
+    });
+  }, []);
+
+  const handleResizeStart = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (isCollapsed) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const resizeHandle = event.currentTarget;
+    if (typeof resizeHandle.setPointerCapture === "function") {
+      resizeHandle.setPointerCapture(event.pointerId);
+    }
+
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+    let latestWidth = startWidth;
+    document.body.style.userSelect = "none";
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const nextWidth = clampSidebarWidth(startWidth + moveEvent.clientX - startX);
+      latestWidth = nextWidth;
+      setSidebarWidth(nextWidth);
+    };
+
+    const onPointerUp = (upEvent: PointerEvent) => {
+      if (typeof resizeHandle.releasePointerCapture === "function") {
+        resizeHandle.releasePointerCapture(upEvent.pointerId);
+      }
+      document.body.style.userSelect = "";
+      document.removeEventListener("pointermove", onPointerMove);
+      document.removeEventListener("pointerup", onPointerUp);
+      persistSidebarWidth(latestWidth);
+    };
+
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", onPointerUp);
+  }, [isCollapsed, sidebarWidth]);
+
+  const handleResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (isCollapsed) return;
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const step = event.shiftKey ? 48 : 16;
+    const delta = event.key === "ArrowLeft" ? -step : step;
+    const nextWidth = clampSidebarWidth(sidebarWidth + delta);
+    setSidebarWidth(nextWidth);
+    persistSidebarWidth(nextWidth);
+  }, [isCollapsed, sidebarWidth]);
+
+  const primaryPluginViews = useMemo(
+    () => sortPluginViews(pluginDashboardViews.filter((entry) => entry.view.placement === "primary")),
+    [pluginDashboardViews],
+  );
+  const overflowPluginViews = useMemo(
+    () => sortPluginViews(pluginDashboardViews.filter((entry) => entry.view.placement !== "primary")),
+    [pluginDashboardViews],
+  );
+
+  const primaryEntries: SidebarNavEntry[] = [
+    {
+      id: "board",
+      label: t("header.boardView", "Board view"),
+      view: "board",
+      isActive: view === "board",
+      icon: LayoutGrid,
+      testId: "sidebar-nav-board",
+      onSelect: () => onChangeView("board"),
+    },
+    {
+      id: "list",
+      label: t("header.listView", "List view"),
+      view: "list",
+      isActive: view === "list",
+      icon: List,
+      testId: "sidebar-nav-list",
+      onSelect: () => onChangeView("list"),
+    },
+    ...(showAgentsTab
+      ? [
+          {
+            id: "agents",
+            label: t("header.agentsView", "Agents view"),
+            view: "agents" as TaskView,
+            isActive: view === "agents",
+            icon: Bot,
+            testId: "sidebar-nav-agents",
+            onSelect: () => onChangeView("agents"),
+          },
+        ]
+      : []),
+    {
+      id: "command-center",
+      label: t("header.commandCenterView", "Command Center"),
+      view: "command-center",
+      isActive: view === "command-center",
+      icon: Gauge,
+      testId: "sidebar-nav-command-center",
+      onSelect: () => onChangeView("command-center"),
+    },
+    {
+      id: "missions",
+      label: t("header.missionsView", "Missions view"),
+      view: "missions",
+      isActive: view === "missions",
+      icon: Target,
+      testId: "sidebar-nav-missions",
+      onSelect: () => onChangeView("missions"),
+    },
+    {
+      id: "chat",
+      label: t("header.chatView", "Chat view"),
+      view: "chat",
+      isActive: view === "chat",
+      icon: MessageSquare,
+      testId: "sidebar-nav-chat",
+      dot: chatHasUnreadResponse && view !== "chat" ? "pending" : undefined,
+      onSelect: () => onChangeView("chat"),
+    },
+    {
+      id: "documents",
+      label: t("header.documentsView", "Documents view"),
+      view: "documents",
+      isActive: view === "documents",
+      icon: FileText,
+      testId: "sidebar-nav-documents",
+      onSelect: () => onChangeView("documents"),
+    },
+    {
+      id: "mailbox",
+      label: t("header.mailboxView", "Mailbox view"),
+      view: "mailbox",
+      isActive: view === "mailbox",
+      icon: Mail,
+      testId: "sidebar-nav-mailbox",
+      badge: mailboxUnreadCount > 0 ? mailboxUnreadCount : undefined,
+      dot: view !== "mailbox" && mailboxPendingApprovalCount > 0 ? "pending" : view !== "mailbox" && mailboxUnreadCount > 0 ? "online" : undefined,
+      onSelect: () => onChangeView("mailbox"),
+    },
+    ...primaryPluginViews.map((entry): SidebarNavEntry => {
+      const PluginIcon = getPluginNavIcon(entry.view.icon);
+      const targetView = getPluginEntryView(entry);
+      return {
+        id: `plugin-${entry.pluginId}-${entry.view.viewId}`,
+        label: `${entry.view.label} view`,
+        view: targetView,
+        isActive: isPluginEntryActive(view, entry),
+        icon: PluginIcon,
+        testId: `sidebar-nav-plugin-${entry.pluginId}-${entry.view.viewId}`,
+        onSelect: () => onChangeView(targetView),
+      };
+    }),
+  ];
+
+  const secondaryEntries: SidebarNavEntry[] = [
+    ...(experimentalFeatures?.evalsView
+      ? [{ id: "evals", label: t("header.evalsView", "Evals"), view: "evals" as TaskView, isActive: view === "evals", icon: Target, testId: "sidebar-nav-evals", onSelect: () => onChangeView("evals") }]
+      : []),
+    ...(experimentalFeatures?.goalsView
+      ? [{ id: "goals", label: t("header.goalsView", "Goals"), view: "goalsView" as TaskView, isActive: view === "goalsView", icon: Target, testId: "sidebar-nav-goals", onSelect: () => onChangeView("goalsView") }]
+      : []),
+    { id: "stash-recovery", label: t("header.stashRecoveryView", "Stash Recovery"), view: "stash-recovery", isActive: view === "stash-recovery", icon: History, testId: "sidebar-nav-stash-recovery", badge: stashOrphanCount > 0 ? stashOrphanCount : undefined, onSelect: () => onChangeView("stash-recovery") },
+    ...(experimentalFeatures?.researchView
+      ? [{ id: "research", label: t("header.researchView", "Research"), view: "research" as TaskView, isActive: view === "research", icon: Search, testId: "sidebar-nav-research", onSelect: () => onChangeView("research") }]
+      : []),
+    ...(experimentalFeatures?.insights
+      ? [{ id: "insights", label: t("header.insightsView", "Insights"), view: "insights" as TaskView, isActive: view === "insights", icon: Sparkles, testId: "sidebar-nav-insights", onSelect: () => onChangeView("insights") }]
+      : []),
+    ...(showSkillsTab
+      ? [{ id: "skills", label: t("header.skillsView", "Skills"), view: "skills" as TaskView, isActive: view === "skills", icon: Zap, testId: "sidebar-nav-skills", onSelect: () => onChangeView("skills") }]
+      : []),
+    ...(experimentalFeatures?.memoryView
+      ? [{ id: "memory", label: t("header.memoryView", "Memory"), view: "memory" as TaskView, isActive: view === "memory", icon: Brain, testId: "sidebar-nav-memory", onSelect: () => onChangeView("memory") }]
+      : []),
+    { id: "secrets", label: t("header.secretsView", "Secrets"), view: "secrets", isActive: view === "secrets", icon: Lock, testId: "sidebar-nav-secrets", onSelect: () => onChangeView("secrets") },
+    ...(experimentalFeatures?.devServerView
+      ? [{ id: "devserver", label: t("header.devServerView", "Dev Server"), view: "devserver" as TaskView, isActive: view === "dev-server" || view === "devserver", icon: Monitor, testId: "sidebar-nav-devserver", onSelect: () => onChangeView("devserver") }]
+      : []),
+    ...(todosEnabled && onOpenTodos
+      ? [{ id: "todos", label: t("header.todosView", "Todos"), isActive: todosOpen, icon: CheckSquare, testId: "sidebar-nav-todos", onSelect: onOpenTodos }]
+      : []),
+    ...overflowPluginViews.map((entry): SidebarNavEntry => {
+      const PluginIcon = getPluginNavIcon(entry.view.icon);
+      const targetView = getPluginEntryView(entry);
+      return {
+        id: `plugin-${entry.pluginId}-${entry.view.viewId}`,
+        label: entry.view.label,
+        view: targetView,
+        isActive: isPluginEntryActive(view, entry),
+        icon: PluginIcon,
+        testId: `sidebar-nav-plugin-${entry.pluginId}-${entry.view.viewId}`,
+        onSelect: () => onChangeView(targetView),
+      };
+    }),
+  ];
+
+  const renderEntry = (entry: SidebarNavEntry) => {
+    const Icon = entry.icon;
+    return (
+      <button
+        key={entry.id}
+        type="button"
+        className={`left-sidebar-nav__item${entry.isActive ? " left-sidebar-nav__item--active" : ""}`}
+        aria-label={entry.label}
+        aria-current={entry.isActive && entry.view ? "page" : undefined}
+        title={entry.label}
+        data-testid={entry.testId}
+        onClick={entry.onSelect}
+      >
+        <span className="left-sidebar-nav__icon-wrap">
+          <Icon size={16} />
+          {entry.dot ? <span className={`status-dot status-dot--${entry.dot} left-sidebar-nav__dot`} aria-hidden="true" /> : null}
+        </span>
+        <span className="left-sidebar-nav__label">{entry.label}</span>
+        {entry.badge ? <span className="btn-badge left-sidebar-nav__badge">{formatCount(entry.badge)}</span> : null}
+      </button>
+    );
+  };
+
+  return (
+    <aside
+      className={`left-sidebar-nav${isCollapsed ? " left-sidebar-nav--collapsed" : ""}`}
+      data-testid="left-sidebar-nav"
+      aria-label={t("nav.sidebarAriaLabel", "Sidebar navigation")}
+      style={isCollapsed ? undefined : { width: sidebarWidth, minWidth: sidebarWidth }}
+    >
+      <div className="left-sidebar-nav__brand" data-testid="sidebar-nav-brand">
+        <FusionLogo />
+        <span className="left-sidebar-nav__wordmark">Fusion</span>
+        <button
+          type="button"
+          className="btn-icon left-sidebar-nav__collapse-toggle"
+          aria-label={isCollapsed ? t("nav.expandSidebar", "Expand sidebar") : t("nav.collapseSidebar", "Collapse sidebar")}
+          title={isCollapsed ? t("nav.expandSidebar", "Expand sidebar") : t("nav.collapseSidebar", "Collapse sidebar")}
+          aria-pressed={isCollapsed}
+          data-testid="sidebar-nav-collapse-toggle"
+          onClick={toggleCollapsed}
+        >
+          {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+        </button>
+      </div>
+
+      <div className="left-sidebar-nav__project-selector" data-testid="sidebar-nav-project-selector">
+        {onViewAllProjects ? (
+          <StandaloneProjectSelector
+            projects={projects}
+            currentProject={currentProject}
+            onSelect={onSelectProject}
+            onViewAll={onViewAllProjects}
+            allowSingleProject
+          />
+        ) : null}
+      </div>
+
+      <nav className="left-sidebar-nav__list" aria-label={t("nav.primaryNavAriaLabel", "Primary navigation")}>
+        <div className="left-sidebar-nav__section">{primaryEntries.map(renderEntry)}</div>
+        <div className="left-sidebar-nav__section left-sidebar-nav__section--secondary">{secondaryEntries.map(renderEntry)}</div>
+      </nav>
+
+      <div className="left-sidebar-nav__footer">
+        <button
+          type="button"
+          className="btn left-sidebar-nav__item left-sidebar-nav__settings"
+          aria-label={t("header.settings", "Settings")}
+          title={t("header.settings", "Settings")}
+          data-testid="sidebar-nav-settings"
+          onClick={onOpenSettings}
+        >
+          <Settings size={16} />
+          <span className="left-sidebar-nav__label">{t("header.settings", "Settings")}</span>
+        </button>
+      </div>
+
+      {!isCollapsed && (
+        <div
+          className="left-sidebar-nav__resize-handle"
+          role="separator"
+          aria-orientation="vertical"
+          aria-valuemin={LEFT_SIDEBAR_MIN_WIDTH}
+          aria-valuemax={LEFT_SIDEBAR_MAX_WIDTH}
+          aria-valuenow={sidebarWidth}
+          aria-label={t("nav.resizeSidebar", "Resize sidebar")}
+          tabIndex={0}
+          data-testid="sidebar-nav-resize-handle"
+          onPointerDown={handleResizeStart}
+          onKeyDown={handleResizeKeyDown}
+        />
+      )}
+    </aside>
+  );
+}
