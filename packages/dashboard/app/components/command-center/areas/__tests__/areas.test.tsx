@@ -940,6 +940,29 @@ describe("ProductivityArea", () => {
     expect(screen.getByTestId("cc-productivity-duration-avg").textContent).not.toContain("0");
   });
 
+  it("renders dash sentinels for contract-incomplete productivity payloads", async () => {
+    apiMock.mockResolvedValue({
+      from: "2026-06-08",
+      to: null,
+      modifiedFiles: 1,
+      byLanguage: [],
+      commits: 1,
+      pullRequests: 0,
+    });
+
+    render(<ProductivityArea range={range7d} />);
+
+    const area = await screen.findByTestId("cc-area-productivity");
+    expect(screen.getByTestId("cc-productivity-loc-unavailable").textContent).toBe("—");
+    expect(screen.getByTestId("cc-productivity-hours-saved-unavailable").textContent).toBe("—");
+    expect(screen.getByTestId("cc-productivity-duration-avg-unavailable").textContent).toBe("—");
+    expect(screen.getByTestId("cc-productivity-duration-median-unavailable").textContent).toBe("—");
+    expect(screen.getByTestId("cc-productivity-duration-p90-unavailable").textContent).toBe("—");
+    expect(screen.getByTestId("cc-productivity-duration-total-unavailable").textContent).toBe("—");
+    expect(area.textContent).not.toContain("NaN");
+    expect(area.textContent?.trim()).not.toBe("");
+  });
+
   it("keeps the productivity pie safe for single-item and non-finite language data", async () => {
     apiMock.mockResolvedValue({
       from: "2026-06-08",

@@ -31,6 +31,9 @@ ProductivityAnalytics exposes a categorical language distribution but no per-day
  *
  * FNXC:CommandCenter 2026-06-19-12:10:
  * The task-duration block shows active execution time from completed tasks and must use the same unavailable "—" contract as LOC so absent duration history is never displayed as 0.
+ *
+ * FNXC:CommandCenterProductivity 2026-06-20-03:41:
+ * Every productivity metric sub-object is defaulted to the unavailable sentinel so a partial or contract-incomplete payload, including future field additions, renders "—" instead of throwing an uncaught error that crashes Command Center and pollutes the shared jsdom worker.
  */
 export function ProductivityArea({ range }: { range: DateRange }) {
   const { t } = useTranslation("app");
@@ -58,6 +61,8 @@ export function ProductivityArea({ range }: { range: DateRange }) {
     [data?.byLanguage],
   );
 
+  const loc = data?.loc ?? { value: null, unavailable: true };
+  const hoursSaved = data?.hoursSaved ?? { value: null, unavailable: true };
   const taskDuration = data?.taskDuration ?? {
     completedTasks: 0,
     averageMs: null,
@@ -73,8 +78,8 @@ export function ProductivityArea({ range }: { range: DateRange }) {
       data.pullRequests === 0 &&
       taskDuration.completedTasks === 0);
 
-  const locUnavailable = !data || data.loc.unavailable || data.loc.value === null;
-  const hoursSavedUnavailable = !data || data.hoursSaved.unavailable || data.hoursSaved.value === null;
+  const locUnavailable = !data || loc.unavailable || loc.value === null;
+  const hoursSavedUnavailable = !data || hoursSaved.unavailable || hoursSaved.value === null;
   const durationUnavailable = !data || taskDuration.unavailable;
   const durationTitle = t(
     "commandCenter.productivity.durationUnavailable",
@@ -117,7 +122,7 @@ export function ProductivityArea({ range }: { range: DateRange }) {
                   —
                 </span>
               ) : (
-                formatCount(data.hoursSaved.value ?? 0)
+                formatCount(hoursSaved.value ?? 0)
               )}
             </div>
             <span className="cc-stat-sub">{t("commandCenter.productivity.hoursSavedEstimate", "estimate from lines changed")}</span>
@@ -148,7 +153,7 @@ export function ProductivityArea({ range }: { range: DateRange }) {
                   —
                 </span>
               ) : (
-                formatCount(data.loc.value ?? 0)
+                formatCount(loc.value ?? 0)
               )}
             </div>
             <span className="cc-stat-sub">{t("commandCenter.productivity.volumeHint", "volume, not outcome")}</span>
