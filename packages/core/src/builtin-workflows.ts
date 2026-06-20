@@ -1,4 +1,5 @@
 import { BUILTIN_CODING_WORKFLOW_IR } from "./builtin-coding-workflow-ir.js";
+import { BUILTIN_MARKETING_WORKFLOW_IR } from "./builtin-marketing-workflow-ir.js";
 import { BUILTIN_PR_WORKFLOW_IR } from "./builtin-pr-workflow-ir.js";
 import { BUILTIN_STEPWISE_CODING_WORKFLOW_IR } from "./builtin-stepwise-coding-workflow-ir.js";
 import { BUILTIN_WORKFLOW_SETTINGS } from "./builtin-workflow-settings.js";
@@ -150,6 +151,29 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
       { id: "merge", kind: "prompt", config: builtinPromptConfig("merge", "Merge boundary") },
     ],
   }),
+  {
+    id: "builtin:marketing",
+    name: "Marketing (built-in)",
+    description: "Marketing content pipeline: ideate, brief, draft, editorial review, then publish via the standard lifecycle merge primitives.",
+    kind: "workflow",
+    ir: BUILTIN_MARKETING_WORKFLOW_IR,
+    layout: {
+      start: { x: 60, y: 160 },
+      brief: { x: 230, y: 160 },
+      draft: { x: 400, y: 160 },
+      editorial: { x: 570, y: 160 },
+      "merge-gate": { x: 740, y: 160 },
+      "branch-group-member-integration": { x: 910, y: 80 },
+      "branch-group-promotion": { x: 1080, y: 80 },
+      "merge-attempt": { x: 1250, y: 160 },
+      "merge-retry": { x: 1420, y: 80 },
+      "recovery-router": { x: 1420, y: 240 },
+      "merge-manual-hold": { x: 910, y: 240 },
+      end: { x: 1590, y: 160 },
+    },
+    createdAt: BUILTIN_TS,
+    updatedAt: BUILTIN_TS,
+  },
   linear({
     id: "builtin:compound-engineering",
     name: "Compound engineering (built-in)",
