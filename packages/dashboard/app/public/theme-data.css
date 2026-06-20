@@ -1231,6 +1231,9 @@ Factory Mono is a monochrome Factory variant for FN-6724: keep the industrial mo
 /*
 FNXC:Theming 2026-06-19-15:35:
 The shadcn theme for FN-6747 approximates the shadcn/ui new-york zinc aesthetic with sans-serif typography, tokenized comfortable spacing, 1px borders, subtle flat shadows, neutralized glow tokens, and a solid primary button instead of Factory-style outlined uppercase controls.
+
+FNXC:Theming 2026-06-20-00:00:
+FN-6758 makes the default shadcn highlight/accent orange for focus rings, active borders, links, and selection affordances while preserving the zinc-neutral surfaces, neutralized glows, and solid neutral primary button.
 */
 [data-color-theme="shadcn"] {
   --bg: #09090b;
@@ -1304,8 +1307,8 @@ The shadcn theme for FN-6747 approximates the shadcn/ui new-york zinc aesthetic 
   --cta-glow: none;
   --logo-accent: var(--text);
   --color-info: #38bdf8;
-  --accent: #fafafa;
-  --accent-text: #18181b;
+  --accent: #f97316;
+  --accent-text: #ffffff;
 }
 
 [data-color-theme="shadcn"][data-theme="light"] {
@@ -1351,8 +1354,8 @@ The shadcn theme for FN-6747 approximates the shadcn/ui new-york zinc aesthetic 
   --cta-glow: none;
   --logo-accent: var(--text);
   --color-info: #0284c7;
-  --accent: #18181b;
-  --accent-text: #fafafa;
+  --accent: #ea580c;
+  --accent-text: #ffffff;
 }
 
 [data-color-theme="shadcn"] .card.agent-active {
