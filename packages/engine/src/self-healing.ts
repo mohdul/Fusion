@@ -242,8 +242,19 @@ export interface SelfHealingOptions {
   rootDir: string;
   /** Optional callback to release TaskExecutor in-memory worktree ownership for a task. */
   releaseExecutorWorktreeOwnership?: (taskId: string) => void;
-  /** Optional callback to clear a demonstrably-stale executor binding without touching live sessions. */
-  clearPhantomExecutorBinding?: (taskId: string) => void;
+  /**
+   * FN-6782: read-only snapshot of the executor's in-memory worktree holders
+   * ({ taskId, worktreePath }), so the leaked-slot reaper can cross-check each
+   * holder's task column and reclaim a slot whose holder is no longer in-progress.
+   */
+  listWorktreeHolders?: () => Array<{ taskId: string; worktreePath: string }>;
+  /**
+   * Optional callback to clear a demonstrably-stale executor binding without
+   * touching live sessions. Returns `true` if the binding was cleared, `false`
+   * if the executor refused because a live session surface is still registered
+   * (the leaked-slot reaper relies on this refusal signal).
+   */
+  clearPhantomExecutorBinding?: (taskId: string) => boolean | void;
   /** Optional AgentStore for agent-level self-healing checks. */
   agentStore?: AgentStore;
   /** Canonical stale-lease recovery manager. */
@@ -357,6 +368,12 @@ const STARVED_REFINEMENT_RECOVERY_GRACE_MS = 10 * 60_000;
 const STARVED_PEER_PROGRESS_THRESHOLD = 3;
 const STARVED_REFINEMENT_ESCALATION_COOLDOWN_MS = STARVED_REFINEMENT_RECOVERY_GRACE_MS * 4;
 const ORPHANED_EXECUTION_RECOVERY_GRACE_MS = 60_000;
+/**
+ * FN-6782 leaked-slot reaper grace: a worktree holder whose task has sat in a
+ * reapable column (todo/triage) shorter than this is left alone, so the reaper
+ * never races a task mid-transition out of in-progress.
+ */
+const LEAKED_WORKTREE_SLOT_GRACE_MS = 60_000;
 export const VALIDATOR_RUN_STALE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const ACTIVE_MERGE_STATUSES = new Set(["merging", "merging-pr", "merging-fix"]);
 const NON_TERMINAL_STEP_STATUSES = new Set(["pending", "in-progress"]);
@@ -395,6 +412,16 @@ const ORPHANED_WITH_WORKTREE_GRACE_MS = 300_000;
  */
 const MAX_TASK_DONE_RETRIES = 3;
 export const MAX_WORKTREE_SESSION_RETRIES = 3;
+/**
+ * FNXC:WorkflowLifecycle 2026-06-20-00:00: single source of truth for the
+ * pause-abort park error message markers. The executor's handleGraphFailure
+ * builds the parked-failure message from these, and `recoverPausedAbortFailures`
+ * matches on them — sharing the constants prevents the recovery predicate from
+ * silently drifting if the message text is ever edited (greptile review on
+ * PR #1687: a string-coupled predicate breaks with no compile-time signal).
+ */
+export const PAUSE_ABORT_PARK_ERROR_MARKER = "Workflow graph failure surfaced after paused";
+export const PAUSE_ABORT_PARK_OPERATOR_MARKER = "operator action required";
 /**
  * FNXC:AutoMergeRetries 2026-06-17-04:20:
  * Keep this export as the historical default seed for tests and dashboard fallback alignment, but SelfHealingManager must call resolveMaxAutoMergeRetries(settings) at decision points so configured projects do not recover or stall at the old fixed value.
@@ -2111,6 +2138,7 @@ export class SelfHealingManager {
           { name: "recover-misclassified-failures", fn: () => this.recoverMisclassifiedFailures() },
           { name: "recover-missing-worktree-review-failures", fn: () => this.recoverMissingWorktreeReviewFailures() },
           { name: "recover-no-progress-no-task-done", fn: () => this.recoverNoProgressNoTaskDoneFailures() },
+          { name: "recover-paused-abort-failures", fn: () => this.recoverPausedAbortFailures() },
           { name: "recover-partial-progress-no-task-done", fn: () => this.recoverPartialProgressNoTaskDoneFailures() },
           { name: "recover-orphaned-executions", fn: () => this.recoverOrphanedExecutions() },
           { name: "recover-approved-triage", fn: () => this.recoverApprovedTriageTasks() },
@@ -2135,6 +2163,10 @@ export class SelfHealingManager {
           { name: "recover-stale-transition-pending", fn: () => this.runStaleTransitionPendingSweep() },
           { name: "reconcile-self-defeating-deps", fn: () => this.reconcileSelfDefeatingDependencies() },
           { name: "reconcile-dependency-blocking-leases", fn: () => this.reconcileDependencyBlockingLeases() },
+          // FN-6782: reclaim in-memory worktree slots whose holder is no longer
+          // in-progress (defense-in-depth for the pause-abort leak; conservative,
+          // gated by clearPhantomExecutorBinding's live-session refusal).
+          { name: "reap-leaked-concurrency-slots", fn: () => this.reapLeakedConcurrencySlots() },
           { name: "reconcile-dependency-cycles", fn: () => this.reconcileDependencyCycles().then(() => undefined) },
           { name: "reclaim-pr-conflicts", fn: () => this.reclaimPrConflicts() },
           { name: "reclaim-self-owned-branch-conflicts", fn: () => this.reclaimSelfOwnedBranchConflicts() },
@@ -7874,6 +7906,130 @@ export class SelfHealingManager {
     }
   }
 
+  /**
+   * FN-6782 / pause-abort auto-recovery: a global pause/resume cycle can leave a
+   * task parked `status: "failed"` with the "operator action required" message
+   * produced by the executor's genuine-pause-abort branch (executor.ts
+   * handleGraphFailure). Historically that required a human to retry/unpause.
+   * This sweep auto-recovers those parks: it clears the failed status/error and
+   * rehomes the task to `todo` with `status: null`. The scheduler treats a
+   * non-paused `todo` task with `status: null` as runnable (scheduler.ts builds
+   * its dispatch set from `column === "todo" && !paused`; `status: "queued"` is
+   * the *blocked* marker, not the runnable one), so clearing to null is what
+   * makes the task schedulable again.
+   *
+   * Guards mirror the other failed-task recoverers: never touch a task that is
+   * paused, currently executing, or whose error is not the pause-abort park.
+   */
+  async recoverPausedAbortFailures(): Promise<number> {
+    try {
+      // FNXC:WorkflowLifecycle 2026-06-20-00:00: self-guard against global/engine
+      // pause at the method entry, not just the batch-2 runner. This method is
+      // public and exercised directly (tests, potential API path); without this,
+      // calling it while paused would requeue tasks the operator intentionally
+      // froze (greptile P1, PR #1687). Mirrors every peer recovery func.
+      const settings = await this.store.getSettings();
+      if (settings.globalPause || settings.enginePaused) return 0;
+
+      const executingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
+      const tasks = await this.store.listTasks({ slim: true });
+
+      const isPausedAbortPark = (t: Task): boolean =>
+        t.status === "failed" &&
+        typeof t.error === "string" &&
+        t.error.includes(PAUSE_ABORT_PARK_OPERATOR_MARKER) &&
+        t.error.includes(PAUSE_ABORT_PARK_ERROR_MARKER);
+
+      const parked = tasks.filter((t) =>
+        isPausedAbortPark(t) &&
+        !t.paused &&
+        !t.userPaused &&
+        !executingIds.has(t.id) &&
+        // Only recover columns that are safe to requeue. done/archived parks are
+        // terminal and in-review parks may carry merge state — leave those for
+        // the existing review recoverers / operator inspection.
+        (t.column === "todo" || t.column === "in-progress"),
+      );
+
+      if (parked.length === 0) return 0;
+
+      log.warn(`Found ${parked.length} pause-abort park(s) requiring auto-recovery`);
+
+      let recovered = 0;
+      for (const task of parked) {
+        try {
+          // FNXC:WorkflowLifecycle 2026-06-20-00:00: re-read AND re-validate the
+          // FULL predicate against the refreshed row with a FRESH executing set
+          // before mutating — the outer snapshot can go stale across awaits, so a
+          // task that became ineligible (paused, user-paused, started executing,
+          // or moved to a non-recoverable column) must not get a backward move
+          // applied (coderabbit Major + greptile, PR #1687).
+          const fresh = await this.store.getTask(task.id);
+          const latestExecutingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
+          if (
+            !fresh ||
+            !isPausedAbortPark(fresh) ||
+            fresh.paused ||
+            fresh.userPaused ||
+            latestExecutingIds.has(fresh.id) ||
+            !(fresh.column === "todo" || fresh.column === "in-progress")
+          ) {
+            continue;
+          }
+
+          await this.store.updateTask(task.id, { status: null, error: null });
+          if (fresh.column !== "todo") {
+            await this.store.moveTask(task.id, "todo", {
+              preserveProgress: true,
+              moveSource: "engine",
+              recoveryRehome: true,
+            });
+          }
+          // Release any in-memory worktree ownership the leaked park may still
+          // pin, so the requeued task does not re-block the concurrency gate.
+          // FNXC:WorkflowLifecycle 2026-06-20-00:00: use clearPhantomExecutorBinding
+          // (wired + live-session-refusal guarded), NOT releaseExecutorWorktreeOwnership
+          // which is a declared-but-never-wired option — it would silently no-op.
+          this.options.clearPhantomExecutorBinding?.(task.id);
+
+          await this.store.logEntry(
+            task.id,
+            "Auto-recovered: pause-abort park cleared — requeued for normal scheduling",
+          );
+          // FNXC:WorkflowLifecycle 2026-06-20-00:00: audit emission is strictly
+          // best-effort — an audit throw AFTER the successful state mutation must
+          // not drop into the per-task catch and falsely log "recovery failed" /
+          // skip the recovered++ (coderabbit, PR #1687).
+          try {
+            await this.store.recordRunAuditEvent?.({
+              taskId: task.id,
+              agentId: "self-healing",
+              runId: generateSyntheticRunId("self-healing", task.id),
+              domain: "database",
+              mutationType: "task:auto-recover-paused-abort-park",
+              target: task.id,
+              metadata: { fromColumn: fresh.column },
+            });
+          } catch (auditErr: unknown) {
+            log.warn(`Pause-abort park audit emission failed for ${task.id}: ${auditErr instanceof Error ? auditErr.message : String(auditErr)}`);
+          }
+          log.log(`Recovered pause-abort park ${task.id}: ${task.title || task.description?.slice(0, 60) || "(untitled)"}`);
+          recovered++;
+        } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+          log.error(`Failed to recover pause-abort park ${task.id}: ${errorMessage}`);
+        }
+      }
+
+      if (recovered > 0) {
+        log.log(`Recovered ${recovered} pause-abort park(s) → requeued to todo`);
+      }
+      return recovered;
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Pause-abort park recovery failed: ${errorMessage}`);
+      return 0;
+    }
+  }
+
   async auditNoCommitsExpectedCandidates(): Promise<number> {
     try {
       const inReviewTasks = await this.store.listTasks({ column: "in-review", slim: true });
@@ -7910,6 +8066,81 @@ export class SelfHealingManager {
       log.error(`No-commits-expected audit failed: ${errorMessage}`);
       return 0;
     }
+  }
+
+  /**
+   * FN-6782 leaked-slot reaper (defense-in-depth). The source leak is closed in
+   * the executor's pause-abort park path, but a worktree slot leaked by any
+   * other/future path would silently pin `maxWorktrees` and concurrency-starve
+   * the whole queue (the FN-6756 "in todo yet still maxWorktrees=3/3 holder"
+   * symptom) until an engine restart. This sweep cross-checks each in-memory
+   * worktree holder against its task column and reclaims slots whose holder is
+   * no longer legitimately holding one.
+   *
+   * Conservative by construction — release happens ONLY when every guard agrees:
+   *   - the holder is NOT in the executor's executing set;
+   *   - its task is missing, or in `todo`/`triage` (a task waiting to run must
+   *     not pin a worktree). `in-progress` and `in-review` holders legitimately
+   *     retain their worktree; `done`/`archived` are handled by worktree-metadata
+   *     reconcile + merge cleanup, so they are left alone here;
+   *   - it has sat in the reapable column past a short grace (no mid-transition race);
+   *   - and finally `clearPhantomExecutorBinding` itself refuses (returns false)
+   *     if any live session surface is still registered — the last line of
+   *     defense against pulling a worktree out from under a running agent.
+   */
+  async reapLeakedConcurrencySlots(): Promise<number> {
+    const settings = await this.store.getSettings();
+    if (settings.globalPause || settings.enginePaused) {
+      return 0;
+    }
+
+    const holders = this.options.listWorktreeHolders?.() ?? [];
+    if (holders.length === 0) return 0;
+
+    const executingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
+    const now = Date.now();
+    let reaped = 0;
+
+    for (const { taskId } of holders) {
+      try {
+        if (executingIds.has(taskId)) continue;
+
+        const task = await this.store.getTask(taskId).catch(() => null);
+        const reapableColumn = !task || task.column === "todo" || task.column === "triage";
+        if (!reapableColumn) continue;
+
+        if (task) {
+          const since = new Date(task.columnMovedAt ?? task.updatedAt).getTime();
+          if (Number.isFinite(since) && now - since < LEAKED_WORKTREE_SLOT_GRACE_MS) continue;
+        }
+
+        // FNXC:WorkflowLifecycle 2026-06-20-00:00: re-check execution ownership
+        // against a FRESH executing set immediately before releasing — the outer
+        // `executingIds` snapshot predates this holder's `getTask` await, so a
+        // task that started executing mid-sweep must not have its slot pulled
+        // (coderabbit Major, PR #1687). clearPhantomExecutorBinding's live-session
+        // refusal is the last line of defense, but this avoids racing it at all.
+        const latestExecutingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
+        if (latestExecutingIds.has(taskId)) continue;
+
+        const released = this.options.clearPhantomExecutorBinding?.(taskId);
+        // false = executor refused (live session surface); undefined = not wired.
+        if (released !== true) continue;
+
+        reaped++;
+        await this.store.logEntry(
+          taskId,
+          "Auto-recovered: released leaked worktree/concurrency slot (holder no longer in-progress)",
+        );
+        log.warn(`Reaped leaked worktree slot held by ${taskId} (column=${task?.column ?? "missing"})`);
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        log.error(`Leaked-slot reaper failed for ${taskId}: ${errorMessage}`);
+      }
+    }
+
+    if (reaped > 0) log.log(`Reaped ${reaped} leaked worktree slot(s)`);
+    return reaped;
   }
 
   /**
