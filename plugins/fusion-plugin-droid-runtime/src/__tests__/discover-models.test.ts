@@ -106,4 +106,12 @@ describe("discoverDroidModels", () => {
 
     await expect(discoverDroidModels()).resolves.toEqual([]);
   });
+
+  it("returns [] instead of rejecting when spawn throws synchronously", async () => {
+    spawnMock.mockImplementationOnce(() => {
+      throw new Error("Real AI CLI launch blocked during tests: droid exec --help");
+    });
+
+    await expect(discoverDroidModels()).resolves.toEqual([]);
+  });
 });

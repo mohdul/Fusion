@@ -40,15 +40,7 @@ async function getDiscoveredModels() {
       try {
         const ids = Array.from(new Set(await discoverDroidModels()));
         if (ids.length === 0) return [];
-        return ids.map((id) => ({
-          id,
-          name: id,
-          reasoning: true,
-          input: ["text", "image"] as Array<"text" | "image">,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          contextWindow: 200_000,
-          maxTokens: 8_192,
-        }));
+        return toProviderModels(ids);
       } catch (error) {
         console.warn("[droid-cli] model auto-discovery failed; registering provider with empty model list", error);
         return [];
@@ -59,6 +51,18 @@ async function getDiscoveredModels() {
 }
 
 let cachedMcpConfig: { hash: string; configPath: string } | undefined;
+
+function toProviderModels(ids: string[]): DiscoveredModel[] {
+  return ids.map((id) => ({
+    id,
+    name: id,
+    reasoning: true,
+    input: ["text", "image"] as Array<"text" | "image">,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 200_000,
+    maxTokens: 8_192,
+  }));
+}
 
 function ensureMcpConfig(
   pi: ExtensionAPI,
@@ -93,7 +97,31 @@ function ensureMcpConfig(
   }
 }
 
+function registerDroidProvider(pi: ExtensionAPI, models: DiscoveredModel[]) {
+  pi.registerProvider(PROVIDER_ID, {
+    baseUrl: "droid-cli",
+    apiKey: "unused",
+    api: "droid-cli",
+    models,
+    streamSimple: ((model, context, options) => {
+      const configPath = ensureMcpConfig(
+        pi,
+        (context as { tools?: ReadonlyArray<{ name: string; description: string; parameters: Record<string, unknown> }> }).tools,
+      );
+      return streamViaCli(
+        model,
+        context as never,
+        { ...(options ?? {}), mcpConfigPath: configPath } as never,
+      ) as unknown as ReturnType<StreamSimpleHandler>;
+    }) as StreamSimpleHandler,
+  });
+}
+
 export default function (pi: ExtensionAPI) {
+  /*
+  FNXC:CliRuntime 2026-06-21-12:00:
+  Engine and dashboard startup must not wait for local Droid CLI probes. Register the provider synchronously with an empty model list, then launch presence/auth/model discovery as fire-and-forget bounded probes so a missing or wedged `droid` binary cannot stall extension loading.
+  */
   void runCliValidationOnce();
 
   pi.on("session_start", async () => {
@@ -103,28 +131,19 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
+  try {
+    registerDroidProvider(pi, []);
+  } catch (err) {
+    console.error("[droid-cli] Failed to register provider:", err);
+  }
+
   void (async () => {
     const models = await getDiscoveredModels();
+    if (models.length === 0) return;
     try {
-      pi.registerProvider(PROVIDER_ID, {
-        baseUrl: "droid-cli",
-        apiKey: "unused",
-        api: "droid-cli",
-        models,
-        streamSimple: ((model, context, options) => {
-          const configPath = ensureMcpConfig(
-            pi,
-            (context as { tools?: ReadonlyArray<{ name: string; description: string; parameters: Record<string, unknown> }> }).tools,
-          );
-          return streamViaCli(
-            model,
-            context as never,
-            { ...(options ?? {}), mcpConfigPath: configPath } as never,
-          ) as unknown as ReturnType<StreamSimpleHandler>;
-        }) as StreamSimpleHandler,
-      });
+      registerDroidProvider(pi, models);
     } catch (err) {
-      console.error("[droid-cli] Failed to register provider:", err);
+      console.error("[droid-cli] Failed to refresh discovered provider models:", err);
     }
   })();
 }
