@@ -52,7 +52,8 @@ describe("mobile-nav-bar.css", () => {
 
   it("tab touch targets are at least 36px", () => {
     const block = extractRuleBlock(cssContent, ".mobile-nav-tab");
-    expect(block).toContain("min-height: 36px");
+    // FNXC:DashboardStyling 2026-06-20-20:56: FN-6809 keeps the 36px touch-target intent via tokens; --space-xl (24px) + --space-md (12px) resolves to the same min-height.
+    expect(block).toContain("min-height: calc(var(--space-xl) + var(--space-md))");
   });
 
   it("footer-aware positioning keeps nav at bottom: 0 when footer is visible", () => {

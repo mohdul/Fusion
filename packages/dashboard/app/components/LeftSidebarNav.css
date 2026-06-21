@@ -29,6 +29,10 @@ The left sidebar is a sibling of project-content, so it does not inherit project
   flex-shrink: 0;
 }
 
+/*
+FNXC:DashboardStyling 2026-06-20-20:56:
+The floating sidebar collapse toggle must stay fully round, but FN-6809 surfaced that --radius-full is not a defined dashboard token. Use 50% here to preserve the circular affordance without introducing another undefined custom property.
+*/
 .left-sidebar-nav__collapse-toggle--floating {
   position: absolute;
   top: var(--space-sm);
@@ -40,7 +44,7 @@ The left sidebar is a sibling of project-content, so it does not inherit project
   min-width: calc(var(--space-lg) + var(--space-md));
   min-height: calc(var(--space-lg) + var(--space-md));
   padding: var(--space-xs);
-  border-radius: var(--radius-full);
+  border-radius: 50%;
   box-shadow: var(--shadow-sm);
 }
 
@@ -96,8 +100,12 @@ The left sidebar is a sibling of project-content, so it does not inherit project
   box-shadow: var(--focus-ring);
 }
 
+/*
+FNXC:DashboardStyling 2026-06-20-20:56:
+The active sidebar item must use the defined --status-todo-bg token so the dashboard CSS token-validity gate stays green. FN-6809 replaces the undefined --todo-bg reference without changing the rendered todo status treatment.
+*/
 .left-sidebar-nav__item--active {
-  background: var(--todo-bg);
+  background: var(--status-todo-bg);
   color: var(--todo);
 }
 
