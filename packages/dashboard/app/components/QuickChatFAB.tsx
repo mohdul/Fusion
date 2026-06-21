@@ -122,9 +122,9 @@ function truncateToolValue(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength)}…`;
 }
 
-function formatToolArgsSummary(args?: Record<string, unknown>): string | null {
-  if (!args) return null;
-  const entries = Object.entries(args);
+function formatToolPayloadSummary(toolPayload?: Record<string, unknown>): string | null {
+  if (!toolPayload) return null;
+  const entries = Object.entries(toolPayload);
   if (entries.length === 0) return null;
   return entries
     .map(([key, value]) => {
@@ -140,13 +140,13 @@ function formatToolArgsSummary(args?: Record<string, unknown>): string | null {
     .join(", ");
 }
 
-function formatToolResultSummary(result: unknown): string | null {
-  if (result === undefined) return null;
-  if (typeof result === "string") return truncateToolValue(result, 200);
+function formatToolOutputSummary(toolOutput: unknown): string | null {
+  if (toolOutput === undefined) return null;
+  if (typeof toolOutput === "string") return truncateToolValue(toolOutput, 200);
   try {
-    return truncateToolValue(JSON.stringify(result), 200);
+    return truncateToolValue(JSON.stringify(toolOutput), 200);
   } catch {
-    return truncateToolValue(String(result), 200);
+    return truncateToolValue(String(toolOutput), 200);
   }
 }
 
@@ -181,14 +181,14 @@ function renderToolCalls(
 
     const isRunning = toolCall.status === "running";
     const isError = toolCall.status === "completed" && toolCall.isError;
-    const argsSummary = formatToolArgsSummary(toolCall.args);
-    const resultSummary = formatToolResultSummary(toolCall.result);
+    const payloadSummary = formatToolPayloadSummary(toolCall.args);
+    const outputSummary = formatToolOutputSummary(toolCall.result);
     const baseSummaryPreview = isRunning
-      ? argsSummary
-      : resultSummary
-        ? `result: ${resultSummary}`
-        : argsSummary
-          ? `args: ${argsSummary}`
+      ? payloadSummary
+      : outputSummary
+        ? t("chat.toolResultPreview", "result: {{summary}}", { summary: outputSummary })
+        : payloadSummary
+          ? t("chat.toolArgsPreview", "args: {{summary}}", { summary: payloadSummary })
           : null;
     const summaryPreview = compact ? null : baseSummaryPreview;
     const statusLabel = isRunning ? "running" : isError ? "error" : "completed";
@@ -206,16 +206,16 @@ function renderToolCalls(
           <span className="chat-tool-call-status-text">{statusLabel}</span>
         </summary>
         <div className="chat-tool-call-content">
-          {argsSummary && (
+          {payloadSummary && (
             <div className="chat-tool-call-row">
-              <span className="chat-tool-call-label">args</span>
-              <span className="chat-tool-call-value">{argsSummary}</span>
+              <span className="chat-tool-call-label">{t("chat.toolArgsLabel", "args")}</span>
+              <span className="chat-tool-call-value">{payloadSummary}</span>
             </div>
           )}
-          {resultSummary && (
+          {outputSummary && (
             <div className={`chat-tool-call-row${isError ? " chat-tool-call-row--error" : ""}`}>
-              <span className="chat-tool-call-label">result</span>
-              <span className="chat-tool-call-value">{resultSummary}</span>
+              <span className="chat-tool-call-label">{t("chat.toolResultLabel", "result")}</span>
+              <span className="chat-tool-call-value">{outputSummary}</span>
             </div>
           )}
         </div>
@@ -1214,6 +1214,9 @@ export function QuickChatFAB({
 
   FNXC:QuickChatMobileResize 2026-06-16-23:45:
   FN-6503 requires the first Android open to re-sample visualViewport after the stealth-input to composer focus handoff. Android Chrome can settle the keyboard shrink without a later resize observed by this panel effect, so focusin runs an immediate synchronous apply plus a short settle tail while resize/scroll remain synchronous for iOS animation lock-step.
+
+  FNXC:QuickChatMobileResize 2026-06-19-23:57:
+  FN-6757 keeps distinct visualViewport samples synchronous, but marks Android Chrome's constant-layout-viewport keyboard path for CSS easing. iOS Safari shrinks window.innerHeight with vv.height or reports a non-zero offsetTop on re-focus, so it stays off the smoothing class and avoids the one-paint lag caused by rAF throttling.
   */
   useLayoutEffect(() => {
     if (!isOpen) return;
@@ -1225,6 +1228,17 @@ export function QuickChatFAB({
 
     const vv = window.visualViewport;
     let lastAppliedSample: { height: number; offsetTop: number } | null = null;
+    let androidViewportSmoothingObserved = false;
+    const updateAndroidViewportSmoothing = (nextSample: { height: number; offsetTop: number }) => {
+      const layoutViewportShrink = window.innerHeight - nextSample.height;
+      const isAndroidResizeContentSample = nextSample.offsetTop === 0 && layoutViewportShrink > 1;
+      if (nextSample.offsetTop !== 0) {
+        androidViewportSmoothingObserved = false;
+      } else if (isAndroidResizeContentSample) {
+        androidViewportSmoothingObserved = true;
+      }
+      panel.classList.toggle("quick-chat-panel--vv-height-smoothing", androidViewportSmoothingObserved);
+    };
     const apply = () => {
       if (suppressVvShrinkRef.current) return;
       const nextSample = { height: vv.height, offsetTop: vv.offsetTop || 0 };
@@ -1236,6 +1250,7 @@ export function QuickChatFAB({
         return;
       }
       lastAppliedSample = nextSample;
+      updateAndroidViewportSmoothing(nextSample);
       panel.style.setProperty("--vv-height", `${nextSample.height}px`);
       panel.style.setProperty("--vv-offset-top", `${nextSample.offsetTop}px`);
     };
@@ -1307,6 +1322,7 @@ export function QuickChatFAB({
         window.clearTimeout(timeoutId);
       }
       cancelTailPoll();
+      panel.classList.remove("quick-chat-panel--vv-height-smoothing");
       panel.style.removeProperty("--vv-height");
       panel.style.removeProperty("--vv-offset-top");
     };
@@ -2533,6 +2549,7 @@ export function QuickChatFAB({
       && panelRef.current
     ) {
       suppressVvShrinkRef.current = true;
+      panelRef.current.classList.remove("quick-chat-panel--vv-height-smoothing");
       panelRef.current.style.removeProperty("--vv-height");
       panelRef.current.style.removeProperty("--vv-offset-top");
       window.setTimeout(() => {
@@ -3491,7 +3508,7 @@ export function QuickChatFAB({
                 loading={fileMention.loading}
               />
               {showSkillMenu && (
-                <div className="chat-skill-menu" data-testid="quick-chat-skill-menu" role="listbox" aria-label="Skill suggestions">
+                <div className="chat-skill-menu" data-testid="quick-chat-skill-menu" role="listbox" aria-label={t("chat.skillSuggestions", "Skill suggestions")}>
                   {skillsLoading ? (
                     <div className="chat-skill-menu-empty">{t("chat.loadingSkills", "Loading skills…")}</div>
                   ) : filteredSkills.length === 0 ? (

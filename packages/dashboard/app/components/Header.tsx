@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Settings, Pause, Play, Square, LayoutGrid, List, Terminal, Lightbulb, Search, X, Activity, MoreHorizontal, Clock, Folder, History, GitBranch, Monitor, Server, Workflow, Bot, Target, ChevronRight, FileCode, Loader2, Grid3X3, Mail, MessageSquare, ChevronDown, Check, Zap, Sparkles, FileText, Brain, CheckSquare, Lock, Gauge } from "lucide-react";
+import { Settings, Pause, Play, Square, LayoutGrid, List, Terminal, Lightbulb, Search, X, Activity, MoreHorizontal, Clock, Folder, History, GitBranch, Monitor, Workflow, Bot, Target, ChevronRight, FileCode, Loader2, Grid3X3, Mail, MessageSquare, ChevronDown, Check, Zap, Sparkles, FileText, Brain, CheckSquare, Lock, Gauge } from "lucide-react";
 import "./Header.css";
 // ProjectSelector styles used by the imported standalone component.
 import "./ProjectSelector.css";
@@ -77,9 +77,6 @@ export interface HeaderProps {
   stashOrphanCount?: number;
   onOpenSchedules?: () => void;
   onOpenGitManager?: () => void;
-  onOpenNodes?: () => void;
-  /** When false, hides the Nodes management button. Defaults to true for backward compat. */
-  showNodesButton?: boolean;
   onOpenWorkflowEditor?: () => void;
   onOpenScripts?: () => void;
   onRunScript?: (name: string, command: string) => void;
@@ -117,6 +114,8 @@ export interface HeaderProps {
   shellHost?: ShellHostContext;
   /** When true, the mobile bottom nav bar handles primary navigation and header nav controls are hidden. */
   mobileNavEnabled?: boolean;
+  /** When true on non-mobile screens, persistent left sidebar owns primary view navigation. */
+  leftSidebarNavActive?: boolean;
   /** Available nodes for the node selector */
   availableNodes?: NodeConfig[];
   /** Currently selected node (null for local) */
@@ -126,7 +125,7 @@ export interface HeaderProps {
   /** Whether the current view is a remote node */
   isRemote?: boolean;
   /** Experimental feature flags controlling visibility of nav items. */
-  experimentalFeatures?: { insights?: boolean; memoryView?: boolean; devServer?: boolean; devServerView?: boolean; researchView?: boolean; evalsView?: boolean; goalsView?: boolean };
+  experimentalFeatures?: { insights?: boolean; memoryView?: boolean; devServer?: boolean; devServerView?: boolean; researchView?: boolean; evalsView?: boolean; goalsView?: boolean; leftSidebarNav?: boolean };
   pluginDashboardViews?: PluginDashboardViewEntry[];
   shellConnectionControl?: ReactNode;
 }
@@ -146,8 +145,6 @@ export function Header({
   stashOrphanCount = 0,
   onOpenSchedules,
   onOpenGitManager,
-  onOpenNodes,
-  showNodesButton,
   onOpenWorkflowEditor,
   onOpenScripts,
   onRunScript,
@@ -180,6 +177,7 @@ export function Header({
   projectId,
   shellHost = { kind: "browser" },
   mobileNavEnabled,
+  leftSidebarNavActive = false,
   availableNodes = [],
   currentNode,
   onSelectNode,
@@ -194,6 +192,14 @@ export function Header({
   const isTablet = mode === "tablet";
   const isCompact = isMobile || isTablet;
   const hideFullNav = isMobile && mobileNavEnabled;
+  /*
+  FNXC:Navigation 2026-06-19-00:00:
+  When experimental left sidebar navigation is active on tablet/desktop, Header must suppress its view-toggle and More-views trigger so there is one canonical non-mobile navigation surface and no orphaned chevron remains.
+
+  FNXC:WorkflowControls 2026-06-20-00:00:
+  The hidden Header view-toggle location becomes the workflow-control portal slot only when left sidebar navigation is active on tablet/desktop. Mobile and flag-off paths keep workflow controls inline so the board/list chrome remains byte-identical.
+  */
+  const hideHeaderViewNav = leftSidebarNavActive && !isMobile;
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const [isNonMobileSearchOpen, setIsNonMobileSearchOpen] = useState(false);
   // Track when user has explicitly closed the search (used for toggle visibility)
@@ -745,7 +751,7 @@ export function Header({
             height={24}
             viewBox="0 0 128 128"
             fill="none"
-            aria-label="Fusion logo"
+            aria-label={t("header.fusionLogo")}
             role="img"
           >
             <circle
@@ -760,7 +766,7 @@ export function Header({
               fill="currentColor"
             />
           </svg>
-          <h1 className="logo">Fusion</h1>
+          <h1 className="logo">{t("appName", "Fusion")}</h1>
         </div>
 
         {/* Mobile Project Switch - dropdown trigger next to logo when at least one project exists (mobile only) */}
@@ -987,8 +993,16 @@ export function Header({
           </button>
         )}
 
+        {hideHeaderViewNav && (
+          <div
+            id="header-workflow-slot"
+            className="header-workflow-slot"
+            data-testid="header-workflow-slot"
+          />
+        )}
+
         {/* View Toggle - always inline, even on mobile */}
-        {!hideFullNav && onChangeView && (
+        {!hideFullNav && !hideHeaderViewNav && onChangeView && (
           <div className="view-toggle">
             <button
               className={`view-toggle-btn${view === "board" ? " active" : ""}`}
@@ -1019,23 +1033,21 @@ export function Header({
                 <Bot size={16} />
               </button>
             )}
-            {isTablet && (
-              /*
-              FNXC:Navigation 2026-06-19-12:00:
-              Tablet navigation promotes Command Center immediately after Agents while desktop keeps Command Center in the More-views overflow.
-              Documents moves to the tablet More-views overflow below to conserve horizontal space without changing desktop ordering.
-              */
-              <button
-                className={`view-toggle-btn${view === "command-center" ? " active" : ""}`}
-                onClick={() => onChangeView("command-center")}
-                title={t("header.commandCenterView", "Command Center")}
-                aria-label={t("header.commandCenterView", "Command Center")}
-                aria-pressed={view === "command-center"}
-                data-testid="view-toggle-command-center"
-              >
-                <Gauge size={16} />
-              </button>
-            )}
+            {/*
+            FNXC:Navigation 2026-06-19-12:00:
+            FN-6781 supersedes the prior tablet-only inline / desktop-overflow split: Command Center must remain a stable inline destination immediately after Agents on tablet and desktop so the affordance does not relocate while resizing.
+            Documents still moves to the tablet More-views overflow to conserve horizontal space without changing desktop ordering.
+            */}
+            <button
+              className={`view-toggle-btn${view === "command-center" ? " active" : ""}`}
+              onClick={() => onChangeView("command-center")}
+              title={t("header.commandCenterView", "Command Center")}
+              aria-label={t("header.commandCenterView", "Command Center")}
+              aria-pressed={view === "command-center"}
+              data-testid="view-toggle-command-center"
+            >
+              <Gauge size={16} />
+            </button>
             <button
               className={`view-toggle-btn${view === "missions" ? " active" : ""}`}
               onClick={() => onChangeView("missions")}
@@ -1110,7 +1122,7 @@ export function Header({
               <>
                 <button
                   ref={viewOverflowTriggerRef}
-                  className={`view-toggle-btn${["research", "skills", "insights", "memory", "secrets", "dev-server", "devserver", "graph", "stash-recovery"].includes(view) || (!isTablet && view === "command-center") || (isTablet && view === "documents") || (experimentalFeatures?.evalsView && view === "evals") || (experimentalFeatures?.goalsView && view === "goalsView") || (todosEnabled && todosOpen) || isPluginViewId(view) ? " active" : ""}`}
+                  className={`view-toggle-btn${["research", "skills", "insights", "memory", "secrets", "dev-server", "devserver", "graph", "stash-recovery"].includes(view) || (isTablet && view === "documents") || (experimentalFeatures?.evalsView && view === "evals") || (experimentalFeatures?.goalsView && view === "goalsView") || (todosEnabled && todosOpen) || isPluginViewId(view) ? " active" : ""}`}
                   onClick={() => setIsViewOverflowOpen((prev) => !prev)}
                   title={t("header.moreViews", "More views")}
                   aria-label={t("header.moreViews", "More views")}
@@ -1250,20 +1262,6 @@ export function Header({
                       >
                         <FileText size={14} />
                         <span>{t("header.documentsView", "Documents view")}</span>
-                      </button>
-                    )}
-                    {!isTablet && (
-                      <button
-                        className={`view-toggle-overflow-item${view === "command-center" ? " active" : ""}`}
-                        onClick={() => {
-                          onChangeView("command-center");
-                          setIsViewOverflowOpen(false);
-                        }}
-                        role="menuitem"
-                        data-testid="view-overflow-command-center"
-                      >
-                        <Gauge size={14} />
-                        <span>{t("header.commandCenterView", "Command Center")}</span>
                       </button>
                     )}
                     {experimentalFeatures?.devServerView && (
@@ -1540,20 +1538,6 @@ export function Header({
                 role="menu"
                 aria-label={t("header.moreActions", "More actions")}
               >
-                {onOpenNodes && showNodesButton !== false && (
-                  <button
-                    className="view-toggle-overflow-item"
-                    onClick={() => {
-                      onOpenNodes();
-                      setIsDesktopOverflowOpen(false);
-                    }}
-                    role="menuitem"
-                    data-testid="desktop-overflow-nodes-btn"
-                  >
-                    <Server size={14} />
-                    <span>{t("header.nodes", "Nodes")}</span>
-                  </button>
-                )}
                 <button
                   className="view-toggle-overflow-item"
                   onClick={() => {
@@ -1695,18 +1679,6 @@ export function Header({
               >
                 <GitBranch size={16} />
                 <span>{t("header.gitManager", "Git Manager")}</span>
-              </button>
-            )}
-            {/* Nodes - in overflow on mobile */}
-            {onOpenNodes && showNodesButton !== false && (
-              <button
-                className="mobile-overflow-item"
-                onClick={() => handleOverflowAction(onOpenNodes)}
-                role="menuitem"
-                data-testid="overflow-nodes-btn"
-              >
-                <Server size={16} />
-                <span>{t("header.nodes", "Nodes")}</span>
               </button>
             )}
             {!isDesktopShell && (

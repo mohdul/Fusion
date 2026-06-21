@@ -1,3 +1,5 @@
+import { readFileSync } from "fs";
+import { resolve } from "path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MobileNavBar } from "../MobileNavBar";
@@ -26,6 +28,70 @@ function mockViewport(mode: "mobile" | "desktop") {
   });
 }
 
+const mobileNavCss = readFileSync(resolve(process.cwd(), "app/components/MobileNavBar.css"), "utf8");
+
+function extractRuleBlock(css: string, selector: string): string {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = css.match(new RegExp(`${escapedSelector}\\s*\\{([\\s\\S]*?)\\}`));
+  return match?.[1] ?? "";
+}
+
+function getRenderedMobileTabs(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>(".mobile-nav-bar > .mobile-nav-tab"));
+}
+
+function expectUniformMobileNavColumns(container: HTMLElement, expectedTabCount: number) {
+  const tabs = getRenderedMobileTabs(container);
+  expect(tabs).toHaveLength(expectedTabCount);
+
+  const tabRule = extractRuleBlock(mobileNavCss, ".mobile-nav-tab");
+  expect(tabRule).toContain("--mobile-nav-icon-size: calc(var(--space-lg) + var(--space-sm) - (var(--space-xs) / 2))");
+  expect(tabRule).toContain("flex: 1 1 0");
+  expect(tabRule).toContain("min-width: 0");
+  expect(tabRule).toContain("align-items: center");
+  expect(tabRule).toMatch(/padding:\s*[^;]+\s+0;/);
+  expect(tabRule).not.toMatch(/margin-left|margin-right/);
+
+  const iconRule = extractRuleBlock(mobileNavCss, ".mobile-nav-tab svg");
+  expect(iconRule).toContain("width: var(--mobile-nav-icon-size)");
+  expect(iconRule).toContain("height: var(--mobile-nav-icon-size)");
+
+  const iconWrapperRule = extractRuleBlock(mobileNavCss, ".mobile-nav-tab-icon-wrapper");
+  expect(iconWrapperRule).toContain("position: relative");
+  expect(iconWrapperRule).toContain("display: flex");
+  expect(iconWrapperRule).toContain("flex: 0 0 var(--mobile-nav-icon-size)");
+  expect(iconWrapperRule).toContain("align-items: center");
+  expect(iconWrapperRule).toContain("justify-content: center");
+  expect(iconWrapperRule).toContain("width: var(--mobile-nav-icon-size)");
+  expect(iconWrapperRule).toContain("height: var(--mobile-nav-icon-size)");
+
+  const labelRule = extractRuleBlock(mobileNavCss, ".mobile-nav-tab-label");
+  expect(labelRule).toContain("width: 100%");
+  expect(labelRule).toContain("min-width: 0");
+  expect(labelRule).toContain("text-align: center");
+
+  for (const tab of tabs) {
+    expect(tab.className).toContain("mobile-nav-tab");
+    expect(tab.querySelector(".mobile-nav-tab-label")).toBeInTheDocument();
+    const iconSlots = tab.querySelectorAll(":scope > .mobile-nav-tab-icon-wrapper");
+    expect(iconSlots).toHaveLength(1);
+    expect(tab.querySelector(":scope > svg")).toBeNull();
+    expect(iconSlots[0].querySelector("svg")).toBeInTheDocument();
+  }
+
+  if (container.querySelector(".mobile-nav-tab-badge")) {
+    expect(extractRuleBlock(mobileNavCss, ".mobile-nav-tab-badge")).toContain("position: absolute");
+  }
+
+  if (container.querySelector(".mobile-nav-chat-unread-dot")) {
+    const dotRule = extractRuleBlock(mobileNavCss, ".mobile-nav-chat-unread-dot");
+    expect(dotRule).toContain("position: absolute");
+    expect(dotRule).toContain("top: 0");
+    expect(dotRule).toContain("right: 0");
+    expect(dotRule).not.toContain("*-1");
+  }
+}
+
 const createDefaultProps = () => ({
   view: "board" as const,
   onChangeView: vi.fn(),
@@ -34,7 +100,6 @@ const createDefaultProps = () => ({
   onOpenSettings: vi.fn(),
   onOpenActivityLog: vi.fn(),
   onOpenMailbox: vi.fn(),
-  onOpenNodes: vi.fn(),
   mailboxUnreadCount: 0,
   mailboxPendingApprovalCount: 0,
   onOpenGitManager: vi.fn(),
@@ -106,6 +171,57 @@ describe("MobileNavBar", () => {
     expect(screen.queryByTestId("mobile-nav-tab-skills")).toBeNull();
   });
 
+  it("keeps every mobile tab in an equal-width column across tab, active, badge, and status-dot variants", () => {
+    const sevenTabRender = render(
+      <MobileNavBar
+        {...createDefaultProps()}
+        showSkillsTab={false}
+        view="command-center"
+        chatHasUnreadResponse={true}
+        mailboxUnreadCount={7}
+        mailboxPendingApprovalCount={2}
+      />,
+    );
+    expectUniformMobileNavColumns(sevenTabRender.container, 7);
+    expect(screen.getByTestId("mobile-nav-tab-command-center").className).toContain("mobile-nav-tab--active");
+    expect(screen.getByLabelText("Unread chat response")).toBeInTheDocument();
+    expect(screen.getByLabelText("Pending approvals")).toBeInTheDocument();
+    expect(screen.getByTestId("mobile-nav-tab-mailbox").querySelector(".mobile-nav-tab-badge")?.textContent).toBe("7");
+    sevenTabRender.unmount();
+
+    const eightTabRender = render(
+      <MobileNavBar
+        {...createDefaultProps()}
+        showSkillsTab={true}
+        view="skills"
+        chatHasUnreadResponse={true}
+        mailboxUnreadCount={101}
+        mailboxPendingApprovalCount={1}
+      />,
+    );
+    expectUniformMobileNavColumns(eightTabRender.container, 8);
+    expect(screen.getByTestId("mobile-nav-tab-skills").className).toContain("mobile-nav-tab--active");
+    expect(screen.getByTestId("mobile-nav-tab-mailbox").querySelector(".mobile-nav-tab-badge")?.textContent).toBe("99+");
+    eightTabRender.unmount();
+
+    const pluginVariantRender = render(
+      <MobileNavBar
+        {...createDefaultProps()}
+        showSkillsTab={true}
+        pluginDashboardViews={[
+          {
+            pluginId: "fusion-plugin-spacing-check",
+            view: { viewId: "wide", label: "Very Long Plugin Destination", componentPath: "./WidePluginView", icon: "Workflow", placement: "primary", order: 1 },
+          },
+        ]}
+      />,
+    );
+    expectUniformMobileNavColumns(pluginVariantRender.container, 8);
+    expect(screen.queryByTestId("mobile-nav-tab-plugin-fusion-plugin-spacing-check-wide")).toBeNull();
+    fireEvent.click(screen.getByTestId("mobile-nav-tab-more"));
+    expect(screen.getByTestId("mobile-more-item-plugin-fusion-plugin-spacing-check-wide")).toBeDefined();
+  });
+
   it("keeps Todos in the mobile More sheet when todoView is enabled", () => {
     const onOpenTodos = vi.fn();
     render(
@@ -120,6 +236,30 @@ describe("MobileNavBar", () => {
     fireEvent.click(screen.getByTestId("mobile-more-item-todos"));
 
     expect(onOpenTodos).toHaveBeenCalled();
+  });
+
+  it("Mailbox is a primary tab and is not duplicated in the More sheet", () => {
+    render(<MobileNavBar {...createDefaultProps()} mailboxUnreadCount={3} mailboxPendingApprovalCount={1} />);
+
+    expect(screen.getByTestId("mobile-nav-tab-mailbox")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("mobile-nav-tab-more"));
+    expect(screen.queryByTestId("mobile-more-item-mailbox")).toBeNull();
+  });
+
+  it("Todos lives only in the More sheet, never a primary tab", () => {
+    render(
+      <MobileNavBar
+        {...createDefaultProps()}
+        onOpenTodos={vi.fn()}
+        experimentalFeatures={{ todoView: true }}
+      />,
+    );
+
+    expect(screen.queryByTestId("mobile-nav-tab-todos")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("mobile-nav-tab-more"));
+    expect(screen.getByTestId("mobile-more-item-todos")).toBeInTheDocument();
   });
 
   it("shows secrets in More and routes to secrets view", () => {
@@ -254,20 +394,36 @@ describe("MobileNavBar", () => {
     expect(props.onChangeView).toHaveBeenCalledWith("mailbox");
   });
 
-  it("places Command Center immediately after Mailbox and routes from the top-level tab", () => {
+  it("places Command Center after Mailbox while primary plugins stay More-only", () => {
     const props = createDefaultProps();
-    render(<MobileNavBar {...props} view="board" mailboxUnreadCount={3} mailboxPendingApprovalCount={1} />);
+    render(
+      <MobileNavBar
+        {...props}
+        view="board"
+        mailboxUnreadCount={3}
+        mailboxPendingApprovalCount={1}
+        pluginDashboardViews={[
+          {
+            pluginId: "fusion-plugin-compound-engineering",
+            view: { viewId: "compound-engineering", label: "Compound Engineering", componentPath: "./CompoundEngineeringView", icon: "Workflow", placement: "primary", order: 1 },
+          },
+        ]}
+      />,
+    );
 
     const mailboxTab = screen.getByTestId("mobile-nav-tab-mailbox");
     const commandCenterTab = screen.getByTestId("mobile-nav-tab-command-center");
     expect(mailboxTab.compareDocumentPosition(commandCenterTab) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(commandCenterTab.previousElementSibling).toBe(mailboxTab);
+    expect(mailboxTab.querySelector(".mobile-nav-tab-badge")?.textContent).toBe("3");
+    expect(screen.queryByTestId("mobile-nav-tab-plugin-fusion-plugin-compound-engineering-compound-engineering")).toBeNull();
 
     fireEvent.click(commandCenterTab);
     expect(props.onChangeView).toHaveBeenCalledWith("command-center");
 
     fireEvent.click(screen.getByTestId("mobile-nav-tab-more"));
     expect(screen.queryByTestId("mobile-more-item-command-center")).toBeNull();
+    expect(screen.getByTestId("mobile-more-item-plugin-fusion-plugin-compound-engineering-compound-engineering")).toBeDefined();
   });
 
   it("agents tab calls onChangeView with 'agents'", () => {
@@ -289,15 +445,15 @@ describe("MobileNavBar", () => {
     expect(badge?.textContent).toBe("5");
   });
 
-  it("shows matching mailbox unread badge in the More sheet", () => {
+  it("keeps mailbox unread badge on the primary tab only", () => {
     render(<MobileNavBar {...createDefaultProps()} mailboxUnreadCount={7} />);
 
-    fireEvent.click(screen.getByTestId("mobile-nav-tab-more"));
+    const tabBadge = screen.getByTestId("mobile-nav-tab-mailbox").querySelector(".mobile-nav-tab-badge");
+    expect(tabBadge).toBeDefined();
+    expect(tabBadge?.textContent).toBe("7");
 
-    const moreItemBadge = screen.getByTestId("mobile-more-item-mailbox").querySelector(".mobile-more-item-badge");
-    expect(moreItemBadge).toBeDefined();
-    expect(moreItemBadge?.className).toContain("mobile-more-item-badge--unread");
-    expect(moreItemBadge?.textContent).toBe("7");
+    fireEvent.click(screen.getByTestId("mobile-nav-tab-more"));
+    expect(screen.queryByTestId("mobile-more-item-mailbox")).toBeNull();
   });
 
   it("tasks tab calls onChangeView with 'board' when coming from a non-tasks view", () => {
@@ -408,7 +564,8 @@ describe("MobileNavBar", () => {
     render(<MobileNavBar {...createDefaultProps()} />);
     fireEvent.click(screen.getByTestId("mobile-nav-tab-more"));
 
-    expect(screen.getByTestId("mobile-more-item-mailbox")).toBeDefined();
+    expect(screen.queryByTestId("mobile-more-item-mailbox")).toBeNull();
+    expect(screen.getByTestId("mobile-nav-tab-mailbox")).toBeDefined();
     expect(screen.getByTestId("mobile-more-item-activity")).toBeDefined();
     expect(screen.getByTestId("mobile-more-item-git")).toBeDefined();
     expect(screen.getByTestId("mobile-more-item-terminal")).toBeDefined();
@@ -491,27 +648,10 @@ describe("MobileNavBar", () => {
     expect(screen.queryByTestId("mobile-more-item-research")).toBeNull();
   });
 
-  it("shows nodes in more sheet only when nodesView is enabled", () => {
-    const disabledProps = createDefaultProps();
-    const { unmount } = render(<MobileNavBar {...disabledProps} experimentalFeatures={{}} />);
+  it("does not show nodes in more sheet because Nodes lives in Command Center", () => {
+    render(<MobileNavBar {...createDefaultProps()} experimentalFeatures={{}} />);
     fireEvent.click(screen.getByTestId("mobile-nav-tab-more"));
     expect(screen.queryByTestId("mobile-more-item-nodes")).toBeNull();
-    unmount();
-
-    const enabledProps = createDefaultProps();
-    render(<MobileNavBar {...enabledProps} experimentalFeatures={{ nodesView: true }} />);
-    fireEvent.click(screen.getByTestId("mobile-nav-tab-more"));
-    expect(screen.getByTestId("mobile-more-item-nodes")).toBeDefined();
-  });
-
-  it("invokes onOpenNodes when nodes item is tapped", () => {
-    const props = createDefaultProps();
-    render(<MobileNavBar {...props} experimentalFeatures={{ nodesView: true }} />);
-
-    fireEvent.click(screen.getByTestId("mobile-nav-tab-more"));
-    fireEvent.click(screen.getByTestId("mobile-more-item-nodes"));
-
-    expect(props.onOpenNodes).toHaveBeenCalledOnce();
   });
 
   it("does not show memory in more sheet when memoryView is not enabled", () => {

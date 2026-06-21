@@ -43,6 +43,7 @@ import {
 } from "./components/model-onboarding-state";
 import type { SectionId } from "./components/SettingsModal";
 import { MobileNavBar } from "./components/MobileNavBar";
+import { LeftSidebarNav } from "./components/LeftSidebarNav";
 import { QuickChatFAB } from "./components/QuickChatFAB";
 import { ToastContainer } from "./components/ToastContainer";
 import { useBackgroundSessions } from "./hooks/useBackgroundSessions";
@@ -109,7 +110,6 @@ const DocumentsView = lazy(() => import("./components/DocumentsView").then((m) =
 const InsightsView = lazy(() => import("./components/InsightsView").then((m) => ({ default: m.InsightsView })));
 const ResearchView = lazy(() => import("./components/ResearchView").then((m) => ({ default: m.ResearchView })));
 const EvalsView = lazy(() => import("./components/EvalsView").then((m) => ({ default: m.EvalsView })));
-const NodesView = lazy(() => import("./components/NodesView").then((m) => ({ default: m.NodesView })));
 const ChatView = lazy(() => import("./components/ChatView").then((m) => ({ default: m.ChatView })));
 
 const SkillsView = lazy(() => import("./components/SkillsView").then((m) => ({ default: m.SkillsView })));
@@ -139,7 +139,6 @@ function prefetchLazyViews() {
     void import("./components/InsightsView");
     void import("./components/ResearchView");
     void import("./components/EvalsView");
-    void import("./components/NodesView");
     void import("./components/ChatView");
 
     void import("./components/SkillsView");
@@ -848,11 +847,6 @@ function AppInner() {
     });
   }, [boardSourceTasks, branchFilter, baseBranchFilter]);
 
-  // Nodes management is an overlay view (not a modal), so it stays local to App.
-  const [nodesOpen, setNodesOpen] = useState(false);
-  const closeNodes = useCallback(() => {
-    setNodesOpen(false);
-  }, []);
   const [retryingProjects, setRetryingProjects] = useState(false);
   const [missionResumeSessionId, setMissionResumeSessionId] = useState<string | undefined>(undefined);
   const [missionTargetId, setMissionTargetId] = useState<string | undefined>(undefined);
@@ -1037,6 +1031,13 @@ function AppInner() {
   const nodesEnabled = experimentalFeatures.nodesView === true;
   const researchEnabled = experimentalFeatures.researchView === true;
   const evalsEnabled = experimentalFeatures.evalsView === true;
+  /*
+  FNXC:Navigation 2026-06-19-00:00:
+  Experimental left sidebar navigation replaces the Header view shortcuts with a persistent sidebar on non-mobile project screens, while mobile continues to use the bottom navigation bar as the only primary navigation surface.
+  */
+  const leftSidebarNavEnabled = experimentalFeatures.leftSidebarNav === true;
+  const executorFooterVisible = viewMode === "project" && !!currentProject;
+  const sidebarActive = leftSidebarNavEnabled && !isMobile && executorFooterVisible;
   const agentOnboardingEnabled = experimentalFeatures.agentOnboarding === true;
   const agentsEnabled = true;
 
@@ -1089,13 +1090,6 @@ function AppInner() {
     }
   }, [taskView, settingsLoaded, skillsEnabled, insightsEnabled, handleChangeTaskView, agentsEnabled, memoryEnabled, devServerEnabled, researchEnabled, evalsEnabled, goalsEnabled, graphPluginTaskView]);
 
-  // Auto-close nodes overlay if feature flag is toggled off while overlay is open
-  useEffect(() => {
-    if (nodesOpen && !nodesEnabled) {
-      removeNav(closeNodes);
-      closeNodes();
-    }
-  }, [closeNodes, nodesOpen, nodesEnabled, removeNav]);
   const {
     availableModels,
     favoriteProviders,
@@ -1231,27 +1225,6 @@ function AppInner() {
     [workflowSteps],
   );
 
-  const _handleOpenNodes = useCallback(() => {
-    if (!nodesEnabled) return;
-    setNodesOpen((prev) => !prev);
-  }, [nodesEnabled]);
-
-  const closeNodesWithNav = useCallback(() => {
-    removeNav(closeNodes);
-    closeNodes();
-  }, [closeNodes, removeNav]);
-
-  // History-aware nodes toggle — pushes nav entry only when opening
-  const handleOpenNodesWithNav = useCallback(() => {
-    if (!nodesEnabled) return;
-    if (!nodesOpen) {
-      setNodesOpen(true);
-      pushNav({ type: "view", revert: closeNodes });
-    } else {
-      closeNodesWithNav();
-    }
-  }, [closeNodes, closeNodesWithNav, nodesEnabled, nodesOpen, pushNav]);
-
   // History-aware modal open handlers — push nav entries for back-navigation.
   const openDetailTask = useCallback((task: Task | TaskDetail, tab?: Parameters<typeof modalManager.openDetailTask>[1], opts?: { origin?: DetailTaskOrigin }) => {
     modalManager.openDetailTask(task, tab, opts);
@@ -1273,8 +1246,8 @@ function AppInner() {
     pushNav({ type: "modal", close: modalManager.closePlanning });
   }, [modalManager, pushNav]);
 
-  const openPlanningWithInitialPlanWithNav = useCallback((initialPlan: string) => {
-    modalManager.openPlanningWithInitialPlan(initialPlan);
+  const openPlanningWithInitialPlanWithNav = useCallback((initialPlan: string, workflowId?: string | null) => {
+    modalManager.openPlanningWithInitialPlan(initialPlan, workflowId);
     pushNav({ type: "modal", close: modalManager.closePlanning });
   }, [modalManager, pushNav]);
 
@@ -1283,8 +1256,8 @@ function AppInner() {
     pushNav({ type: "modal", close: modalManager.closePlanning });
   }, [modalManager, pushNav]);
 
-  const openSubtaskBreakdownWithNav = useCallback((description: string) => {
-    modalManager.openSubtaskBreakdown(description);
+  const openSubtaskBreakdownWithNav = useCallback((description: string, workflowId?: string | null) => {
+    modalManager.openSubtaskBreakdown(description, workflowId);
     pushNav({ type: "modal", close: modalManager.closeSubtask });
   }, [modalManager, pushNav]);
 
@@ -1522,18 +1495,6 @@ function AppInner() {
             void shellApi.openConnectionManager();
           } : undefined}
         />
-      );
-    }
-
-    if (nodesOpen) {
-      return (
-        <div className="nodes-management-overlay">
-          <PageErrorBoundary>
-            <Suspense fallback={null}>
-              <NodesView addToast={addToast} onClose={closeNodesWithNav} />
-            </Suspense>
-          </PageErrorBoundary>
-        </div>
       );
     }
 
@@ -1819,7 +1780,15 @@ function AppInner() {
       return (
         <PageErrorBoundary>
           <Suspense fallback={null}>
-            <CommandCenter />
+            <CommandCenter
+              projectId={currentProject?.id}
+              colorTheme={colorTheme}
+              themeMode={themeMode}
+              onColorThemeChange={setColorTheme}
+              onThemeModeChange={setThemeMode}
+              addToast={addToast}
+              nodesEnabled={nodesEnabled}
+            />
           </Suspense>
         </PageErrorBoundary>
       );
@@ -1881,6 +1850,9 @@ function AppInner() {
             prAuthAvailable={prAuthAvailable}
             onOpenWorkflowEditor={openWorkflowEditorWithNav}
             onCreateWorkflow={openCreateWorkflowWithNav}
+            workflowColumnsEnabled={experimentalFeatures.workflowColumns === true}
+            settingsLoaded={settingsLoaded}
+            workflowControlsInHeader={sidebarActive}
           />
         </PageErrorBoundary>
       );
@@ -1918,7 +1890,11 @@ function AppInner() {
           lastFetchTimeMs={lastFetchTimeMs}
           prAuthAvailable={prAuthAvailable}
           autoMerge={autoMerge}
+          onOpenWorkflowEditor={openWorkflowEditorWithNav}
           onCreateWorkflow={openCreateWorkflowWithNav}
+          workflowColumnsEnabled={experimentalFeatures.workflowColumns === true}
+          settingsLoaded={settingsLoaded}
+          workflowControlsInHeader={sidebarActive}
         />
       </PageErrorBoundary>
     );
@@ -1963,8 +1939,6 @@ function AppInner() {
         stashOrphanCount={stashOrphanCount}
         onOpenSchedules={openSchedulesWithNav}
         onOpenGitManager={openGitManagerWithNav}
-        onOpenNodes={handleOpenNodesWithNav}
-        showNodesButton={nodesEnabled}
         onOpenWorkflowEditor={openWorkflowEditorWithNav}
         onOpenScripts={openScriptsWithNav}
         onRunScript={runScriptWithNav}
@@ -1996,6 +1970,7 @@ function AppInner() {
         onViewAllProjects={handleViewAllProjects}
         projectId={currentProject?.id}
         mobileNavEnabled={isMobile}
+        leftSidebarNavActive={sidebarActive}
         // Node switching props
         availableNodes={nodes}
         currentNode={currentNode}
@@ -2015,6 +1990,7 @@ function AppInner() {
           researchView: researchEnabled,
           evalsView: evalsEnabled,
           goalsView: goalsEnabled,
+          leftSidebarNav: leftSidebarNavEnabled,
         }}
         pluginDashboardViews={pluginDashboardViews}
         shellConnectionControl={
@@ -2034,7 +2010,7 @@ function AppInner() {
           />
         </>
       )}
-      {viewMode === "project" && currentProject && !nodesOpen && taskView !== "missions" && !modalManager.isPlanningOpen && !sessionBannersHidden && (
+      {viewMode === "project" && currentProject && taskView !== "missions" && !modalManager.isPlanningOpen && !sessionBannersHidden && (
         <SessionNotificationBanner
           sessions={sessionsNeedingInput}
           onResumeSession={handleOpenBackgroundSession}
@@ -2132,12 +2108,48 @@ function AppInner() {
           }}
         />
       )}
-      <div
-        className={`project-content${viewMode === "project" && currentProject && (!isMobile || !mobileKeyboardOpen) ? " project-content--with-footer" : ""}${isMobile && !mobileKeyboardOpen ? " project-content--with-mobile-nav" : ""}`}
-      >
-        {renderMainContent()}
+      {/*
+      FNXC:Navigation 2026-06-19-00:00:
+      The left sidebar experiment wraps only the project content region on non-mobile project screens; mobile keeps MobileNavBar as the navigation owner and the flag leaves project-content unwrapped when inactive.
+      */}
+      <div className={`dashboard-project-shell${sidebarActive ? " dashboard-project-shell--with-sidebar" : ""}`} data-testid="dashboard-project-shell">
+        {sidebarActive && (
+          <LeftSidebarNav
+            view={taskView}
+            onChangeView={handleTaskViewChange}
+            onOpenSettings={openSettingsWithNav}
+            onOpenTodos={openTodosWithNav}
+            todosOpen={modalManager.todosOpen}
+            todosEnabled={todosEnabled}
+            mailboxUnreadCount={mailboxUnreadCount}
+            mailboxPendingApprovalCount={mailboxPendingApprovalCount}
+            chatHasUnreadResponse={chatHasUnreadResponse}
+            stashOrphanCount={stashOrphanCount}
+            experimentalFeatures={{
+              insights: insightsEnabled,
+              memoryView: memoryEnabled,
+              devServerView: devServerEnabled,
+              researchView: researchEnabled,
+              evalsView: evalsEnabled,
+              goalsView: goalsEnabled,
+            }}
+            pluginDashboardViews={pluginDashboardViews}
+            showAgentsTab={agentsEnabled}
+            showSkillsTab={skillsEnabled}
+            projects={effectiveProjects}
+            currentProject={currentProject}
+            onSelectProject={handleSelectProject}
+            onViewAllProjects={handleViewAllProjects}
+            footerVisible={executorFooterVisible}
+          />
+        )}
+        <div
+          className={`project-content${executorFooterVisible && (!isMobile || !mobileKeyboardOpen) ? " project-content--with-footer" : ""}${isMobile && !mobileKeyboardOpen ? " project-content--with-mobile-nav" : ""}`}
+        >
+          {renderMainContent()}
+        </div>
       </div>
-      {viewMode === "project" && currentProject && !nodesOpen && (
+      {executorFooterVisible && currentProject && (
         <ExecutorStatusBar
           tasks={isRemote && remoteData.tasks.length > 0 ? remoteData.tasks : tasks}
           projectId={currentProject.id}
@@ -2164,7 +2176,6 @@ function AppInner() {
         onOpenSettings={openSettingsWithNav}
         onOpenActivityLog={openActivityLogWithNav}
         onOpenMailbox={() => handleTaskViewChange("mailbox")}
-        onOpenNodes={handleOpenNodesWithNav}
         mailboxUnreadCount={mailboxUnreadCount}
         mailboxPendingApprovalCount={mailboxPendingApprovalCount}
         chatHasUnreadResponse={chatHasUnreadResponse}
@@ -2195,7 +2206,6 @@ function AppInner() {
           researchView: researchEnabled,
           evalsView: evalsEnabled,
           goalsView: goalsEnabled,
-          nodesView: nodesEnabled,
         }}
         pluginDashboardViews={pluginDashboardViews}
         shellConnectionControl={

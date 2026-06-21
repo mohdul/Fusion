@@ -1,8 +1,6 @@
 {
   "actions": {
-    "cancel": "Cancelar",
-    "close": "Cerrar",
-    "save": "Guardar"
+    "send": ""
   },
   "agents": {
     "ratings": {
@@ -34,7 +32,6 @@
       "minutesAgo_other": ""
     }
   },
-  "archive": "Archivar",
   "board": {
     "rejection": {
       "capacityExhausted": "",
@@ -44,7 +41,6 @@
       "workflowMismatch": ""
     }
   },
-  "cancel": "Cancelar",
   "chat": {
     "failedToGetResponse": "",
     "failureReferenceId": "",
@@ -54,25 +50,23 @@
     "openMailboxMessage": "",
     "toolCallArgsPrefix": "",
     "toolCallResultPrefix": "",
+    "toolCallsCount_one": "",
+    "toolCallsCount_other": "",
+    "toolCallsHeader": "",
     "toolCallStatusCompleted": "",
     "toolCallStatusError": "",
     "toolCallStatusErrors": "",
     "toolCallStatusRunning": "",
-    "toolCallsCount_one": "",
-    "toolCallsCount_other": "",
-    "toolCallsHeader": "",
     "viewFailureDetails": ""
   },
-  "close": "Cerrar",
-  "columns": {
-    "archived": "Archivado",
-    "done": "Hecho",
-    "in-progress": "En progreso",
-    "in-review": "En revisión",
-    "todo": "Por hacer",
-    "triage": "Planificación"
+  "commandCenter": {
+    "range": {
+      "allTime": "",
+      "last24h": "",
+      "last30d": "",
+      "last7d": ""
+    }
   },
-  "delete": "Eliminar",
   "health": {
     "anomaly": {
       "duplicateActiveId": "",
@@ -86,6 +80,9 @@
     "error": "",
     "offline": "",
     "online": ""
+  },
+  "labels": {
+    "name": ""
   },
   "merge": {
     "unknown": ""
@@ -110,13 +107,6 @@
       "modelSetToDefault": ""
     }
   },
-  "nodeStatus": {
-    "connecting": "",
-    "error": "",
-    "offline": "",
-    "online": "",
-    "unknown": ""
-  },
   "nodes": {
     "auth": {
       "differ": "",
@@ -137,7 +127,13 @@
       "stopped": ""
     }
   },
-  "refresh": "Actualizar",
+  "nodeStatus": {
+    "connecting": "",
+    "error": "",
+    "offline": "",
+    "online": "",
+    "unknown": ""
+  },
   "research": {
     "providerGitHub": "",
     "providerLlmSynthesis": "",
@@ -145,12 +141,19 @@
     "providerPageFetch": "",
     "providerWebSearch": ""
   },
-  "retry": "Reintentar",
   "routing": {
     "policyLabel": {
       "block": "",
       "fallback": "",
       "notConfigured": ""
+    }
+  },
+  "settings": {
+    "nodeRouting": {
+      "statusConnecting": "",
+      "statusError": "",
+      "statusOffline": "",
+      "statusOnline": ""
     }
   },
   "setup": {
@@ -205,14 +208,11 @@
       "zai": ""
     }
   },
-  "skip": "Omitir",
   "taskForm": {
     "nodeStatusConnecting": "",
     "nodeStatusError": "",
     "nodeStatusOffline": "",
-    "nodeStatusOnline": "",
-    "phasePostMerge": "",
-    "phasePreMerge": ""
+    "nodeStatusOnline": ""
   },
   "taskReview": {
     "never": "",
@@ -220,15 +220,23 @@
     "refreshSourceInitialLoad": "",
     "refreshSourceManual": ""
   },
-  "tryAgain": "Reintentar",
-  "workflow": {
-    "postMerge": "",
-    "preMerge": "",
-    "statusAdvisory": "",
-    "statusFailed": "",
-    "statusPassed": "",
-    "statusRunning": "",
-    "statusSkipped": "",
-    "waitingForOutput": ""
+  "workflowNodes": {
+    "summaryAwaitInput": "",
+    "summaryCodeDefault": "",
+    "summaryGateAdvisory": "",
+    "summaryGateBlocks": "",
+    "summaryHoldRelease": "",
+    "summaryLoopIterations_one": "",
+    "summaryLoopIterations_other": "",
+    "summaryLoopUntilContains": "",
+    "summaryLoopUntilMatches": "",
+    "summaryNotConfigured": "",
+    "summaryReviewType": "",
+    "summarySeamExecute": "",
+    "summarySeamMerge": "",
+    "summarySeamPlanning": "",
+    "summarySeamReview": "",
+    "summarySeamStepExecute": "",
+    "summarySeamUnknown": ""
   }
 }

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Goal } from "@fusion/core";
 import { draftGoalDescription } from "../../api";
+import { loadAllAppCss, loadAllAppCssBaseOnly } from "../../test/cssFixture";
 import { GoalsView } from "../GoalsView";
 
 vi.mock("../../api", async () => ({
@@ -18,6 +19,49 @@ vi.mock("lucide-react", () => ({
 
 const mockDraftGoalDescription = vi.mocked(draftGoalDescription);
 
+function extractRuleBlock(css: string, selector: string): string {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = css.match(new RegExp(`${escapedSelector}\\s*\\{([\\s\\S]*?)\\}`));
+  return match?.[1] ?? "";
+}
+
+function extractAtRuleBlocks(css: string, atRule: string): string[] {
+  const blocks: string[] = [];
+  let start = css.indexOf(atRule);
+
+  while (start !== -1) {
+    const open = css.indexOf("{", start);
+    if (open === -1) break;
+
+    let depth = 1;
+    let cursor = open + 1;
+    while (cursor < css.length && depth > 0) {
+      if (css[cursor] === "{") depth++;
+      if (css[cursor] === "}") depth--;
+      cursor++;
+    }
+
+    blocks.push(css.slice(open + 1, cursor - 1));
+    start = css.indexOf(atRule, cursor);
+  }
+
+  return blocks;
+}
+
+function extractRuleBlockFromAtRule(css: string, atRule: string, selector: string): string {
+  return extractAtRuleBlocks(css, atRule)
+    .map((block) => extractRuleBlock(block, selector))
+    .find((block) => block !== "") ?? "";
+}
+
+function expectRootGrowContract(css: string, selector: string) {
+  const rootBlock = extractRuleBlock(css, selector);
+
+  expect(rootBlock).toMatch(/flex\s*:\s*1\s+1\s+auto/);
+  expect(rootBlock).toMatch(/min-width\s*:\s*0/);
+  expect(rootBlock).toMatch(/width\s*:\s*100%/);
+}
+
 function makeGoal(overrides: Partial<Goal> & Pick<Goal, "id" | "title">): Goal {
   return {
     id: overrides.id,
@@ -30,6 +74,39 @@ function makeGoal(overrides: Partial<Goal> & Pick<Goal, "id" | "title">): Goal {
 }
 
 describe("GoalsView", () => {
+  it("grows the root container to fill the project-content flex row", () => {
+    expectRootGrowContract(loadAllAppCss(), ".goals-view");
+    expectRootGrowContract(loadAllAppCssBaseOnly(), ".goals-view");
+  });
+
+  it("keeps goal card action controls top-aligned instead of stretched", () => {
+    const css = loadAllAppCss();
+    const baseCss = loadAllAppCssBaseOnly();
+
+    const cardBlock = extractRuleBlock(css, ".goals-card");
+    const baseCardBlock = extractRuleBlock(baseCss, ".goals-card");
+    const actionsBlock = extractRuleBlock(css, ".goals-card-actions");
+    const baseActionsBlock = extractRuleBlock(baseCss, ".goals-card-actions");
+
+    expect(cardBlock).toMatch(/align-items\s*:\s*flex-start/);
+    expect(baseCardBlock).toMatch(/align-items\s*:\s*flex-start/);
+    expect(actionsBlock).toMatch(/align-self\s*:\s*flex-start/);
+    expect(baseActionsBlock).toMatch(/align-self\s*:\s*flex-start/);
+    expect(baseCardBlock).not.toMatch(/align-items\s*:\s*stretch/);
+  });
+
+  it("stacks goal cards at tablet widths before the three zones cramp", () => {
+    const css = loadAllAppCss();
+    const tabletCardBlock = extractRuleBlockFromAtRule(css, "@media (min-width: 769px) and (max-width: 1024px)", ".goals-card");
+    const mobileCardBlock = extractRuleBlockFromAtRule(css, "@media (max-width: 768px)", ".goals-card");
+    const baseCardBlock = extractRuleBlock(loadAllAppCssBaseOnly(), ".goals-card");
+
+    expect(tabletCardBlock).toMatch(/flex-direction\s*:\s*column/);
+    expect(tabletCardBlock).toMatch(/align-items\s*:\s*stretch/);
+    expect(mobileCardBlock).toMatch(/flex-direction\s*:\s*column/);
+    expect(baseCardBlock).not.toMatch(/flex-direction\s*:\s*column/);
+  });
+
   beforeEach(() => {
     vi.unstubAllGlobals();
     mockDraftGoalDescription.mockReset();

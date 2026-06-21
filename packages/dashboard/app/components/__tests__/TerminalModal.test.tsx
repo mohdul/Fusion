@@ -9,11 +9,26 @@ import {
   DEFAULT_TERMINAL_PREFERENCES,
   LEGACY_TERMINAL_FONT_SIZE_KEY,
   TERMINAL_PREFERENCES_KEY,
+  TERMINAL_SYMBOLS_FONT_FAMILY,
   XTERM_FONT_FAMILY,
+  resolveTerminalFontFamily,
 } from "../../utils/terminalPreferences";
 import * as useTerminalModule from "../../hooks/useTerminal";
 import * as useTerminalSessionsModule from "../../hooks/useTerminalSessions";
 import * as apiModule from "../../api";
+
+function splitFontFamilies(stack: string): string[] {
+  return stack
+    .split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
+    .map((family) => family.trim())
+    .filter(Boolean);
+}
+
+function expectMeasurementSafeFontStack(stack: string): void {
+  const families = splitFontFamilies(stack);
+  expect(families.length).toBeGreaterThan(0);
+  expect(families).not.toContain(TERMINAL_SYMBOLS_FONT_FAMILY);
+}
 
 // Mock hooks and API
 vi.mock("../../hooks/useTerminal", () => ({
@@ -647,7 +662,32 @@ describe("TerminalModal", () => {
         fontFamily: XTERM_FONT_FAMILY,
       }),
     );
+    expectMeasurementSafeFontStack(mockTerminalInstance.options.fontFamily as string);
     expect(screen.getByTestId("terminal-font-size-value").textContent).toBe("14px");
+  });
+
+  it("initializes xterm with a non-default symbols-free font preset", async () => {
+    const { Terminal } = await import("@xterm/xterm");
+    window.localStorage.setItem(
+      TERMINAL_PREFERENCES_KEY,
+      JSON.stringify({
+        ...DEFAULT_TERMINAL_PREFERENCES,
+        fontFamily: "system-mono",
+      }),
+    );
+
+    render(<TerminalModal isOpen={true} onClose={mockOnClose} />);
+
+    await waitFor(() => {
+      expect(mockTerminalInstance.open).toHaveBeenCalled();
+    });
+
+    expect(Terminal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fontFamily: resolveTerminalFontFamily("system-mono"),
+      }),
+    );
+    expectMeasurementSafeFontStack(mockTerminalInstance.options.fontFamily as string);
   });
 
   describe("shortcut panel", () => {
@@ -694,6 +734,21 @@ describe("TerminalModal", () => {
       fireEvent.click(ctrlBtn);
       fireEvent.click(screen.getByRole("button", { name: "C" }));
       expect(mockSendInput).toHaveBeenCalledWith("\x03");
+      expect(ctrlBtn.getAttribute("aria-pressed")).toBe("false");
+
+      fireEvent.click(ctrlBtn);
+      fireEvent.click(screen.getByRole("button", { name: "D" }));
+      expect(mockSendInput).toHaveBeenCalledWith("\x04");
+      expect(ctrlBtn.getAttribute("aria-pressed")).toBe("false");
+
+      fireEvent.click(ctrlBtn);
+      fireEvent.click(screen.getByRole("button", { name: "L" }));
+      expect(mockSendInput).toHaveBeenCalledWith("\x0c");
+      expect(ctrlBtn.getAttribute("aria-pressed")).toBe("false");
+
+      fireEvent.click(ctrlBtn);
+      fireEvent.click(screen.getByRole("button", { name: "." }));
+      expect(mockSendInput).toHaveBeenCalledWith(".");
       expect(ctrlBtn.getAttribute("aria-pressed")).toBe("false");
 
       fireEvent.click(altBtn);
@@ -811,7 +866,19 @@ describe("TerminalModal", () => {
         helperTextarea.focus();
 
         fireEvent.click(screen.getByTestId("terminal-shortcut-toggle"));
+        const ctrlButton = screen.getByTestId("terminal-modifier-ctrl");
         const arrowUpButton = screen.getByTestId("terminal-arrow-up");
+        fireEvent.touchStart(ctrlButton);
+        expect(document.activeElement).toBe(helperTextarea);
+
+        const pointerDown = new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          pointerType: "touch",
+        });
+        ctrlButton.dispatchEvent(pointerDown);
+        expect(pointerDown.defaultPrevented).toBe(true);
+        expect(document.activeElement).toBe(helperTextarea);
         const mouseDown = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
         arrowUpButton.dispatchEvent(mouseDown);
         expect(mouseDown.defaultPrevented).toBe(true);
@@ -1053,7 +1120,8 @@ describe("TerminalModal", () => {
       fireEvent.click(screen.getByTestId("terminal-preference-cursor-blink"));
 
       await waitFor(() => {
-        expect(mockTerminalInstance.options.fontFamily).toContain("ui-monospace");
+        expect(mockTerminalInstance.options.fontFamily).toBe(resolveTerminalFontFamily("system-mono"));
+        expectMeasurementSafeFontStack(mockTerminalInstance.options.fontFamily as string);
         expect(mockTerminalInstance.options.cursorStyle).toBe("underline");
         expect(mockTerminalInstance.options.cursorBlink).toBe(false);
       });
@@ -4876,10 +4944,13 @@ describe("TerminalModal — xterm focus initialization (FN-1602)", () => {
     expect(mockSendInput).toHaveBeenCalledWith("echo hello\r");
   });
 
-  it("copies selected terminal text on ctrl+c and blocks sigint", async () => {
+  it.each([
+    ["mac", "MacIntel", { metaKey: true }],
+    ["non-mac", "Win32", { ctrlKey: true }],
+  ] as const)("copies selected terminal text on platform copy modifier+c and blocks sigint on %s", async (_name, platform, modifier) => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "platform", {
-      value: "Win32",
+      value: platform,
       configurable: true,
     });
     Object.defineProperty(navigator, "clipboard", {
@@ -4896,7 +4967,7 @@ describe("TerminalModal — xterm focus initialization (FN-1602)", () => {
     });
 
     const handled = terminalKeyEventHandler?.(
-      new KeyboardEvent("keydown", { key: "c", ctrlKey: true }),
+      new KeyboardEvent("keydown", { key: "c", ...modifier }),
     );
 
     expect(handled).toBe(false);
@@ -4904,9 +4975,13 @@ describe("TerminalModal — xterm focus initialization (FN-1602)", () => {
     expect(mockSendInput).not.toHaveBeenCalled();
   });
 
-  it("preserves sigint on ctrl+c when nothing is selected", async () => {
+  it.each([
+    ["mac ctrl", "MacIntel", { ctrlKey: true }],
+    ["mac platform copy modifier", "MacIntel", { metaKey: true }],
+    ["non-mac ctrl", "Win32", { ctrlKey: true }],
+  ] as const)("preserves sigint on %s+c when nothing is selected", async (_name, platform, modifier) => {
     Object.defineProperty(navigator, "platform", {
-      value: "Win32",
+      value: platform,
       configurable: true,
     });
     Object.defineProperty(navigator, "clipboard", {
@@ -4922,7 +4997,7 @@ describe("TerminalModal — xterm focus initialization (FN-1602)", () => {
     });
 
     const handled = terminalKeyEventHandler?.(
-      new KeyboardEvent("keydown", { key: "c", ctrlKey: true }),
+      new KeyboardEvent("keydown", { key: "c", ...modifier }),
     );
 
     expect(handled).toBe(true);
@@ -5051,9 +5126,7 @@ describe("TerminalModal — xterm focus initialization (FN-1602)", () => {
 
     await waitFor(() => {
       expect(mockTerminalInstance.options.fontFamily).toBe(XTERM_FONT_FAMILY);
-      expect(mockTerminalInstance.options.fontFamily).not.toContain(
-        "Fusion Terminal Nerd Font Symbols",
-      );
+      expectMeasurementSafeFontStack(mockTerminalInstance.options.fontFamily as string);
       expect(mockTerminalInstance.options.fontSize).toBe(DEFAULT_TERMINAL_PREFERENCES.fontSize);
       expect(mockFitAddonFit.mock.calls.length).toBeGreaterThan(fitCallBaseline);
       expect(mockResize).toHaveBeenCalledWith(

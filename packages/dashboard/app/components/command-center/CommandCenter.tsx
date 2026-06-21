@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, Gauge } from "lucide-react";
-import type { ActivityAnalytics, LiveSnapshot, SignalsAnalytics, TokenAnalytics, ToolAnalytics } from "@fusion/core";
+import type { ActivityAnalytics, ColorTheme, LiveSnapshot, SignalsAnalytics, ThemeMode, TokenAnalytics, ToolAnalytics } from "@fusion/core";
 import { api } from "../../api/legacy";
 import { DateRangePicker, defaultPresets, rangeFromPreset, type DateRange } from "./DateRangePicker";
 import { TokensArea } from "./areas/TokensArea";
@@ -14,7 +14,10 @@ import { GithubArea } from "./areas/GithubArea";
 import { SignalsArea } from "./areas/SignalsArea";
 import { SystemStatsArea } from "./areas/SystemStatsArea";
 import { MissionControlPanel } from "./MissionControlPanel";
+import { CommandCenterControls } from "./CommandCenterControls";
 import { ReliabilityView } from "../ReliabilityView";
+import { NodesView } from "../NodesView";
+import type { ToastType } from "../../hooks/useToast";
 import { SdlcFunnel } from "./SdlcFunnel";
 import { Bar, type BarDatum } from "./charts/Bar";
 import { Sparkline } from "./charts/Sparkline";
@@ -34,6 +37,7 @@ type SubViewId =
   | "github"
   | "signals"
   | "system"
+  | "nodes"
   | "reliability"
   | "mission-control";
 
@@ -48,8 +52,11 @@ Team tab shows each agent's tokens/cost/files-changed/tasks-completed with live 
 
 FNXC:CommandCenter 2026-06-19-00:00:
 FN-6702 moves Reliability from a top-level dashboard view into a Command Center tab next to System telemetry. Reuse ReliabilityView unchanged so its /api/health/reliability loading, error, insufficient-data, and populated states keep the same data flow.
+
+FNXC:CommandCenter 2026-06-19-00:00:
+FN-6717 moves Nodes from a standalone overlay into a Command Center tab gated by the nodesView flag. Reuse NodesView unchanged so useNodes, managed Docker nodes, mesh state, settings sync, toast wiring, and data-testid anchors keep the same data flow.
 */
-function useSubViews(): SubView[] {
+function useSubViews(nodesEnabled: boolean): SubView[] {
   const { t } = useTranslation("app");
   return [
     { id: "overview", label: t("commandCenter.tabs.overview", "Overview") },
@@ -62,6 +69,7 @@ function useSubViews(): SubView[] {
     { id: "github", label: t("commandCenter.tabs.github", "GitHub") },
     { id: "signals", label: t("commandCenter.tabs.signals", "Signals") },
     { id: "system", label: t("commandCenter.tabs.system", "System") },
+    ...(nodesEnabled ? [{ id: "nodes" as const, label: t("commandCenter.tabs.nodes", "Nodes") }] : []),
     { id: "reliability", label: t("commandCenter.tabs.reliability", "Reliability") },
     { id: "mission-control", label: t("commandCenter.tabs.missionControl", "Mission Control") },
   ];
@@ -86,7 +94,24 @@ FN-6683 adds real Overview pie and line charts by reusing the already-fetched to
 */
 const OVERVIEW_TOKEN_REFRESH_MS = 15_000;
 
-function OverviewTab({ range }: { range: DateRange }) {
+interface CommandCenterProps {
+  projectId?: string;
+  colorTheme?: ColorTheme;
+  themeMode?: ThemeMode;
+  onColorThemeChange?: (theme: ColorTheme) => void;
+  onThemeModeChange?: (mode: ThemeMode) => void;
+  addToast?: (message: string, type?: ToastType) => void;
+  nodesEnabled?: boolean;
+}
+
+function OverviewTab({
+  range,
+  projectId,
+  colorTheme = "default",
+  themeMode = "system",
+  onColorThemeChange = () => {},
+  onThemeModeChange = () => {},
+}: { range: DateRange } & CommandCenterProps) {
   const { t } = useTranslation("app");
   const tokens = useAnalyticsArea<TokenAnalytics>("/command-center/tokens?groupBy=model", range, {
     pollMs: OVERVIEW_TOKEN_REFRESH_MS,
@@ -125,6 +150,7 @@ function OverviewTab({ range }: { range: DateRange }) {
   const toolCalls = tools.data?.toolCalls ?? 0;
   const activeNodes = activity.data?.activeNodes ?? 0;
   const activeAgents = activity.data?.activeAgents ?? 0;
+  const sessionsCount = activity.data?.sessions ?? 0;
   const agentRunsTotal = activity.data?.agentRuns?.total ?? 0;
   const tasksDone = activity.data?.funnel?.doneInRange ?? 0;
   /*
@@ -175,10 +201,10 @@ function OverviewTab({ range }: { range: DateRange }) {
   const activityTrendValues =
     dailyActivityValues.length > 0
       ? dailyActivityValues
-      : [activity.data?.sessions ?? 0, activity.data?.messages ?? 0, activeAgents, activeNodes, tasksDone];
+      : [sessionsCount, activity.data?.messages ?? 0, activeAgents, activeNodes, tasksDone];
   const hasOverviewChartData = tokensByModelData.length > 0 || toolCategoryData.length > 0 || dailyActivityValues.length > 0;
   const hasActivityData =
-    (activity.data?.sessions ?? 0) > 0 ||
+    sessionsCount > 0 ||
     (activity.data?.messages ?? 0) > 0 ||
     activeNodes > 0 ||
     activeAgents > 0 ||
@@ -207,6 +233,11 @@ function OverviewTab({ range }: { range: DateRange }) {
     },
     { id: "autonomy", label: t("commandCenter.overview.autonomy", "Autonomy ratio"), value: autonomyLabel },
     { id: "nodes", label: t("commandCenter.overview.activeNodes", "Active nodes"), value: formatCount(activeNodes) },
+    /*
+    FNXC:CommandCenter 2026-06-19-00:00:
+    Session counts were already present on ActivityAnalytics for the selected date range but missing from the Overview stat grid. Surface the existing value here without adding a new endpoint.
+    */
+    { id: "sessions", label: t("commandCenter.overview.sessions", "Sessions"), value: formatCount(sessionsCount) },
     { id: "agentRuns", label: t("commandCenter.overview.agentRuns", "Agent runs"), value: formatCount(agentRunsTotal) },
     { id: "tasksDone", label: t("commandCenter.overview.tasksDone", "Tasks done"), value: formatCount(tasksDone) },
     { id: "models", label: t("commandCenter.overview.uniqueModels", "Unique models"), value: formatCount(uniqueModels) },
@@ -217,12 +248,20 @@ function OverviewTab({ range }: { range: DateRange }) {
     },
   ];
 
-  // FNXC:CommandCenter 2026-06-19-00:00:
-  // Throughput funnel now renders first in every overview branch (loading/error/empty/populated)
-  // so the SDLC throughput card is top-of-page; mobile scroll owner and data-testid anchors unchanged.
+  // FNXC:CommandCenter 2026-06-19-07:56:
+  // The SDLC throughput funnel must sit at the bottom of the Overview first page in every branch (loading/error/empty/populated) while keeping mobile scroll owner and data-testid anchors unchanged.
   // The throughput funnel reads its own data (activityLog transitions) and shows
   // its own empty state, so it renders even when the stat-card aggregates have no
   // data yet.
+  const controlsSection = (
+    <CommandCenterControls
+      projectId={projectId}
+      colorTheme={colorTheme}
+      themeMode={themeMode}
+      onColorThemeChange={onColorThemeChange}
+      onThemeModeChange={onThemeModeChange}
+    />
+  );
   const throughputSection = (
     <div className="cc-overview-throughput" data-testid="command-center-throughput">
       <SdlcFunnel range={range} />
@@ -232,11 +271,12 @@ function OverviewTab({ range }: { range: DateRange }) {
   if (isInitialLoading) {
     return (
       <div className="cc-overview">
-        {throughputSection}
+        {controlsSection}
         <div className="cc-loading" data-testid="command-center-overview-loading">
           <div className="cc-chart-skeleton" />
           <p>{t("commandCenter.loading", "Loading command center...")}</p>
         </div>
+        {throughputSection}
       </div>
     );
   }
@@ -244,11 +284,12 @@ function OverviewTab({ range }: { range: DateRange }) {
   if (coreError !== null && !hasData) {
     return (
       <div className="cc-overview">
-        {throughputSection}
+        {controlsSection}
         <div className="cc-error" data-testid="command-center-overview-error" role="alert">
           <AlertCircle size={24} />
           <p>{coreError}</p>
         </div>
+        {throughputSection}
       </div>
     );
   }
@@ -256,18 +297,19 @@ function OverviewTab({ range }: { range: DateRange }) {
   if (!hasData) {
     return (
       <div className="cc-overview">
-        {throughputSection}
+        {controlsSection}
         <div className="cc-empty" data-testid="command-center-empty">
           <Gauge size={28} />
           <p>{t("commandCenter.empty", "No usage data yet. Run some agents to populate the Command Center.")}</p>
         </div>
+        {throughputSection}
       </div>
     );
   }
 
   return (
     <div className="cc-overview">
-      {throughputSection}
+      {controlsSection}
       <div className="cc-stat-grid">
         {cards.map((card) => (
           <div key={card.id} className="card cc-stat-card" data-testid={`command-center-stat-${card.id}`}>
@@ -378,6 +420,7 @@ function OverviewTab({ range }: { range: DateRange }) {
           ) : null}
         </section>
       ) : null}
+      {throughputSection}
     </div>
   );
 }
@@ -392,9 +435,17 @@ function PlaceholderTab({ tabId }: { tabId: SubViewId }) {
   );
 }
 
-export function CommandCenter() {
+export function CommandCenter({
+  projectId,
+  colorTheme = "default",
+  themeMode = "system",
+  onColorThemeChange = () => {},
+  onThemeModeChange = () => {},
+  addToast = () => {},
+  nodesEnabled = false,
+}: CommandCenterProps = {}) {
   const { t } = useTranslation("app");
-  const subViews = useSubViews();
+  const subViews = useSubViews(nodesEnabled);
   const [activeTab, setActiveTab] = useState<SubViewId>("overview");
 
   const [range, setRange] = useState<DateRange>(() => rangeFromPreset(defaultPresets((_k, f) => f)[1]));
@@ -446,7 +497,16 @@ export function CommandCenter() {
   function renderActiveTab() {
     switch (activeTab) {
       case "overview":
-        return <OverviewTab range={range} />;
+        return (
+          <OverviewTab
+            range={range}
+            projectId={projectId}
+            colorTheme={colorTheme}
+            themeMode={themeMode}
+            onColorThemeChange={onColorThemeChange}
+            onThemeModeChange={onThemeModeChange}
+          />
+        );
       case "tokens":
         return <TokensArea range={range} />;
       case "tools":
@@ -456,7 +516,7 @@ export function CommandCenter() {
       case "productivity":
         return <ProductivityArea range={range} />;
       case "team":
-        return <TeamArea range={range} />;
+        return <TeamArea range={range} projectId={projectId} />;
       case "ecosystem":
         return <EcosystemArea range={range} />;
       case "github":
@@ -465,6 +525,8 @@ export function CommandCenter() {
         return <SignalsArea range={range} />;
       case "system":
         return <SystemStatsArea />;
+      case "nodes":
+        return <NodesView addToast={addToast} />;
       case "reliability":
         return <ReliabilityView />;
       case "mission-control":

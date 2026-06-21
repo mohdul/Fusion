@@ -11,8 +11,14 @@ export {
 } from "./capacity.js";
 export type { CapacityRiskSignal } from "./capacity.js";
 
-/** Valid thinking effort levels for AI agent sessions, controlling the cost/quality tradeoff of reasoning. */
-export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high"] as const;
+/**
+ * Valid thinking effort levels for AI agent sessions, controlling the cost/quality tradeoff of reasoning.
+ * Includes extra-high for maximum-effort requests on reasoning-capable models.
+ *
+ * FNXC:Settings-ThinkingLevel 2026-06-19-14:55:
+ * The central thinking-level enum must expose `xhigh` so UI settings and API validation can pass maximum reasoning requests through to CLI adapters. Runtime adapters map `xhigh` to `high` for non-Opus models and `max` for Opus models.
+ */
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 
 /**
@@ -277,10 +283,13 @@ export const COLOR_THEMES = [
   "monochrome",
   "slate",
   "ash",
+  // FNXC:DashboardTheming 2026-06-19-15:36: "air" is the source-of-truth id for the minimal, borderless, paper-like dashboard theme; keep bootstrap validators and theme options in sync with this union.
+  "air",
   "graphite",
   "silver",
   "solarized",
   "factory",
+  "factory-mono",
   "ayu",
   "one-dark",
   "nord",
@@ -320,6 +329,17 @@ export const COLOR_THEMES = [
   "lavender",
   "neon-bloom",
   "sepia",
+  "shadcn",
+  // FNXC:DashboardTheming 2026-06-19-16:07: FN-6756 extends the published color-theme union with shadcn-family accent variants; keep dashboard theme options, bootstrap validation, swatches, and theme-data token blocks in lockstep with this ordered list.
+  "shadcn-blue",
+  "shadcn-green",
+  "shadcn-red",
+  "shadcn-purple",
+  "shadcn-pink",
+  "shadcn-orange",
+  "shadcn-yellow",
+  "shadcn-mono",
+  "shadcn-black",
 ] as const;
 export type ColorTheme = (typeof COLOR_THEMES)[number];
 
@@ -1799,6 +1819,33 @@ export interface CentralClaimStore {
 }
 
 /**
+ * One model-specific bucket inside a task's durable token usage aggregate.
+ *
+ * FNXC:TokenAnalytics 2026-06-19-15:42:
+ * Multi-model task lifecycles must persist unidentified, partially identified, and fully identified model buckets without tightening nullability; analytics expands these buckets while legacy task-level totals remain the grand-total source of truth.
+ */
+export interface TaskTokenUsagePerModel {
+  /** Provider of the actually-used model for this bucket. */
+  modelProvider?: string;
+  /** Id of the actually-used model for this bucket. */
+  modelId?: string;
+  /** Cumulative prompt/input tokens consumed by this model for the task. */
+  inputTokens: number;
+  /** Cumulative completion/output tokens consumed by this model for the task. */
+  outputTokens: number;
+  /** Cumulative cache-read (cache hit) tokens reported for this model. */
+  cachedTokens: number;
+  /** Cumulative cache-write tokens reported for this model. */
+  cacheWriteTokens: number;
+  /** Cumulative total tokens for this model bucket. */
+  totalTokens: number;
+  /** ISO-8601 timestamp of the first recorded usage event for this model bucket. */
+  firstUsedAt: string;
+  /** ISO-8601 timestamp of the most recent recorded usage event for this model bucket. */
+  lastUsedAt: string;
+}
+
+/**
  * Durable task-level aggregate token usage totals persisted on the task row.
  *
  * This model captures cumulative usage across all agent/run activity linked to
@@ -1830,6 +1877,11 @@ export interface TaskTokenUsage {
    * Snapshot the id of the actually-used model for analytics only. This is intentionally distinct from task.modelId, which is an own-model override used by model resolution and must not be written by token bookkeeping.
    */
   modelId?: string;
+  /**
+   * FNXC:TokenAnalytics 2026-06-19-15:38:
+   * Command Center model/provider analytics must show every model that consumed tokens during a task lifecycle. Store durable per-model buckets so executor, validator, reviewer, and planning usage is attributed to the producing model while the top-level task aggregate remains backward-compatible.
+   */
+  perModel?: TaskTokenUsagePerModel[];
 }
 
 export interface TaskTokenBudget {
@@ -5846,6 +5898,28 @@ export interface AgentPromptsConfig {
    *  When set, overrides the default built-in prompt for that role.
    *  Key is the AgentCapability string, value is a template ID. */
   roleAssignments?: Partial<Record<AgentCapability, string>>;
+}
+
+// ── Plugin Activation Types ──────────────────────────────────────────────────
+
+/**
+ * Project-scoped plugin/extension activation event persisted in `plugin_activations`.
+ * FNXC:CommandCenterEcosystem 2026-06-19-00:00:
+ * Command Center Ecosystem uses these rows as the only source for Plugin activations; an absent row set means unavailable, not zero.
+ */
+export interface PluginActivation {
+  id: number;
+  pluginId: string;
+  source: string;
+  pluginVersion: string | null;
+  activatedAt: string;
+}
+
+export interface PluginActivationInput {
+  pluginId: string;
+  source: string;
+  pluginVersion?: string | null;
+  activatedAt?: string;
 }
 
 // ── Run Audit Types ───────────────────────────────────────────────────────────

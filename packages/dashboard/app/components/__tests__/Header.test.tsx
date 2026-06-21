@@ -150,6 +150,27 @@ describe("Header", () => {
       expect(screen.getByTitle("List view")).toBeDefined();
     });
 
+    it("renders the workflow portal slot instead of the view toggle on desktop sidebar nav", () => {
+      renderHeader({ onChangeView: noop, leftSidebarNavActive: true }, "desktop");
+      expect(screen.getByTestId("header-workflow-slot")).toBeInTheDocument();
+      expect(screen.queryByTitle("Board view")).toBeNull();
+      expect(screen.queryByTitle("List view")).toBeNull();
+    });
+
+    it("renders the workflow portal slot instead of the view toggle on tablet sidebar nav", () => {
+      renderHeader({ onChangeView: noop, leftSidebarNavActive: true }, "tablet");
+      expect(screen.getByTestId("header-workflow-slot")).toBeInTheDocument();
+      expect(screen.queryByTitle("Board view")).toBeNull();
+      expect(screen.queryByTitle("List view")).toBeNull();
+    });
+
+    it("does not render the workflow portal slot on mobile sidebar nav", () => {
+      renderHeader({ onChangeView: noop, leftSidebarNavActive: true }, "mobile");
+      expect(screen.queryByTestId("header-workflow-slot")).toBeNull();
+      expect(screen.queryByTitle("Board view")).not.toBeNull();
+      expect(screen.queryByTitle("List view")).not.toBeNull();
+    });
+
     it("shows board view as active by default", () => {
       renderHeader({ onChangeView: noop });
       const boardBtn = screen.getByTitle("Board view");
@@ -299,14 +320,16 @@ describe("Header", () => {
       expect(screen.getByTestId("view-toggle-overflow-trigger")).toBeDefined();
     });
 
-    it("keeps desktop Documents inline and Command Center only in overflow", () => {
+    it("keeps desktop Documents and Command Center inline without Command Center overflow", () => {
       renderHeader({ onChangeView: noop, showAgentsTab: true }, "desktop");
 
       expect(screen.getByTitle("Documents view")).toBeInTheDocument();
-      expect(screen.queryByTestId("view-toggle-command-center")).toBeNull();
+      const agentsButton = screen.getByTitle("Agents view");
+      const commandCenterButton = screen.getByTestId("view-toggle-command-center");
+      expect(commandCenterButton.previousElementSibling).toBe(agentsButton);
 
       fireEvent.click(screen.getByTestId("view-toggle-overflow-trigger"));
-      expect(screen.getByTestId("view-overflow-command-center")).toBeInTheDocument();
+      expect(screen.queryByTestId("view-overflow-command-center")).toBeNull();
       expect(screen.queryByTestId("view-overflow-documents")).toBeNull();
     });
 
@@ -538,14 +561,19 @@ describe("Header", () => {
   });
 
   describe("todos navigation", () => {
-    it("shows Todos only in More views on desktop when enabled", () => {
-      renderHeader({ onChangeView: noop, onOpenTodos: vi.fn(), todosEnabled: true }, "desktop");
-      expect(screen.queryByTestId("todos-toggle-btn")).toBeNull();
+    for (const tier of ["desktop", "tablet"] as const) {
+      it(`shows Todos only in More views and Mailbox only top-level on ${tier}`, () => {
+        renderHeader({ onChangeView: noop, onOpenTodos: vi.fn(), todosEnabled: true }, tier);
 
-      fireEvent.click(screen.getByTestId("view-toggle-overflow-trigger"));
-      expect(screen.getAllByText("Todos")).toHaveLength(1);
-      expect(screen.getByTestId("view-overflow-todos")).toBeInTheDocument();
-    });
+        expect(screen.queryByTestId("todos-toggle-btn")).toBeNull();
+        expect(screen.getByTitle("Mailbox view")).toBeInTheDocument();
+
+        fireEvent.click(screen.getByTestId("view-toggle-overflow-trigger"));
+        expect(screen.getAllByText("Todos")).toHaveLength(1);
+        expect(screen.getByTestId("view-overflow-todos")).toBeInTheDocument();
+        expect(screen.queryByTestId("view-overflow-mailbox")).toBeNull();
+      });
+    }
 
     it("does not show Todos entry in More views when disabled", () => {
       renderHeader({ onChangeView: noop, onOpenTodos: vi.fn(), todosEnabled: false }, "desktop");
@@ -1045,27 +1073,17 @@ describe("Header", () => {
   });
 
   describe("nodes button", () => {
-    it("renders Nodes button in desktop overflow when handler is provided", () => {
-      renderHeader({ onOpenNodes: vi.fn() }, "desktop");
+    it("omits Nodes button from desktop overflow because Nodes lives in Command Center", () => {
+      renderHeader({}, "desktop");
       expect(screen.getByTestId("desktop-overflow-trigger")).toBeDefined();
       fireEvent.click(screen.getByTestId("desktop-overflow-trigger"));
-      expect(screen.getByTestId("desktop-overflow-nodes-btn")).toBeDefined();
+      expect(screen.queryByTestId("desktop-overflow-nodes-btn")).toBeNull();
     });
 
-    it("calls onOpenNodes when Nodes button is clicked from desktop overflow", () => {
-      const onOpenNodes = vi.fn();
-      renderHeader({ onOpenNodes }, "desktop");
-      fireEvent.click(screen.getByTestId("desktop-overflow-trigger"));
-      fireEvent.click(screen.getByTestId("desktop-overflow-nodes-btn"));
-      expect(onOpenNodes).toHaveBeenCalled();
-    });
-
-    it("shows Nodes action in mobile overflow menu", () => {
-      const onOpenNodes = vi.fn();
-      renderHeader({ onOpenNodes }, "mobile");
+    it("omits Nodes action from mobile overflow menu because Nodes lives in Command Center", () => {
+      renderHeader({}, "mobile");
       fireEvent.click(screen.getByTitle("More header actions"));
-      fireEvent.click(screen.getByTestId("overflow-nodes-btn"));
-      expect(onOpenNodes).toHaveBeenCalled();
+      expect(screen.queryByTestId("overflow-nodes-btn")).toBeNull();
     });
   });
 

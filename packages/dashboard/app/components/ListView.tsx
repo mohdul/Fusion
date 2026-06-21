@@ -1,8 +1,9 @@
 import "./ListView.css";
 import { useState, useCallback, useMemo, Fragment, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { ArrowUpDown, ArrowUp, ArrowDown, Link, Columns3, EyeOff, Eye, ChevronRight, Zap, Trash2, Pause, Play, Archive, Plus } from "lucide-react";
+import { ArrowUpDown, ArrowUp, ArrowDown, Link, Columns3, EyeOff, Eye, ChevronRight, Zap, Trash2, Pause, Play, Archive } from "lucide-react";
 import type { Task, TaskDetail, Column, ColumnId, TaskCreateInput, MergeResult, GithubIssueAction } from "@fusion/core";
 import { COLUMNS, DEFAULT_COLUMN, getErrorMessage, isColumn } from "@fusion/core";
 import { useColumnLabel } from "../i18n/labels";
@@ -21,6 +22,9 @@ import { getUnifiedTaskProgress } from "../utils/taskProgress";
 import { useConfirm } from "../hooks/useConfirm";
 import { extractDependencyDeleteConflict, extractLineageDeleteConflict } from "../utils/taskDelete";
 import { subscribeSse } from "../sse-bus";
+import { WorkflowSwitcher } from "./WorkflowSwitcher";
+import { computeWorkflowStatusCounts } from "./workflowStatusCounts";
+import { readBoardWorkflowsCache, writeBoardWorkflowsCache } from "../utils/boardWorkflowsCache";
 
 const COLUMN_COLOR_MAP: Record<Column, string> = {
   triage: "var(--triage)",
@@ -216,11 +220,11 @@ interface ListViewProps {
   /**
    * Called when the user clicks the "Plan" button in the quick entry box.
    */
-  onPlanningMode?: (initialPlan: string) => void;
+  onPlanningMode?: (initialPlan: string, workflowId?: string | null) => void;
   /**
    * Called when the user clicks the "Subtask" button in the quick entry box.
    */
-  onSubtaskBreakdown?: (description: string) => void;
+  onSubtaskBreakdown?: (description: string, workflowId?: string | null) => void;
   /**
    * Called when tasks are updated (e.g., after bulk model update).
    * Allows parent to refresh task list or handle optimistically.
@@ -238,7 +242,12 @@ interface ListViewProps {
   lastFetchTimeMs?: number;
   prAuthAvailable?: boolean;
   autoMerge?: boolean;
+  onOpenWorkflowEditor?: (workflowId?: string) => void;
   onCreateWorkflow?: () => void;
+  workflowColumnsEnabled?: boolean;
+  settingsLoaded?: boolean;
+  /** Relocates workflow controls into the Header portal slot when sidebar navigation owns the inline chrome. */
+  workflowControlsInHeader?: boolean;
 }
 
 const LEGACY_LIST_COLUMNS: BoardWorkflowColumn[] = COLUMNS.map((column) => ({
@@ -302,7 +311,11 @@ export function ListView({
   lastFetchTimeMs,
   prAuthAvailable,
   autoMerge,
+  onOpenWorkflowEditor,
   onCreateWorkflow,
+  workflowColumnsEnabled,
+  settingsLoaded,
+  workflowControlsInHeader = false,
 }: ListViewProps) {
   const { t } = useTranslation("app");
   const columnLabel = useColumnLabel();
@@ -311,11 +324,32 @@ export function ListView({
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<ColumnId | null>(null);
   const [selectedColumn, setSelectedColumn] = useState<ColumnId | null>(null);
-  const [boardWorkflows, setBoardWorkflows] = useState<BoardWorkflowsPayload | null>(null);
+  /*
+  FNXC:BoardWorkflows 2026-06-20-09:07:
+  ListView shares the board-workflows first-paint invariant with Board: hydrate per-project workflow metadata from sessionStorage and gate legacy list columns while workflowColumns settings or uncached lane metadata are still unknown.
+  */
+  const shouldHydrateBoardWorkflowsCache = workflowColumnsEnabled === true || settingsLoaded === false;
+  const [boardWorkflowsState, setBoardWorkflowsState] = useState<{ projectId?: string; payload: BoardWorkflowsPayload } | null>(() => {
+    const cached = shouldHydrateBoardWorkflowsCache ? readBoardWorkflowsCache(projectId) : null;
+    return cached ? { projectId, payload: cached } : null;
+  });
+  const boardWorkflows = boardWorkflowsState?.projectId === projectId && boardWorkflowsState ? boardWorkflowsState.payload : null;
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
+  const [headerWorkflowSlot, setHeaderWorkflowSlot] = useState<HTMLElement | null>(() => {
+    if (typeof document === "undefined") return null;
+    return document.getElementById("header-workflow-slot");
+  });
   const viewportMode = useViewportMode();
   const isMobile = viewportMode === "mobile";
   const { confirm, confirmWithChoice } = useConfirm();
+
+  useEffect(() => {
+    if (!workflowControlsInHeader || typeof document === "undefined") {
+      setHeaderWorkflowSlot(null);
+      return;
+    }
+    setHeaderWorkflowSlot(document.getElementById("header-workflow-slot"));
+  }, [workflowControlsInHeader]);
 
   // Column visibility state - initialize from localStorage or reduced default columns
   const [visibleColumns, setVisibleColumns] = useState<Set<ListColumn>>(() => readVisibleColumns(projectId));
@@ -392,15 +426,23 @@ export function ListView({
   }, [projectId, tasks]);
 
   useEffect(() => {
+    const cached = shouldHydrateBoardWorkflowsCache ? readBoardWorkflowsCache(projectId) : null;
+    setBoardWorkflowsState(cached ? { projectId, payload: cached } : null);
+  }, [projectId, shouldHydrateBoardWorkflowsCache]);
+
+  useEffect(() => {
     const runFetch = () => {
       const seq = ++boardWorkflowsFetchSeqRef.current;
       fetchBoardWorkflows(projectId)
         .then((payload) => {
-          if (seq === boardWorkflowsFetchSeqRef.current) setBoardWorkflows(payload);
+          if (seq === boardWorkflowsFetchSeqRef.current) {
+            setBoardWorkflowsState({ projectId, payload });
+            writeBoardWorkflowsCache(projectId, payload);
+          }
         })
         .catch(() => {
           if (seq === boardWorkflowsFetchSeqRef.current) {
-            setBoardWorkflows({ flagEnabled: false, defaultWorkflowId: "builtin:coding", workflows: [], taskWorkflowIds: {} });
+            setBoardWorkflowsState({ projectId, payload: { flagEnabled: false, defaultWorkflowId: "builtin:coding", workflows: [], taskWorkflowIds: {} } });
           }
         });
     };
@@ -627,6 +669,11 @@ export function ListView({
     }
     return ids;
   }, [boardWorkflows, selectedWorkflow, tasks, workflowMode]);
+
+  const workflowStatusCounts = useMemo(
+    () => computeWorkflowStatusCounts(tasks, boardWorkflows),
+    [boardWorkflows, tasks],
+  );
 
   const createTargetColumn = useMemo(() => {
     const target = listColumns.find((column) => column.flags.intake && !column.flags.archived)
@@ -1573,41 +1620,32 @@ export function ListView({
   };
 
   const renderWorkflowSelector = () => {
-    if (!workflowMode) return null;
-    const showSelect = workflowOptions.length > 1 && selectedWorkflow;
-    if (!showSelect && !onCreateWorkflow) return null;
-    return (
+    if (!workflowMode || !selectedWorkflow) return null;
+    const shouldRenderWorkflowControls = workflowOptions.length > 1 || Boolean(onCreateWorkflow || onOpenWorkflowEditor);
+    if (!shouldRenderWorkflowControls || workflowOptions.length === 0) return null;
+    const workflowControl = (
       <div className="list-workflow-control">
-        {showSelect && (
-          <label className="list-workflow-selector">
-            <span>{t("listView.workflowLabel", "Workflow")}</span>
-            <select
-              className="select list-workflow-select"
-              value={selectedWorkflow!.id}
-              onChange={(event) => setSelectedWorkflowId(event.target.value)}
-              aria-label={t("listView.workflowSelectLabel", "Select workflow")}
-            >
-              {workflowOptions.map((workflow) => (
-                <option key={workflow.id} value={workflow.id}>
-                  {workflow.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        {onCreateWorkflow && (
-          <button
-            type="button"
-            className="btn btn-icon btn-sm list-workflow-create-btn"
-            onClick={onCreateWorkflow}
-            title={t("workflows.newWorkflow", "New workflow")}
-            aria-label={t("workflows.newWorkflow", "New workflow")}
-          >
-            <Plus size={15} />
-          </button>
-        )}
+        <WorkflowSwitcher
+          workflows={workflowOptions}
+          value={selectedWorkflow.id}
+          onChange={setSelectedWorkflowId}
+          counts={workflowStatusCounts}
+          label={t("listView.workflowLabel", "Workflow")}
+          onEditWorkflow={onOpenWorkflowEditor}
+          onCreateWorkflow={onCreateWorkflow}
+        />
       </div>
     );
+    /*
+    FNXC:WorkflowControls 2026-06-20-00:00:
+    ListView keeps its own workflow selection state and only portals its workflow controls into Header when the sidebar header slot exists.
+
+    FNXC:WorkflowControls 2026-06-20-15:43:
+    ListView now has edit parity through WorkflowSwitcher row actions and no longer renders a standalone create icon, preventing empty button shells across desktop and mobile header placements.
+    */
+    return workflowControlsInHeader && headerWorkflowSlot
+      ? createPortal(workflowControl, headerWorkflowSlot)
+      : workflowControl;
   };
 
   const renderViewOptionsPanel = (panelId: string) => (
@@ -1686,6 +1724,22 @@ export function ListView({
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+
+  const renderListWorkflowSkeleton = (empty = false) => (
+    <div className="list-view list-view--workflow-skeleton" aria-busy={!empty} aria-label={empty ? t("listView.noWorkflowLanes", "No workflow lanes available") : t("listView.loadingWorkflowLanes", "Loading workflow lanes")} data-testid={empty ? "list-workflows-empty" : "list-workflows-skeleton"}>
+      <div className="list-view-header">
+        <div>
+          <h2>{t("listView.title", "List View")}</h2>
+          <p className="list-subtitle">{empty ? t("listView.noWorkflowLanes", "No workflow lanes available") : t("listView.loadingWorkflowLanes", "Loading workflow lanes")}</p>
+        </div>
+      </div>
+      <div className="list-workflow-skeleton card" aria-hidden="true">
+        <div className="list-workflow-skeleton__row list-workflow-skeleton__row--header" />
+        <div className="list-workflow-skeleton__row" />
+        <div className="list-workflow-skeleton__row list-workflow-skeleton__row--short" />
       </div>
     </div>
   );
@@ -1770,6 +1824,14 @@ export function ListView({
       ) : null}
     </>
   );
+
+  const shouldGateLegacyList = boardWorkflows === null
+    ? (workflowColumnsEnabled === true || settingsLoaded === false)
+    : boardWorkflows.flagEnabled === true && boardWorkflows.workflows.length === 0;
+
+  if (shouldGateLegacyList) {
+    return renderListWorkflowSkeleton(boardWorkflows?.flagEnabled === true);
+  }
 
   return (
     <div className="list-view">

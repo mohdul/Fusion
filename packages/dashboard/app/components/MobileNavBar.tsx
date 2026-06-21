@@ -24,7 +24,6 @@ import {
   Play,
   Settings,
   Monitor,
-  Network,
   Search,
   Sparkles,
   Target,
@@ -108,9 +107,7 @@ export interface MobileNavBarProps {
     researchView?: boolean;
     evalsView?: boolean;
     goalsView?: boolean;
-    nodesView?: boolean;
   };
-  onOpenNodes?: () => void;
   pluginDashboardViews?: PluginDashboardViewEntry[];
   shellConnectionControl?: ReactNode;
 }
@@ -141,7 +138,6 @@ export function MobileNavBar({
   keyboardOpen = false,
   onOpenSettings,
   onOpenActivityLog,
-  onOpenMailbox,
   mailboxUnreadCount = 0,
   mailboxPendingApprovalCount = 0,
   chatHasUnreadResponse = false,
@@ -164,7 +160,6 @@ export function MobileNavBar({
   onViewAllProjects,
   showSkillsTab,
   experimentalFeatures,
-  onOpenNodes,
   pluginDashboardViews = [],
   shellConnectionControl,
 }: MobileNavBarProps) {
@@ -281,6 +276,9 @@ export function MobileNavBar({
   FNXC:Navigation 2026-06-19-12:05:
   Mobile navigation adds Command Center as a fixed top-level tab immediately after Mailbox.
   Primary plugin tabs, including Compound Engineering, are demoted to the More sheet so touch targets stay wide and Command Center is not duplicated.
+
+  FNXC:Navigation 2026-06-19-08:24:
+  FN-6725 re-verified the suspected-revert surface: Command Center remains adjacent to Mailbox even when mailbox badges render, primary plugin tabs remain More-sheet-only, and no Command Center More-sheet duplicate is allowed.
   */
   const MAX_PRIMARY_PLUGIN_TOP_LEVEL_TABS = 0;
   const topLevelPrimaryPluginViews = sortedPrimaryPluginViews.slice(0, MAX_PRIMARY_PLUGIN_TOP_LEVEL_TABS);
@@ -330,7 +328,9 @@ export function MobileNavBar({
             }
           }}
         >
-          <LayoutGrid />
+          <span className="mobile-nav-tab-icon-wrapper">
+            <LayoutGrid />
+          </span>
           <span className="mobile-nav-tab-label">{t("nav.tasks", "Tasks")}</span>
         </button>
 
@@ -342,7 +342,9 @@ export function MobileNavBar({
           aria-selected={view === "agents"}
           onClick={() => onChangeView("agents")}
         >
-          <Bot />
+          <span className="mobile-nav-tab-icon-wrapper">
+            <Bot />
+          </span>
           <span className="mobile-nav-tab-label">{t("nav.agents", "Agents")}</span>
         </button>
 
@@ -354,7 +356,9 @@ export function MobileNavBar({
           aria-selected={view === "missions"}
           onClick={() => onChangeView("missions")}
         >
-          <Target />
+          <span className="mobile-nav-tab-icon-wrapper">
+            <Target />
+          </span>
           <span className="mobile-nav-tab-label">{t("nav.missions", "Missions")}</span>
         </button>
 
@@ -376,6 +380,11 @@ export function MobileNavBar({
         </button>
 
 
+        {/*
+        FNXC:Navigation 2026-06-19-12:30:
+        Mailbox is a top-level mobile tab only and must not be duplicated in the three-dot More sheet; Todos lives only in the three-dot overflow/More menu, never the main tab list.
+        Keep unread and pending-approval indicators on this surviving Mailbox tab so removing the More-sheet duplicate does not hide mailbox state.
+        */}
         <button
           type="button"
           className={`mobile-nav-tab${view === "mailbox" ? " mobile-nav-tab--active" : ""}`}
@@ -404,7 +413,9 @@ export function MobileNavBar({
           aria-selected={view === "command-center"}
           onClick={() => onChangeView("command-center")}
         >
-          <Gauge />
+          <span className="mobile-nav-tab-icon-wrapper">
+            <Gauge />
+          </span>
           <span className="mobile-nav-tab-label">{t("nav.commandCenter", "Command Center")}</span>
         </button>
 
@@ -417,7 +428,9 @@ export function MobileNavBar({
             aria-selected={view === "skills"}
             onClick={() => onChangeView("skills")}
           >
-            <Zap />
+            <span className="mobile-nav-tab-icon-wrapper">
+              <Zap />
+            </span>
             <span className="mobile-nav-tab-label">{t("nav.skills", "Skills")}</span>
           </button>
         )}
@@ -436,7 +449,9 @@ export function MobileNavBar({
               aria-selected={view === pluginTaskView || (view === "graph" && entry.pluginId === "fusion-plugin-dependency-graph" && entry.view.viewId === "graph")}
               onClick={() => onChangeView(entry.pluginId === "fusion-plugin-dependency-graph" && entry.view.viewId === "graph" ? "graph" : pluginTaskView)}
             >
-              <PluginIcon />
+              <span className="mobile-nav-tab-icon-wrapper">
+                <PluginIcon />
+              </span>
               <span className="mobile-nav-tab-label">{entry.view.label}</span>
             </button>
           );
@@ -450,7 +465,9 @@ export function MobileNavBar({
           aria-selected={false}
           onClick={() => setIsMoreOpen((prev) => !prev)}
         >
-          <MoreHorizontal />
+          <span className="mobile-nav-tab-icon-wrapper">
+            <MoreHorizontal />
+          </span>
           <span className="mobile-nav-tab-label">{t("nav.more", "More")}</span>
         </button>
       </nav>
@@ -470,22 +487,6 @@ export function MobileNavBar({
                 {shellConnectionControl}
               </div>
             ) : null}
-
-            <button
-              type="button"
-              className="mobile-more-item"
-              data-testid="mobile-more-item-mailbox"
-              onClick={() => handleMoreAction(onOpenMailbox)}
-            >
-              <Mail />
-              <span>{t("nav.mailbox", "Mailbox")}</span>
-              {mailboxUnreadCount > 0 && (
-                <span className="mobile-more-item-badge mobile-more-item-badge--unread">{formatCount(mailboxUnreadCount)}</span>
-              )}
-              {mailboxPendingApprovalCount > 0 && (
-                <span className="mobile-more-item-badge">{formatCount(mailboxPendingApprovalCount)}</span>
-              )}
-            </button>
 
             <button
               type="button"
@@ -781,18 +782,6 @@ export function MobileNavBar({
               >
                 <Monitor />
                 <span>{t("nav.devServer", "Dev Server")}</span>
-              </button>
-            )}
-
-            {experimentalFeatures?.nodesView && onOpenNodes && (
-              <button
-                type="button"
-                className="mobile-more-item"
-                data-testid="mobile-more-item-nodes"
-                onClick={() => handleMoreAction(onOpenNodes)}
-              >
-                <Network />
-                <span>{t("nav.nodes", "Nodes")}</span>
               </button>
             )}
 

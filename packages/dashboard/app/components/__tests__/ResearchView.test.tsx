@@ -54,6 +54,20 @@ function mockMatchMediaDesktop() {
   });
 }
 
+function extractRuleBlock(css: string, selector: string): string {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = css.match(new RegExp(`${escapedSelector}\\s*\\{([\\s\\S]*?)\\}`));
+  return match?.[1] ?? "";
+}
+
+function expectRootGrowContract(css: string, selector: string) {
+  const rootBlock = extractRuleBlock(css, selector);
+
+  expect(rootBlock).toMatch(/flex\s*:\s*1\s+1\s+auto/);
+  expect(rootBlock).toMatch(/min-width\s*:\s*0/);
+  expect(rootBlock).toMatch(/width\s*:\s*100%/);
+}
+
 describe("Research navigation", () => {
   it("shows research in header overflow and activates view change", async () => {
     mockMatchMediaDesktop();
@@ -81,6 +95,11 @@ describe("Research navigation", () => {
 });
 
 describe("ResearchView", () => {
+  it("grows the root container to fill the project-content flex row", () => {
+    expectRootGrowContract(loadAllAppCss(), ".research-view");
+    expectRootGrowContract(loadAllAppCssBaseOnly(), ".research-view");
+  });
+
   const baseHookValue = {
     runs: [],
     selectedRun: null,
@@ -560,5 +579,18 @@ describe("ResearchView", () => {
     expect(css).toMatch(/@media[^{]*\(max-width:\s*768px\)[^{]*\{[\s\S]*?\.research-view\s*\{[^}]*overflow-y:\s*auto;[^}]*overflow-x:\s*hidden;[^}]*padding-bottom:\s*calc\(var\(--space-md\)\s*\+\s*var\(--mobile-nav-height\)\s*\+\s*env\(safe-area-inset-bottom,\s*0px\)\s*\+\s*var\(--standalone-bottom-gap\)\);[^}]*\}/);
     expect(css).toMatch(/@media[^{]*\(max-width:\s*768px\)[^{]*\{[\s\S]*?\.research-view__layout\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*overflow:\s*visible;[^}]*\}/);
     expect(css).toMatch(/@media[^{]*\(max-width:\s*768px\)[^{]*\{[\s\S]*?\.research-view__history\s*\{[^}]*overflow:\s*visible;[^}]*\}/);
+  });
+
+  it("FN-6764: adds a tablet full-width reflow without regressing desktop or mobile tiers", () => {
+    const baseCss = loadAllAppCssBaseOnly();
+    const css = loadAllAppCss();
+
+    expect(baseCss).toMatch(/\.research-view__layout\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*minmax\(0,\s*2fr\);[^}]*overflow:\s*hidden;[^}]*\}/);
+    expect(css).toMatch(/@media[^{]*\(max-width:\s*768px\)[^{]*\{[\s\S]*?\.research-view__layout\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);[^}]*overflow:\s*visible;[^}]*\}/);
+
+    expect(css).toMatch(/@media[^{]*\(min-width:\s*769px\)\s*and\s*\(max-width:\s*1024px\)[^{]*\{[\s\S]*?\.research-view\s*\{[^}]*inline-size:\s*100%;[^}]*min-inline-size:\s*0;[^}]*overflow:\s*hidden;[^}]*\}/);
+    expect(css).toMatch(/@media[^{]*\(min-width:\s*769px\)\s*and\s*\(max-width:\s*1024px\)[^{]*\{[\s\S]*?\.research-view__layout\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);[^}]*min-width:\s*0;[^}]*min-inline-size:\s*0;[^}]*overflow:\s*hidden;[^}]*\}/);
+    expect(css).toMatch(/@media[^{]*\(min-width:\s*769px\)\s*and\s*\(max-width:\s*1024px\)[^{]*\{[\s\S]*?\.research-view__reader\s*\{[^}]*flex:\s*1\s+1\s+0;[^}]*overflow:\s*auto;[^}]*\}/);
+    expect(css).toMatch(/@media[^{]*\(min-width:\s*769px\)\s*and\s*\(max-width:\s*1024px\)[^{]*\{[\s\S]*?\.research-view__history\s*\{[^}]*overflow:\s*auto;[^}]*\}/);
   });
 });

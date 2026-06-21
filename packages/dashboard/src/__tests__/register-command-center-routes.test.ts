@@ -49,6 +49,14 @@ function seedDb(db: Database, opts: { taskId: string; model: string; tokens: num
   });
 }
 
+function seedCompletedTaskDuration(db: Database, opts: { id: string; cumulativeActiveMs: number; completedAt: string }): void {
+  db.prepare(
+    `INSERT INTO tasks
+       (id, description, "column", cumulativeActiveMs, executionCompletedAt, createdAt, updatedAt)
+     VALUES (?, 'desc', 'done', ?, ?, ?, ?)`,
+  ).run(opts.id, opts.cumulativeActiveMs, opts.completedAt, opts.completedAt, opts.completedAt);
+}
+
 function seedAgentRun(db: Database, opts: { id: string; agentId: string; startedAt: string; status: string }): void {
   db.prepare(
     `INSERT OR IGNORE INTO agents (id, name, role, state, createdAt, updatedAt)
@@ -103,6 +111,13 @@ function seedSignalMetrics(db: Database, opts: { prefix: string; source: string;
     ).run(`${opts.prefix}-resolved-${seq}`, `${opts.prefix}-group-${seq}`, `Signal ${seq}`, opts.source);
     seq += 1;
   }
+}
+
+function seedPluginActivation(db: Database, opts: { pluginId: string; activatedAt: string; source?: string; version?: string | null }): void {
+  db.prepare(
+    `INSERT INTO plugin_activations (pluginId, source, pluginVersion, activatedAt)
+     VALUES (?, ?, ?, ?)`,
+  ).run(opts.pluginId, opts.source ?? "plugin", opts.version ?? null, opts.activatedAt);
 }
 
 function seedGithubIssueMetrics(db: Database, opts: { prefix: string; repo: string; filed: number; fixed: number }): void {
@@ -288,6 +303,7 @@ describe("register-command-center-routes", () => {
   it("returns the tools / activity / productivity aggregator shapes", async () => {
     const range = "from=2026-02-01T00:00:00.000Z&to=2026-04-01T00:00:00.000Z";
     seedAgentRun(dbA, { id: "run-a1", agentId: "agent-route", startedAt: "2026-03-02T00:00:00.000Z", status: "active" });
+    seedCompletedTaskDuration(dbA, { id: "FN-D1", cumulativeActiveMs: 120_000, completedAt: "2026-03-03T00:00:00.000Z" });
     const tools = await request(app, "GET", `/api/command-center/tools?${range}&projectId=proj-a`);
     expect(tools.status).toBe(200);
     expect(tools.body).toHaveProperty("autonomyRatio");
@@ -303,7 +319,13 @@ describe("register-command-center-routes", () => {
     const prod = await request(app, "GET", `/api/command-center/productivity?${range}&projectId=proj-a`);
     expect(prod.status).toBe(200);
     expect(prod.body).toHaveProperty("loc");
+    expect(prod.body).toHaveProperty("hoursSaved");
     expect(prod.body).toHaveProperty("byLanguage");
+    expect(prod.body).toHaveProperty("taskDuration");
+    expect((prod.body as { taskDuration: { completedTasks: number; totalMs: number } }).taskDuration).toMatchObject({
+      completedTasks: 1,
+      totalMs: 120_000,
+    });
 
     seedGithubIssueMetrics(dbA, { prefix: "FN-A", repo: "acme/alpha", filed: 2, fixed: 1 });
     const github = await request(app, "GET", `/api/command-center/github?${range}&projectId=proj-a`);
@@ -365,6 +387,28 @@ describe("register-command-center-routes", () => {
     // A's task had 100 input tokens (total 200); B's had 999 (total 1998).
     expect((a.body as { totals: { totalTokens: number } }).totals.totalTokens).toBe(200);
     expect((b.body as { totals: { totalTokens: number } }).totals.totalTokens).toBe(1998);
+  });
+
+  it("plugin activation endpoint returns scoped JSON and preserves unavailable for empty ranges", async () => {
+    seedPluginActivation(dbA, { pluginId: "plugin.a", activatedAt: "2026-03-10T00:00:00.000Z" });
+    seedPluginActivation(dbA, { pluginId: "plugin.a", activatedAt: "2026-03-11T00:00:00.000Z" });
+    seedPluginActivation(dbB, { pluginId: "plugin.b", activatedAt: "2026-03-10T00:00:00.000Z" });
+    const range = "from=2026-03-01T00:00:00.000Z&to=2026-03-31T00:00:00.000Z";
+
+    const a = await request(app, "GET", `/api/command-center/plugin-activations?${range}&projectId=proj-a`);
+    const b = await request(app, "GET", `/api/command-center/plugin-activations?${range}&projectId=proj-b`);
+    const empty = await request(app, "GET", "/api/command-center/plugin-activations?from=2026-04-01T00:00:00.000Z&to=2026-04-30T00:00:00.000Z&projectId=proj-a");
+
+    expect(a.status).toBe(200);
+    expect(a.body).toMatchObject({ activations: 2, unavailable: false });
+    expect((a.body as { byPlugin: Array<{ pluginId: string; count: number }> }).byPlugin).toEqual([
+      { pluginId: "plugin.a", count: 2 },
+    ]);
+    expect(b.body).toMatchObject({ activations: 1, unavailable: false });
+    expect((b.body as { byPlugin: Array<{ pluginId: string; count: number }> }).byPlugin).toEqual([
+      { pluginId: "plugin.b", count: 1 },
+    ]);
+    expect(empty.body).toMatchObject({ activations: 0, byPlugin: [], unavailable: true });
   });
 
   it("team endpoint stays project scoped", async () => {
@@ -509,6 +553,7 @@ describe("register-command-center-routes", () => {
 
   it("?format=csv works for tools / activity / productivity endpoints", async () => {
     const range = "from=2026-02-01T00:00:00.000Z&to=2026-04-01T00:00:00.000Z";
+    seedCompletedTaskDuration(dbA, { id: "FN-DCSV", cumulativeActiveMs: 120_000, completedAt: "2026-03-03T00:00:00.000Z" });
     for (const [path, filename] of [
       ["tools", "command-center-tools.csv"],
       ["activity", "command-center-activity.csv"],
@@ -526,6 +571,13 @@ describe("register-command-center-routes", () => {
         `attachment; filename="${filename}"`,
       );
       expect((res.body as string).split("\r\n")[0].length).toBeGreaterThan(0);
+      if (path === "productivity") {
+        expect(res.body as string).toContain("completedTasks,1");
+        expect(res.body as string).toContain("avgDurationMs,120000");
+        expect(res.body as string).toContain("medianDurationMs,120000");
+        expect(res.body as string).toContain("p90DurationMs,120000");
+        expect(res.body as string).toContain("totalDurationMs,120000");
+      }
     }
   });
 

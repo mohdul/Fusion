@@ -173,6 +173,12 @@ export function productivityAnalyticsToTable(
   rows.push(["commits", result.commits]);
   rows.push(["pullRequests", result.pullRequests]);
   rows.push(["loc", result.loc.value ?? ""]);
+  rows.push(["hoursSaved", result.hoursSaved.value ?? ""]);
+  rows.push(["completedTasks", result.taskDuration.completedTasks]);
+  rows.push(["avgDurationMs", result.taskDuration.averageMs ?? ""]);
+  rows.push(["medianDurationMs", result.taskDuration.medianMs ?? ""]);
+  rows.push(["p90DurationMs", result.taskDuration.p90Ms ?? ""]);
+  rows.push(["totalDurationMs", result.taskDuration.totalMs ?? ""]);
   return { header, rows };
 }
 

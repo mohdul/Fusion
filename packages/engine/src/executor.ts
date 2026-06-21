@@ -6,10 +6,11 @@ import { setImmediate as setImmediateCb } from "node:timers";
 // Internal git plumbing intentionally bypasses sandbox backends.
 const execAsync = promisify(exec);
 import { delimiter, isAbsolute, join, relative, resolve as resolvePath } from "node:path";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
-import type { TaskStore, Task, TaskDetail, TaskTokenUsage, StepStatus, Settings, WorkflowStep, MissionStore, Slice, AgentState, AgentCapability, RunMutationContext, AgentHeartbeatConfig, Agent, AgentMemoryInclusionMode, ProjectSettings, MergeResult, WorkflowIrNode } from "@fusion/core";
-import { RetryStormError, TaskDeletedError, serializeRetryStormError, isExperimentalFeatureEnabled, isWorkflowColumnsEnabled, resolveWorkflowIrForTask, resolveColumnAgentBinding, resolveEffectiveAgent, instanceNodeId, getWorkflowExtensionRegistry, getBuiltinWorkflow, parseNoOpCompletionMarker } from "@fusion/core";
+import type { TaskStore, Task, TaskDetail, TaskTokenUsage, StepStatus, Settings, WorkflowStep, MissionStore, Slice, AgentState, AgentCapability, RunMutationContext, AgentHeartbeatConfig, Agent, AgentMemoryInclusionMode, ProjectSettings, MergeResult, WorkflowIrNode, WorkflowIrNodeKind } from "@fusion/core";
+import { getUnmetSchedulingDependencies } from "./scheduler.js";
+import { RetryStormError, TaskDeletedError, serializeRetryStormError, isExperimentalFeatureEnabled, isWorkflowColumnsEnabled, resolveWorkflowIrForTask, resolveColumnAgentBinding, resolveEffectiveAgent, instanceNodeId, getWorkflowExtensionRegistry, getBuiltinWorkflow, parseNoOpCompletionMarker, allowsAutoMergeProcessing, isSharedBranchGroupMemberIntegration, resolveMaxAutoMergeRetries } from "@fusion/core";
 import { mergeEffectiveSettings } from "./effective-settings.js";
 import type { TaskStep, WorkflowIr, WorkflowFieldDefinition, WorkflowColumnAgent, EffectiveAgentInput, WorkflowWorkEngineDispatchResult } from "@fusion/core";
 import {
@@ -35,6 +36,7 @@ import {
   type ForeachActiveContext,
   type WorkflowLegacySeams,
 } from "./workflow-node-handlers.js";
+import { MERGE_REGION_KINDS } from "./workflow-graph-executor.js";
 import type { WorkflowNodeResult } from "./workflow-graph-executor.js";
 import type {
   AuditPrimitiveInput,
@@ -66,7 +68,7 @@ import { canonicalStepInstanceBranchName, generateWorktreeName, resolveTaskWorki
 import { resolveTaskWorktreePath, resolveWorktreesDir } from "./worktree-paths.js";
 import { Type, type Static } from "@earendil-works/pi-ai";
 import { describeModel, promptWithFallback, compactSessionContext } from "./pi.js";
-import { accumulateSessionTokenUsage } from "./session-token-usage.js";
+import { accumulateSessionTokenUsage, mergeTokenUsagePerModel } from "./session-token-usage.js";
 import {
   createResolvedAgentSession,
   extractRuntimeHint,
@@ -157,7 +159,7 @@ import {
   isMissingWorktreeSessionStartFailure,
 } from "./restart-recovery-coordinator.js";
 import { BranchWorktreeAutoRecoveryHandler } from "./auto-recovery-handlers/branch-worktree.js";
-import { autoRecoverWorktreeSessionStartFailure, MAX_WORKTREE_SESSION_RETRIES } from "./self-healing.js";
+import { autoRecoverWorktreeSessionStartFailure, MAX_WORKTREE_SESSION_RETRIES, PAUSE_ABORT_PARK_ERROR_MARKER, PAUSE_ABORT_PARK_OPERATOR_MARKER } from "./self-healing.js";
 import { ContaminationAutoRecoveryHandler } from "./auto-recovery-handlers/contamination.js";
 import { createFileScopeAutoRecoveryHandler } from "./auto-recovery-handlers/file-scope.js";
 import { ReadonlyViolationError, filterCustomToolsForReadonly } from "./workflow-step-tool-policy.js";
@@ -1996,6 +1998,41 @@ export class TaskExecutor {
     );
   }
 
+  /**
+   * FNXC:ExecutorBinding 2026-06-19-00:00:
+   * FN-6736 gives self-healing a narrow escape hatch for phantom in-memory executor bindings after the liveness gate proves the owner is dead. Never use this as a general task stopper: it refuses to detach observable live session surfaces, then clears only stale bookkeeping (`executing`, resume/recovery sets, process-wide graph routing, activeWorktrees, activeSessionRegistry paths, and executingTaskLock) so the scheduler can re-dispatch the preserved worktree.
+   */
+  clearPhantomExecutorBinding(taskId: string): boolean {
+    const hasLiveSessionSurface = this.activeSessions.has(taskId)
+      || this.activeStepExecutors.has(taskId)
+      || this.activeWorkflowStepSessions.has(taskId)
+      || this.activeCliTaskSessions.has(taskId);
+    if (hasLiveSessionSurface) {
+      executorLog.warn(`${taskId}: refusing to clear phantom executor binding because a live session surface is still registered`);
+      return false;
+    }
+
+    const worktreePath = this.activeWorktrees.get(taskId);
+    this.activeWorktrees.delete(taskId);
+    this.executing.delete(taskId);
+    this.recoveringCompleted.delete(taskId);
+    this.resumingUnpaused.delete(taskId);
+    TaskExecutor.processWideGraphRouting.delete(taskId);
+    executingTaskLock.release(taskId);
+    this.effectiveColumnAgentByTask.delete(taskId);
+
+    const registeredPaths = new Set(activeSessionRegistry.pathsForTask(taskId));
+    if (worktreePath) {
+      registeredPaths.add(worktreePath);
+    }
+    for (const path of registeredPaths) {
+      activeSessionRegistry.unregisterPath(path);
+    }
+
+    executorLog.warn(`${taskId}: cleared phantom executor binding for self-healing re-dispatch`);
+    return true;
+  }
+
   isEphemeralDeletionPending(agentId: string): boolean {
     return this.pendingEphemeralDeletions.has(agentId);
   }
@@ -3327,6 +3364,7 @@ export class TaskExecutor {
       totalTokens: (existing?.totalTokens ?? 0) + delta.totalTokens,
       firstUsedAt: existing?.firstUsedAt ?? timestamp,
       lastUsedAt: timestamp,
+      perModel: existing?.perModel,
     };
 
     return merged;
@@ -3336,16 +3374,23 @@ export class TaskExecutor {
     tokenUsage: TaskTokenUsage,
     session: AgentSession | undefined,
     existing: TaskTokenUsage | undefined,
+    delta?: Pick<TaskTokenUsage, "inputTokens" | "outputTokens" | "cachedTokens" | "cacheWriteTokens" | "totalTokens">,
+    timestamp = tokenUsage.lastUsedAt,
+    modelOverride?: { provider?: string; id?: string },
   ): TaskTokenUsage {
-    const model = (session as { model?: { provider?: string; id?: string } } | undefined)?.model;
+    const model = modelOverride ?? (session as { model?: { provider?: string; id?: string } } | undefined)?.model;
     return {
       ...tokenUsage,
       /*
        * FNXC:TokenAnalytics 2026-06-18-16:23:
        * Persist the actually-used session model as an analytics snapshot while leaving task.modelProvider/task.modelId untouched so normal model-resolution hierarchy is not pinned by usage bookkeeping.
+       *
+       * FNXC:TokenAnalytics 2026-06-19-15:53:
+       * Per-model buckets must merge only the just-produced delta. The sum of buckets stays equal to the task aggregate, while analytics grand totals and nTasks remain based on the task row rather than expanded buckets.
        */
       modelProvider: model?.provider ?? existing?.modelProvider,
       modelId: model?.id ?? existing?.modelId,
+      perModel: delta ? mergeTokenUsagePerModel(existing?.perModel, delta, model, timestamp) : tokenUsage.perModel,
     };
   }
 
@@ -3431,7 +3476,7 @@ export class TaskExecutor {
     const task = await this.store.getTask(taskId);
     const merged = this.accumulateTokenUsage(task.tokenUsage, delta);
     if (!merged) return;
-    const tokenUsage = this.tokenUsageWithModelSnapshot(merged, activeSession, task.tokenUsage);
+    const tokenUsage = this.tokenUsageWithModelSnapshot(merged, activeSession, task.tokenUsage, delta);
 
     tokenCacheMetricsLog.log(JSON.stringify({
       taskId,
@@ -6433,7 +6478,81 @@ export class TaskExecutor {
   }
 
   private isMergeGraphFailure(failedNode: string | undefined): boolean {
-    return failedNode === "merge" || failedNode === "requestMerge";
+    /*
+    FNXC:WorkflowLifecycle 2026-06-19-00:00:
+    FN-6735 requires every workflow merge-region node id to classify as a merge-seam graph failure. A benign pause/resume abort can surface as the synthetic legacy `merge`, `requestMerge`, or a primitive merge-region id, and all must route through bounded merge retry rather than terminal operator-action parking.
+    */
+    if (!failedNode) return false;
+    if (failedNode === "merge" || failedNode === "requestMerge") return true;
+    if (MERGE_REGION_KINDS.has(failedNode as WorkflowIrNodeKind)) return true;
+    return failedNode === "merge-manual-hold" || failedNode === "merge-retry";
+  }
+
+  private isTerminalMergeGraphFailureValue(value: string | undefined): boolean {
+    if (!value) return false;
+    const normalized = value.toLowerCase();
+    return normalized.includes("conflict")
+      || normalized.includes("contamination")
+      || normalized.includes("foreign")
+      || normalized.includes("retry-exhausted")
+      || normalized.includes("retries exhausted")
+      || normalized.includes("max retries");
+  }
+
+  private async isRetryableBenignMergePauseAbort(
+    live: TaskDetail,
+    result: WorkflowGraphTaskRunResult,
+    abortProvenance: "global-pause" | "merge-seam" | "hard-cancel" | "completion-finalize" | undefined,
+    pausedAborted: boolean,
+  ): Promise<boolean> {
+    /*
+    FNXC:WorkflowLifecycle 2026-06-19-00:05:
+    FN-6735 treats a generic engine pause/resume abort at the merge seam as transient only when the row is still a clean in-review auto-merge candidate: no user/global pause, no pre-existing failure, no merge-confirmed partial landing, no terminal conflict/contamination value, within mergeRetries budget, and still eligible for auto-merge or shared-branch local integration. Anything outside those guards keeps the existing terminal operator-action park.
+    */
+    if (!pausedAborted) return false;
+    if (abortProvenance === "global-pause" || live.userPaused === true) return false;
+    if (abortProvenance === "completion-finalize") return false;
+    if (live.column !== "in-review" || live.status != null || live.error != null) return false;
+    if (live.mergeDetails?.mergeConfirmed === true) return false;
+    if (this.isTerminalMergeGraphFailureValue(this.graphFailureValue(result))) return false;
+    const failedNode = result.visitedNodeIds[result.visitedNodeIds.length - 1];
+    if (!this.isMergeGraphFailure(failedNode)) return false;
+    let settings: Settings | undefined;
+    try {
+      settings = await this.store.getSettings();
+    } catch {
+      return false;
+    }
+    const sharedBranchMember = isSharedBranchGroupMemberIntegration(live);
+    if (!sharedBranchMember && !allowsAutoMergeProcessing(live, settings)) return false;
+    if ((live.mergeRetries ?? 0) >= resolveMaxAutoMergeRetries(settings)) return false;
+    return true;
+  }
+
+  private isBenignInReviewPauseAbort(
+    live: TaskDetail,
+    result: WorkflowGraphTaskRunResult,
+    abortProvenance: "global-pause" | "merge-seam" | "hard-cancel" | "completion-finalize" | undefined,
+    pausedAborted: boolean,
+    userCanceled: boolean,
+  ): boolean {
+    /*
+    FNXC:WorkflowLifecycle 2026-06-20-00:00:
+    FN-6796: an engine restart/pause-resume abort reaches graph-failure handling as `hard-cancel` provenance even when no user canceled the task. A clean completed `in-review` row in that shape is already handed off for review and must not be stranded with the operator-action pause-abort marker; the discriminator is the in-memory `userCanceledTaskIds` set plus the resting column and clean row state, while global/user pause, merge-seam, terminal merge values, merge-confirmed partial landings, and pre-existing status/error still park exactly as before.
+    */
+    if (!pausedAborted) return false;
+    if (abortProvenance !== "hard-cancel") return false;
+    if (userCanceled) return false;
+    if (live.column !== "in-review") return false;
+    if (live.userPaused === true) return false;
+    if (live.status != null || live.error != null) return false;
+    if (live.mergeDetails?.mergeConfirmed === true) return false;
+    if (this.isTerminalMergeGraphFailureValue(this.graphFailureValue(result))) return false;
+    const failedNode = result.visitedNodeIds[result.visitedNodeIds.length - 1];
+    if (this.isMergeGraphFailure(failedNode)) return false;
+    if (live.steps.length === 0) return false;
+    if (!live.steps.every((step) => step.status === "done" || step.status === "skipped")) return false;
+    return true;
   }
 
   private async routeGraphMergeFailureToRetry(
@@ -6443,7 +6562,7 @@ export class TaskExecutor {
   ): Promise<boolean> {
     if (!this.mergeRequester) return false;
     const failedNode = result.visitedNodeIds[result.visitedNodeIds.length - 1] ?? "unknown";
-    const message = `Workflow graph merge failure at node '${failedNode}' routed to bounded auto-merge retry${abortProvenance === "merge-seam" ? " after merge-seam abort" : ""}`;
+    const message = `Workflow graph merge failure at node '${failedNode}' routed to bounded auto-merge retry${abortProvenance === "merge-seam" ? " after merge-seam abort" : abortProvenance === "hard-cancel" || abortProvenance === undefined ? " after benign pause/resume abort" : ""}`;
     executorLog.warn(`${live.id}: ${message}`);
     await this.store.logEntry(live.id, message, undefined, this.getRunContextFor(live.id));
     try {
@@ -6524,6 +6643,20 @@ export class TaskExecutor {
           || (live.paused && !mergeSeamAborted && !suppressFinalizedCompletionAbort)
           || (pausedAborted && !mergeSeamAborted && !completionFinalizeAborted && !suppressFinalizedCompletionAbort),
       );
+      if (genuinePauseAbort && await this.isRetryableBenignMergePauseAbort(live, result, abortProvenance, pausedAborted)) {
+        if (await this.routeGraphMergeFailureToRetry(live, result, abortProvenance)) {
+          return;
+        }
+      }
+      if (genuinePauseAbort && this.isBenignInReviewPauseAbort(live, result, abortProvenance, pausedAborted, this.userCanceledTaskIds.has(task.id))) {
+        this.clearPausedAborted(task.id);
+        this.activeWorktrees.delete(task.id);
+        const inReviewBenign = "Workflow graph run ended during engine pause/resume while already in-review — benign, in-review state preserved";
+        executorLog.log(`${task.id}: ${inReviewBenign}`);
+        await this.store.logEntry(task.id, inReviewBenign, undefined, this.getRunContextFor(task.id));
+        await this.persistTokenUsage(task.id);
+        return;
+      }
       if (genuinePauseAbort) {
         /*
         FNXC:WorkflowLifecycle 2026-06-15-01:45:
@@ -6543,8 +6676,62 @@ export class TaskExecutor {
               ? "engine abort during pause/resume"
               : "task pause";
         if (live.column !== "in-progress") {
+          // FN-6782: a pause/resume abort that has left the task back in `todo`
+          // is benign — the work is simply re-queued for a fresh dispatch, not
+          // stranded. Parking it `status: "failed"` (operator action required)
+          // here is what caused the retry storm: the scheduler re-dispatches the
+          // todo task, this branch re-fires on the still-set pausedAborted
+          // marker, and it re-parks instantly with no backoff. Treat `todo` like
+          // the in-progress benign case: clear the abort marker so the next
+          // dispatch starts clean, log, and return WITHOUT parking failed. The
+          // operator-action failure is preserved only for genuinely stranded
+          // non-todo columns (e.g. in-review), per FN-6478.
+          if (live.column === "todo") {
+            this.clearPausedAborted(task.id);
+            // FNXC:WorkflowLifecycle 2026-06-20-00:00: FN-6782 leak fix — a task
+            // parked back to `todo` must not keep pinning its in-memory worktree
+            // slot. The execute() finally does not delete activeWorktrees on this
+            // early-return path, so without this release the slot leaks — a `todo`
+            // task stays a maxWorktrees holder and concurrency-blocks the whole
+            // queue (the FN-6756 "in todo yet still a holder, maxWorktrees=3/3"
+            // symptom). Mirror clearPhantomExecutorBinding's release semantics.
+            // Safe here: handleGraphFailure is terminal for this run (no seam
+            // re-entry), and the next dispatch re-acquires a fresh worktree.
+            this.activeWorktrees.delete(task.id);
+            const todoBenign = `Workflow graph run ended during ${pauseProvenance} with task re-queued to todo — benign, cleared for normal scheduling`;
+            executorLog.log(`${task.id}: ${todoBenign}`);
+            await this.store.logEntry(task.id, todoBenign, undefined, this.getRunContextFor(task.id));
+            // FNXC:WorkflowLifecycle 2026-06-20-19:58: reconcile a stale
+            // persisted failure with the benign reclassification. A pause-abort
+            // parked `status:"failed"` on an earlier non-todo observation stays
+            // dispatchable (scheduler.ts filters column+paused, NOT status) and
+            // re-enters this branch in `todo`; `recoverPausedAbortFailures` that
+            // would clear it is suppressed during global/engine pause
+            // (self-healing.ts). Leaving the row failed contradicts the benign
+            // log: the board shows it failed AND the deferred failure
+            // notification fires (notification-service fire-time check sees
+            // status === "failed"). Clear status/error here so the row matches
+            // the log, then emit an `Auto-recovered:`-prefixed entry so
+            // NotificationService.maybeSuppressTransientFailedNotification
+            // PROACTIVELY cancels the pending failure timer on the task:updated
+            // event (recoveredStatus path) — rather than relying only on the
+            // fire-time re-check, which is race-contingent when
+            // failureNotificationDelayMs is near 0. The prefix is the documented
+            // contract for self-healing recovery logs (see self-healing.ts /
+            // project-engine.ts). Scoped to the actual-clear path so the common
+            // no-failure benign re-queue is not mislabeled as a recovery.
+            if (live.status != null || live.error != null) {
+              await this.store.updateTask(task.id, { status: null, error: null }, this.getRunContextFor(task.id));
+              await this.store.logEntry(task.id, "Auto-recovered: cleared stale pause-abort failure on todo re-queue — failure notification suppressed", undefined, this.getRunContextFor(task.id));
+            }
+            await this.persistTokenUsage(task.id);
+            return;
+          }
           const failedNode = result.visitedNodeIds[result.visitedNodeIds.length - 1] ?? "unknown";
-          const message = `Workflow graph failure surfaced after paused ${pauseProvenance} in '${live.column}' at node '${failedNode}' — operator action required; retry or explicitly unpause/resume after inspecting the task`;
+          // FNXC:WorkflowLifecycle 2026-06-20-00:00: build the parked-failure
+          // message from the shared markers so self-healing's recoverPausedAbortFailures
+          // predicate cannot drift out of sync with this text (PR #1687 review).
+          const message = `${PAUSE_ABORT_PARK_ERROR_MARKER} ${pauseProvenance} in '${live.column}' at node '${failedNode}' — ${PAUSE_ABORT_PARK_OPERATOR_MARKER}; retry or explicitly unpause/resume after inspecting the task`;
           executorLog.warn(`${task.id}: ${message}`);
           await this.store.logEntry(task.id, message, undefined, this.getRunContextFor(task.id));
           if (live.column !== "done" && live.column !== "archived" && live.status == null && live.error == null) {
@@ -6559,7 +6746,19 @@ export class TaskExecutor {
         return;
       }
       const failedNode = result.visitedNodeIds[result.visitedNodeIds.length - 1];
-      if (this.isMergeGraphFailure(failedNode) && await this.routeGraphMergeFailureToRetry(live, result, abortProvenance)) {
+      const mergeGraphFailure = this.isMergeGraphFailure(failedNode);
+      const failureValue = this.graphFailureValue(result);
+      if (mergeGraphFailure && !this.isTerminalMergeGraphFailureValue(failureValue) && await this.routeGraphMergeFailureToRetry(live, result, abortProvenance)) {
+        return;
+      }
+      if (mergeGraphFailure && this.isTerminalMergeGraphFailureValue(failureValue) && live.column !== "done" && live.column !== "archived") {
+        const message = `Workflow graph terminal merge failure at node '${failedNode ?? "unknown"}' (${failureValue}) — operator action required`;
+        executorLog.warn(`${task.id}: ${message}`);
+        await this.store.logEntry(task.id, message, undefined, this.getRunContextFor(task.id));
+        if (live.status == null && live.error == null) {
+          await this.store.updateTask(task.id, { error: message, status: "failed" }, this.getRunContextFor(task.id));
+        }
+        await this.persistTokenUsage(task.id);
         return;
       }
       if (live.column !== "in-progress") {
@@ -6568,7 +6767,6 @@ export class TaskExecutor {
         await this.store.logEntry(task.id, benignMessage, undefined, this.getRunContextFor(task.id));
         return;
       }
-      const failureValue = this.graphFailureValue(result);
       if (this.isAwaitingGraphFailureValue(failureValue)) {
         /*
         FNXC:WorkflowLifecycle 2026-06-15-12:00:
@@ -6747,6 +6945,50 @@ export class TaskExecutor {
     return { ok: true };
   }
 
+  private async blockOuterDispatchWhenDependenciesUnmet(task: Task): Promise<boolean> {
+    if (!task.dependencies || task.dependencies.length === 0) return false;
+
+    const settings = await this.store.getSettings();
+    const tasks = await this.store.listTasks({ includeArchived: false, slim: true });
+    const liveTask = tasks.find((candidate) => candidate.id === task.id) ?? task;
+    const markerAcceptedByTaskId = new Map<string, boolean>();
+    if (settings.mergeRequestContractShadowEnabled === true) {
+      for (const depId of liveTask.dependencies) {
+        markerAcceptedByTaskId.set(depId, this.store.getCompletionHandoffAcceptedMarker(depId) !== null);
+      }
+    }
+    const unmetDeps = getUnmetSchedulingDependencies(
+      liveTask,
+      tasks,
+      settings.mergeRequestContractShadowEnabled === true ? { markerAcceptedByTaskId } : undefined,
+    );
+    if (unmetDeps.length === 0) return false;
+
+    /*
+    FNXC:DependencyGating 2026-06-20-07:30:
+    Workflow-graph and workflow-authoritative executor dispatches can be invoked outside the classic scheduler loop, so they must re-apply the shared scheduling dependency gate before graph routing, column-agent seams, or review handoff can run.
+    Requeue with blockedBy instead of executing so missing or soft-deleted dependency residue keeps the scheduler helper's non-blocking semantics while live todo/queued/in-progress/triage dependencies block every dispatch surface.
+    */
+    if (liveTask.column !== "todo") {
+      await this.store.moveTask(liveTask.id, "todo", {
+        preserveProgress: true,
+        preserveWorktree: true,
+        preserveResumeState: true,
+        moveSource: "engine",
+        recoveryRehome: true,
+      });
+    }
+    await this.store.updateTask(liveTask.id, { status: "queued", blockedBy: unmetDeps[0] }, this.getRunContextFor(liveTask.id));
+    await this.store.logEntry(
+      liveTask.id,
+      `queued — unmet dependencies: ${unmetDeps.join(", ")}`,
+      "Executor pre-dispatch dependency gate blocked workflow/authoritative execution.",
+      this.getRunContextFor(liveTask.id),
+    );
+    executorLog.log(`${liveTask.id}: executor dispatch blocked by unmet dependencies: ${unmetDeps.join(", ")}`);
+    return true;
+  }
+
   async execute(task: Task): Promise<void> {
     this.completionFinalizedTaskIds.delete(task.id);
     // Workflow graph interpreter routing (cutover M-C): graph-selected tasks
@@ -6760,6 +7002,7 @@ export class TaskExecutor {
         executorLog.log(`execute() called for ${task.id} while graph routing is active — skipping duplicate`);
         return;
       }
+      if (await this.blockOuterDispatchWhenDependenciesUnmet(task)) return;
       const graphOwned = await this.maybeExecuteWorkflowGraph(task);
       if (graphOwned) return;
       const authoritativeOwned = await this.options.workflowAuthoritativeDispatch?.(task);
@@ -7324,8 +7567,8 @@ export class TaskExecutor {
             const previousStepTokenUsage = accumulatedStepTokenUsage;
             accumulatedStepTokenUsage = this.accumulateTokenUsage(accumulatedStepTokenUsage, result.tokenUsage);
             if (accumulatedStepTokenUsage) {
-              // FNXC:TokenAnalytics 2026-06-18-16:23: Step-scoped token writes must not clear the analytics-only actually-used model snapshot captured by the central session seams.
-              accumulatedStepTokenUsage = this.tokenUsageWithModelSnapshot(accumulatedStepTokenUsage, undefined, previousStepTokenUsage);
+              // FNXC:TokenAnalytics 2026-06-19-15:55: Step-scoped token writes now carry the producing session model so workflow-step sessions contribute their exact deltas to per-model analytics instead of relying on the last central session snapshot.
+              accumulatedStepTokenUsage = this.tokenUsageWithModelSnapshot(accumulatedStepTokenUsage, undefined, previousStepTokenUsage, result.tokenUsage, accumulatedStepTokenUsage.lastUsedAt, { provider: result.tokenUsage.modelProvider, id: result.tokenUsage.modelId });
             }
             tokenUsageRecordedSteps.add(stepIndex);
             if (!accumulatedStepTokenUsage) {
@@ -7374,7 +7617,7 @@ export class TaskExecutor {
             const previousStepTokenUsage = accumulatedStepTokenUsage;
             accumulatedStepTokenUsage = this.accumulateTokenUsage(accumulatedStepTokenUsage, result.tokenUsage);
             if (accumulatedStepTokenUsage) {
-              accumulatedStepTokenUsage = this.tokenUsageWithModelSnapshot(accumulatedStepTokenUsage, undefined, previousStepTokenUsage);
+              accumulatedStepTokenUsage = this.tokenUsageWithModelSnapshot(accumulatedStepTokenUsage, undefined, previousStepTokenUsage, result.tokenUsage, accumulatedStepTokenUsage.lastUsedAt, { provider: result.tokenUsage.modelProvider, id: result.tokenUsage.modelId });
             }
           }
 
@@ -13850,6 +14093,25 @@ Backward compat fallback: if JSON is unavailable, you may still begin output wit
    * The requesting task is excluded from the check because `cleanupConflictingWorktree` is
    * only called for worktrees the requesting task is trying to displace.
    */
+  /**
+   * FN-6782 leaked-slot reaper support: expose a read-only snapshot of the
+   * in-memory `activeWorktrees` holders so SelfHealingManager can cross-check
+   * each holder's task column and reclaim a slot whose holder is no longer
+   * legitimately in-progress (the "in todo yet still maxWorktrees holder"
+   * leak). Returns a copied array — never the live Map — so callers cannot
+   * mutate executor state. The actual release still goes through
+   * `clearPhantomExecutorBinding`, which refuses to detach live session
+   * surfaces, so this introspection cannot by itself pull a worktree out from
+   * under a running agent.
+   */
+  listWorktreeHolders(): Array<{ taskId: string; worktreePath: string }> {
+    const holders: Array<{ taskId: string; worktreePath: string }> = [];
+    for (const [taskId, worktreePath] of this.activeWorktrees) {
+      holders.push({ taskId, worktreePath });
+    }
+    return holders;
+  }
+
   private async findActiveWorktreeOwner(
     worktreePath: string,
     requestingTaskId: string,
@@ -14043,14 +14305,63 @@ Backward compat fallback: if JSON is unavailable, you may still begin output wit
       return true;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      // FN-4811 follow-up (FN-4813): when `git worktree remove --force` fails with
-      // "fatal: validation failed, cannot remove working tree", the worktree directory
-      // doesn't exist on disk and the git admin entry (if any) is stale. Treat as
-      // already-cleaned: prune the stale admin entry, best-effort delete the branch, and
-      // return success so the caller can proceed with fresh worktree creation. Without
-      // this recovery, every `tryCreateWorktree` retry on a stale conflict path fails
-      // with "automatic cleanup failed".
-      if (/validation failed, cannot remove working tree/i.test(errorMessage)) {
+      // FN-4811 follow-up (FN-4813): when `git worktree remove --force` fails because the
+      // conflicting path isn't a recoverable git worktree, treat it as already-cleaned:
+      // prune any stale admin entry, force-remove the leftover directory, best-effort delete
+      // the branch, and return success so the caller can proceed with fresh worktree creation.
+      // Without this recovery, every `tryCreateWorktree` retry on such a path fails with
+      // "automatic cleanup failed".
+      //
+      // Three variants land here, all meaning "no live worktree to preserve at this path":
+      //   1. `validation failed, cannot remove working tree` — stale admin entry, dir missing.
+      //   2. `is not a working tree` — an orphan directory exists on disk but git never
+      //      registered it (e.g. a leaked worktree dir that outlived its admin entry). This
+      //      is the FN-6782 leak residue that collides with freshly generated worktree names.
+      //   3. `No such file or directory` / ENOENT — the path is already gone.
+      //
+      // Exclude spawn failures (e.g. `spawn git ENOENT` when the git binary is missing or not
+      // on PATH): those are environment errors, not "path is not a worktree" signals, and must
+      // not be misread as a successful stale-path cleanup.
+      const err = error as NodeJS.ErrnoException;
+      const isSpawnFailure = typeof err?.syscall === "string" && err.syscall.startsWith("spawn");
+      const staleConflictPath = !isSpawnFailure && (
+        /validation failed, cannot remove working tree/i.test(errorMessage) ||
+        /is not a working tree/i.test(errorMessage) ||
+        /no such file or directory|ENOENT/i.test(errorMessage)
+      );
+      if (staleConflictPath) {
+        // The error string alone is NOT authoritative — it can name an unrelated path, or fire
+        // on a live worktree under a racing/transient failure. Re-verify on disk before any
+        // destructive action and refuse to force-remove anything that is still a real worktree,
+        // out of bounds, reached through a symlink, or actively owned by a live session. Only a
+        // genuine orphan directory inside the configured worktrees tree is safe to delete.
+        const settings = await this.store.getSettings();
+        const stillRegistered = await isRegisteredGitWorktree(this.rootDir, worktreePath).catch(() => true);
+        const activeOwner = await this.findActiveWorktreeOwner(worktreePath, taskId).catch(() => "unknown");
+        let safeToRemove = isInsideWorktreesDir(this.rootDir, worktreePath, settings) && !stillRegistered && activeOwner === null;
+        if (safeToRemove && existsSync(worktreePath)) {
+          try {
+            if (lstatSync(worktreePath).isSymbolicLink()) {
+              safeToRemove = false;
+            } else if (!isInsideWorktreesDir(this.rootDir, realpathSync(worktreePath), settings)) {
+              safeToRemove = false;
+            }
+          } catch {
+            // Stat failed (path vanished mid-check) — nothing to remove; the prune/branch
+            // cleanup below is still safe to run.
+          }
+        }
+        if (!safeToRemove) {
+          // A real/registered/out-of-bounds/owned/symlinked path we must not touch. Surface as a
+          // cleanup failure so the operator-recovery path handles it instead of silently
+          // claiming success (and never `rm -rf`-ing something we shouldn't).
+          await this.store.logEntry(
+            taskId,
+            `Refused stale-path cleanup — path is not a safe orphan (registered=${stillRegistered}, owner=${activeOwner ?? "none"})`,
+            worktreePath,
+          );
+          return false;
+        }
         try {
           await execAsync("git worktree prune", {
             cwd: this.rootDir,
@@ -14061,6 +14372,16 @@ Backward compat fallback: if JSON is unavailable, you may still begin output wit
           const pruneMsg = pruneErr instanceof Error ? pruneErr.message : String(pruneErr);
           executorLog.warn(`${taskId}: git worktree prune failed during stale-path cleanup of ${worktreePath}: ${pruneMsg}`);
         }
+        // An orphan directory ("is not a working tree") won't be removed by prune — git
+        // doesn't track it. Force-remove the leftover dir so the colliding name is free.
+        if (existsSync(worktreePath)) {
+          try {
+            await rm(worktreePath, { recursive: true, force: true });
+          } catch (rmErr: unknown) {
+            const rmMsg = rmErr instanceof Error ? rmErr.message : String(rmErr);
+            executorLog.warn(`${taskId}: failed to remove orphan worktree directory ${worktreePath}: ${rmMsg}`);
+          }
+        }
         try {
           await execAsync(`git branch -D "${branch}"`, { cwd: this.rootDir });
           this.store.clearStaleExecutionStartBranchReferences([branch], taskId);
@@ -14069,7 +14390,7 @@ Backward compat fallback: if JSON is unavailable, you may still begin output wit
         }
         await this.store.logEntry(
           taskId,
-          `Cleaned up stale conflicting worktree admin entry (validation failed — path likely missing on disk)`,
+          `Cleaned up stale conflicting worktree (no live worktree at path — pruned admin entry and removed orphan directory)`,
           worktreePath,
         );
         return true;

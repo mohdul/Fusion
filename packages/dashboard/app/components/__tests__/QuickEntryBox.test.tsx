@@ -277,6 +277,10 @@ async function flushPendingTimers() {
   });
 }
 
+async function waitForSubmitSuccessToClear(textarea: HTMLTextAreaElement) {
+  await waitFor(() => expect(textarea.value).toBe(""));
+}
+
 function openPriorityMenu() {
   fireEvent.click(screen.getByTestId("quick-entry-priority-button"));
 }
@@ -456,6 +460,7 @@ describe("QuickEntryBox", () => {
       fireEvent.keyDown(textarea, { key: "Enter" });
 
       await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+      await waitForSubmitSuccessToClear(textarea);
       await flushPendingTimers();
 
       expect(focusSpy).toHaveBeenCalledTimes(1);
@@ -473,6 +478,7 @@ describe("QuickEntryBox", () => {
       clickSave();
 
       await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+      await waitForSubmitSuccessToClear(textarea);
       await flushPendingTimers();
 
       expect(focusSpy).toHaveBeenCalledTimes(1);
@@ -498,7 +504,7 @@ describe("QuickEntryBox", () => {
       fireEvent.click(screen.getByRole("button", { name: "Create anyway" }));
 
       await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
-      await waitFor(() => expect(textarea.value).toBe(""));
+      await waitForSubmitSuccessToClear(textarea);
       await flushPendingTimers();
 
       expect(focusSpy).toHaveBeenCalledTimes(1);
@@ -519,8 +525,29 @@ describe("QuickEntryBox", () => {
       fireEvent.keyDown(textarea, { key: "Enter" });
 
       await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+      await waitForSubmitSuccessToClear(textarea);
       await flushPendingTimers();
 
+      expect(focusSpy).not.toHaveBeenCalled();
+      expect(document.activeElement).not.toBe(textarea);
+    });
+
+    it("preserves the draft without auto-focus when submission fails", async () => {
+      mockDesktopViewport();
+      const addToast = vi.fn();
+      const onCreate = vi.fn().mockRejectedValue(new Error("create failed"));
+      renderQuickEntryBox({ addToast, onCreate });
+      const textarea = screen.getByTestId("quick-entry-input") as HTMLTextAreaElement;
+      const focusSpy = vi.spyOn(textarea, "focus");
+
+      fireEvent.change(textarea, { target: { value: "Failed task" } });
+      fireEvent.keyDown(textarea, { key: "Enter" });
+
+      await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(textarea.value).toBe("Failed task"));
+      await flushPendingTimers();
+
+      expect(addToast).toHaveBeenCalledWith("create failed", "error");
       expect(focusSpy).not.toHaveBeenCalled();
       expect(document.activeElement).not.toBe(textarea);
     });
@@ -2303,6 +2330,40 @@ describe("QuickEntryBox", () => {
 
       // Input should be cleared
       expect((textarea as HTMLTextAreaElement).value).toBe("");
+    });
+
+    it.each([
+      { label: "Plan", buttonId: "plan-button", callbackProp: "onPlanningMode" as const },
+      { label: "Subtask", buttonId: "subtask-button", callbackProp: "onSubtaskBreakdown" as const },
+    ])("passes selected workflow id through %s quick-entry handoff", async ({ buttonId, callbackProp }) => {
+      const onPlanningMode = vi.fn();
+      const onSubtaskBreakdown = vi.fn();
+      renderQuickEntryBox({ onPlanningMode, onSubtaskBreakdown, workflowId: "WF-123" });
+      expandQuickEntry();
+      const textarea = screen.getByTestId("quick-entry-input");
+
+      fireEvent.change(textarea, { target: { value: "Create in custom workflow" } });
+      fireEvent.click(screen.getByTestId(buttonId));
+
+      await waitFor(() => {
+        expect(callbackProp === "onPlanningMode" ? onPlanningMode : onSubtaskBreakdown)
+          .toHaveBeenCalledWith("Create in custom workflow", "WF-123");
+      });
+    });
+
+    it("omits workflow id in legacy quick-entry handoff", async () => {
+      const onPlanningMode = vi.fn();
+      renderQuickEntryBox({ onPlanningMode });
+      expandQuickEntry();
+      const textarea = screen.getByTestId("quick-entry-input");
+
+      fireEvent.change(textarea, { target: { value: "Create with default workflow" } });
+      fireEvent.click(screen.getByTestId("plan-button"));
+
+      await waitFor(() => {
+        expect(onPlanningMode).toHaveBeenCalledWith("Create with default workflow");
+      });
+      expect(onPlanningMode.mock.calls[0]).toHaveLength(1);
     });
 
     it("disables Plan and Subtask buttons when description is empty", () => {

@@ -3,15 +3,19 @@ import { COLUMNS, DEFAULT_COLUMN, isColumn } from "@fusion/core";
 import { sortTasksForDisplayColumn } from "./taskSorting";
 import { Column } from "./Column";
 import "./Lane.css";
+import "./Board.css";
 import type { ToastType } from "../hooks/useToast";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { Pencil, Plus } from "lucide-react";
+import { createPortal } from "react-dom";
 import { fetchWorkflowSteps, fetchBoardWorkflows, promoteTask, type ModelInfo, type BoardWorkflowDefinition, type BoardWorkflowsPayload } from "../api";
 import { useBlockerFanout } from "../hooks/useBlockerFanout";
 import { MOBILE_MEDIA_QUERY } from "../hooks/useViewportMode";
 import { recordResumeEvent } from "../utils/resumeInstrumentation";
 import { subscribeSse } from "../sse-bus";
 import { getBoardCanDropTaskRejection } from "./boardCanDropTask";
+import { WorkflowSwitcher } from "./WorkflowSwitcher";
+import { computeWorkflowStatusCounts } from "./workflowStatusCounts";
+import { readBoardWorkflowsCache, writeBoardWorkflowsCache } from "../utils/boardWorkflowsCache";
 
 interface BoardProps {
   tasks: Task[];
@@ -47,11 +51,11 @@ interface BoardProps {
   /**
    * Called when the user clicks the "Plan" button in the inline create card.
    */
-  onPlanningMode?: (initialPlan: string) => void;
+  onPlanningMode?: (initialPlan: string, workflowId?: string | null) => void;
   /**
    * Called when the user clicks the "Subtask" button in the inline create card.
    */
-  onSubtaskBreakdown?: (description: string) => void;
+  onSubtaskBreakdown?: (description: string, workflowId?: string | null) => void;
   onOpenDetailWithTab?: (task: Task | TaskDetail, initialTab: "changes" | "retries" | "workflow") => void;
   favoriteProviders?: string[];
   favoriteModels?: string[];
@@ -71,6 +75,12 @@ interface BoardProps {
   onOpenWorkflowEditor?: (workflowId?: string) => void;
   /** Opens the workflow editor to create a new workflow. */
   onCreateWorkflow?: () => void;
+  /** Already-resolved app setting for whether workflow lanes should be used. */
+  workflowColumnsEnabled?: boolean;
+  /** Whether app settings have loaded; false gates the legacy board until the workflow flag is known. */
+  settingsLoaded?: boolean;
+  /** Relocates workflow controls into the Header portal slot when sidebar navigation owns the inline chrome. */
+  workflowControlsInHeader?: boolean;
 }
 
 
@@ -121,11 +131,29 @@ function areWorkflowNameLookupsEqual(previous: ReadonlyMap<string, string>, next
   return true;
 }
 
-export function Board({ tasks, projectId, maxConcurrent, onMoveTask, onPauseTask, onOpenDetail, onOpenGroupModal, addToast, onQuickCreate, onNewTask, autoMerge, onToggleAutoMerge, globalPaused, onUpdateTask, onRetryTask, onArchiveTask, onUnarchiveTask, onDeleteTask, onArchiveAllDone, onLoadArchivedTasks, searchQuery = "", availableModels, onPlanningMode, onSubtaskBreakdown, onOpenDetailWithTab, favoriteProviders, favoriteModels, onToggleFavorite, onToggleModelFavorite, taskStuckTimeoutMs, onOpenMission, staleHighFanoutBlockerAgeThresholdMs, lastFetchTimeMs, prAuthAvailable, onOpenWorkflowEditor, onCreateWorkflow }: BoardProps) {
+function BoardWorkflowSkeleton({ empty = false }: { empty?: boolean }) {
+  return (
+    <main className="board board-workflows-skeleton" id="board" aria-busy={!empty} aria-label={empty ? "No workflow lanes available" : "Loading workflow lanes"} data-testid={empty ? "board-workflows-empty" : "board-workflows-skeleton"}>
+      {[0, 1, 2].map((index) => (
+        <section className="board-workflows-skeleton__column card" key={index} aria-hidden="true">
+          <div className="board-workflows-skeleton__header" />
+          <div className="board-workflows-skeleton__card" />
+          <div className="board-workflows-skeleton__card board-workflows-skeleton__card--short" />
+        </section>
+      ))}
+    </main>
+  );
+}
+
+export function Board({ tasks, projectId, maxConcurrent, onMoveTask, onPauseTask, onOpenDetail, onOpenGroupModal, addToast, onQuickCreate, onNewTask, autoMerge, onToggleAutoMerge, globalPaused, onUpdateTask, onRetryTask, onArchiveTask, onUnarchiveTask, onDeleteTask, onArchiveAllDone, onLoadArchivedTasks, searchQuery = "", availableModels, onPlanningMode, onSubtaskBreakdown, onOpenDetailWithTab, favoriteProviders, favoriteModels, onToggleFavorite, onToggleModelFavorite, taskStuckTimeoutMs, onOpenMission, staleHighFanoutBlockerAgeThresholdMs, lastFetchTimeMs, prAuthAvailable, onOpenWorkflowEditor, onCreateWorkflow, workflowColumnsEnabled, settingsLoaded, workflowControlsInHeader = false }: BoardProps) {
   const [archivedCollapsed, setArchivedCollapsed] = useState(true);
   const archivedLoadedRef = useRef(false);
   const [workflowStepNameLookup, setWorkflowStepNameLookup] = useState<ReadonlyMap<string, string>>(EMPTY_WORKFLOW_STEP_NAME_LOOKUP);
   const boardRef = useRef<HTMLElement | null>(null);
+  const [headerWorkflowSlot, setHeaderWorkflowSlot] = useState<HTMLElement | null>(() => {
+    if (typeof document === "undefined") return null;
+    return document.getElementById("header-workflow-slot");
+  });
   const blockerFanoutMap = useBlockerFanout(tasks, {
     staleHighFanoutAgeThresholdMs: staleHighFanoutBlockerAgeThresholdMs,
   });
@@ -139,6 +167,14 @@ export function Board({ tasks, projectId, maxConcurrent, onMoveTask, onPauseTask
     done: [],
     archived: [],
   });
+
+  useEffect(() => {
+    if (!workflowControlsInHeader || typeof document === "undefined") {
+      setHeaderWorkflowSlot(null);
+      return;
+    }
+    setHeaderWorkflowSlot(document.getElementById("header-workflow-slot"));
+  }, [workflowControlsInHeader]);
 
   useEffect(() => {
     recordResumeEvent({
@@ -326,9 +362,18 @@ export function Board({ tasks, projectId, maxConcurrent, onMoveTask, onPauseTask
   }, []);
 
   // ── U9 multi-lane board (flag-gated) ──────────────────────────────────────
+  /*
+  FNXC:BoardWorkflows 2026-06-20-08:58:
+  Workflow-columns-enabled users must never see the legacy single-lane board while board-workflows metadata is still loading. Hydrate metadata from the project-scoped session cache, reset it on project switches, and show a neutral skeleton while settings or uncached workflow metadata are unknown.
+  */
   // Fetch board-workflows metadata. When the flag is OFF the server returns
   // { flagEnabled: false } and we render the legacy single-lane board below.
-  const [boardWorkflows, setBoardWorkflows] = useState<BoardWorkflowsPayload | null>(null);
+  const shouldHydrateBoardWorkflowsCache = workflowColumnsEnabled === true || settingsLoaded === false;
+  const [boardWorkflowsState, setBoardWorkflowsState] = useState<{ projectId?: string; payload: BoardWorkflowsPayload } | null>(() => {
+    const cached = shouldHydrateBoardWorkflowsCache ? readBoardWorkflowsCache(projectId) : null;
+    return cached ? { projectId, payload: cached } : null;
+  });
+  const boardWorkflows = boardWorkflowsState?.projectId === projectId && boardWorkflowsState ? boardWorkflowsState.payload : null;
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
   const draggingTaskIdRef = useRef<string | null>(null);
 
@@ -341,15 +386,23 @@ export function Board({ tasks, projectId, maxConcurrent, onMoveTask, onPauseTask
   // refetch below is retained as a stopgap for missed events / reconnects.
   const boardWorkflowsFetchSeqRef = useRef(0);
   useEffect(() => {
+    const cached = shouldHydrateBoardWorkflowsCache ? readBoardWorkflowsCache(projectId) : null;
+    setBoardWorkflowsState(cached ? { projectId, payload: cached } : null);
+  }, [projectId, shouldHydrateBoardWorkflowsCache]);
+
+  useEffect(() => {
     const runFetch = () => {
       const seq = ++boardWorkflowsFetchSeqRef.current;
       fetchBoardWorkflows(projectId)
         .then((payload) => {
-          if (seq === boardWorkflowsFetchSeqRef.current) setBoardWorkflows(payload);
+          if (seq === boardWorkflowsFetchSeqRef.current) {
+            setBoardWorkflowsState({ projectId, payload });
+            writeBoardWorkflowsCache(projectId, payload);
+          }
         })
         .catch(() => {
           if (seq === boardWorkflowsFetchSeqRef.current) {
-            setBoardWorkflows({ flagEnabled: false, defaultWorkflowId: "builtin:coding", workflows: [], taskWorkflowIds: {} });
+            setBoardWorkflowsState({ projectId, payload: { flagEnabled: false, defaultWorkflowId: "builtin:coding", workflows: [], taskWorkflowIds: {} } });
           }
         });
     };
@@ -408,6 +461,11 @@ export function Board({ tasks, projectId, maxConcurrent, onMoveTask, onPauseTask
       ?? workflowOptions[0]
       ?? null;
   }, [boardWorkflows?.defaultWorkflowId, selectedWorkflowId, workflowMode, workflowOptions]);
+
+  const workflowStatusCounts = useMemo(
+    () => computeWorkflowStatusCounts(tasks, boardWorkflows),
+    [boardWorkflows, tasks],
+  );
 
   useEffect(() => {
     if (!workflowMode) {
@@ -500,52 +558,44 @@ export function Board({ tasks, projectId, maxConcurrent, onMoveTask, onPauseTask
   // `task.issueInfo`, `task.githubTracking.issue`) and live WebSocket `badge:updated`
   // messages. We do NOT eagerly call `/api/github/batch-status` on board load.
 
+  const shouldGateLegacyBoard = boardWorkflows === null
+    ? (workflowColumnsEnabled === true || settingsLoaded === false)
+    : boardWorkflows.flagEnabled === true && boardWorkflows.workflows.length === 0;
+
+  if (shouldGateLegacyBoard) {
+    return <BoardWorkflowSkeleton empty={boardWorkflows?.flagEnabled === true} />;
+  }
+
   if (workflowMode && selectedWorkflow) {
+    const shouldRenderWorkflowControls = workflowOptions.length > 1 || Boolean(onCreateWorkflow || onOpenWorkflowEditor);
+    const workflowToolbar = shouldRenderWorkflowControls && workflowOptions.length > 0 ? (
+      <div className="board-workflow-toolbar">
+        <div className="board-workflow-selector">
+          <WorkflowSwitcher
+            workflows={workflowOptions}
+            value={selectedWorkflow.id}
+            onChange={setSelectedWorkflowId}
+            counts={workflowStatusCounts}
+            onEditWorkflow={onOpenWorkflowEditor}
+            onCreateWorkflow={onCreateWorkflow}
+          />
+        </div>
+      </div>
+    ) : null;
+    /*
+    FNXC:WorkflowControls 2026-06-20-00:00:
+    Board owns workflow selection state, so the existing selector/edit/create toolbar is portaled to Header only when the left sidebar is the active tablet/desktop navigation surface. If the Header slot is not mounted yet, render inline as the safe fallback so controls are never lost.
+
+    FNXC:WorkflowControls 2026-06-20-15:42:
+    Standalone workflow edit/create icon buttons were removed because those actions now live inside WorkflowSwitcher; keep this wrapper only when it contains the switcher to avoid empty toolbar shells.
+    */
+    const relocatedWorkflowToolbar = workflowControlsInHeader && headerWorkflowSlot && workflowToolbar
+      ? createPortal(workflowToolbar, headerWorkflowSlot)
+      : null;
+
     return (
       <div className="board-workflow-view">
-        {(workflowOptions.length > 1 || onCreateWorkflow || onOpenWorkflowEditor) && (
-          <div className="board-workflow-toolbar">
-            {workflowOptions.length > 1 && (
-              <label className="list-workflow-selector board-workflow-selector">
-                <span>Workflow</span>
-                <select
-                  className="select list-workflow-select"
-                  value={selectedWorkflow.id}
-                  onChange={(event) => setSelectedWorkflowId(event.target.value)}
-                  aria-label="Select workflow"
-                >
-                  {workflowOptions.map((workflow) => (
-                    <option key={workflow.id} value={workflow.id}>
-                      {workflow.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {onOpenWorkflowEditor && (
-              <button
-                type="button"
-                className="btn btn-icon btn-sm board-workflow-edit-btn"
-                onClick={() => onOpenWorkflowEditor(selectedWorkflow.id)}
-                title="Edit workflows"
-                aria-label="Edit workflows"
-              >
-                <Pencil size={15} />
-              </button>
-            )}
-            {onCreateWorkflow && (
-              <button
-                type="button"
-                className="btn btn-icon btn-sm board-workflow-create-btn"
-                onClick={onCreateWorkflow}
-                title="New workflow"
-                aria-label="New workflow"
-              >
-                <Plus size={15} />
-              </button>
-            )}
-          </div>
-        )}
+        {workflowControlsInHeader && headerWorkflowSlot ? relocatedWorkflowToolbar : workflowToolbar}
         <main
           className="board board-workflow-columns"
           id="board"

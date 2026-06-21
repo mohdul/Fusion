@@ -92,6 +92,7 @@ const ARCHIVE_FTS_MAINTENANCE_OPTIMIZE_CADENCE_TICKS = 24;
 const ARCHIVE_FTS_REBUILD_THRESHOLD_BYTES = 64 * 1024 * 1024;
 const ARCHIVE_FTS_REBUILD_BYTES_PER_TASK = 512 * 1024;
 export const STALE_ACTIVE_BRANCH_EXECUTION_GRACE_MS = 10 * 60_000;
+const PHANTOM_EXECUTOR_BINDING_AGE_MULTIPLIER = 3;
 export const COMPLETION_HANDOFF_LIMBO_GRACE_MS = 5 * 60_000;
 export const MAX_COMPLETION_HANDOFF_LIMBO_RECOVERIES = 3;
 export const MAX_POST_DONE_NONCONTINUABLE_WEDGE_RECOVERIES = 3;
@@ -241,6 +242,19 @@ export interface SelfHealingOptions {
   rootDir: string;
   /** Optional callback to release TaskExecutor in-memory worktree ownership for a task. */
   releaseExecutorWorktreeOwnership?: (taskId: string) => void;
+  /**
+   * FN-6782: read-only snapshot of the executor's in-memory worktree holders
+   * ({ taskId, worktreePath }), so the leaked-slot reaper can cross-check each
+   * holder's task column and reclaim a slot whose holder is no longer in-progress.
+   */
+  listWorktreeHolders?: () => Array<{ taskId: string; worktreePath: string }>;
+  /**
+   * Optional callback to clear a demonstrably-stale executor binding without
+   * touching live sessions. Returns `true` if the binding was cleared, `false`
+   * if the executor refused because a live session surface is still registered
+   * (the leaked-slot reaper relies on this refusal signal).
+   */
+  clearPhantomExecutorBinding?: (taskId: string) => boolean | void;
   /** Optional AgentStore for agent-level self-healing checks. */
   agentStore?: AgentStore;
   /** Canonical stale-lease recovery manager. */
@@ -354,6 +368,12 @@ const STARVED_REFINEMENT_RECOVERY_GRACE_MS = 10 * 60_000;
 const STARVED_PEER_PROGRESS_THRESHOLD = 3;
 const STARVED_REFINEMENT_ESCALATION_COOLDOWN_MS = STARVED_REFINEMENT_RECOVERY_GRACE_MS * 4;
 const ORPHANED_EXECUTION_RECOVERY_GRACE_MS = 60_000;
+/**
+ * FN-6782 leaked-slot reaper grace: a worktree holder whose task has sat in a
+ * reapable column (todo/triage) shorter than this is left alone, so the reaper
+ * never races a task mid-transition out of in-progress.
+ */
+const LEAKED_WORKTREE_SLOT_GRACE_MS = 60_000;
 export const VALIDATOR_RUN_STALE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const ACTIVE_MERGE_STATUSES = new Set(["merging", "merging-pr", "merging-fix"]);
 const NON_TERMINAL_STEP_STATUSES = new Set(["pending", "in-progress"]);
@@ -392,6 +412,16 @@ const ORPHANED_WITH_WORKTREE_GRACE_MS = 300_000;
  */
 const MAX_TASK_DONE_RETRIES = 3;
 export const MAX_WORKTREE_SESSION_RETRIES = 3;
+/**
+ * FNXC:WorkflowLifecycle 2026-06-20-00:00: single source of truth for the
+ * pause-abort park error message markers. The executor's handleGraphFailure
+ * builds the parked-failure message from these, and `recoverPausedAbortFailures`
+ * matches on them — sharing the constants prevents the recovery predicate from
+ * silently drifting if the message text is ever edited (greptile review on
+ * PR #1687: a string-coupled predicate breaks with no compile-time signal).
+ */
+export const PAUSE_ABORT_PARK_ERROR_MARKER = "Workflow graph failure surfaced after paused";
+export const PAUSE_ABORT_PARK_OPERATOR_MARKER = "operator action required";
 /**
  * FNXC:AutoMergeRetries 2026-06-17-04:20:
  * Keep this export as the historical default seed for tests and dashboard fallback alignment, but SelfHealingManager must call resolveMaxAutoMergeRetries(settings) at decision points so configured projects do not recover or stall at the old fixed value.
@@ -896,6 +926,70 @@ export class SelfHealingManager {
     return activeTaskIds;
   }
 
+  private async getRecentRunAuditActivityAgeMs(task: Task, nowMs: number): Promise<number | null> {
+    const getRunAuditEvents = (this.store as unknown as {
+      getRunAuditEvents?: (filter: { taskId?: string; startTime?: string; limit?: number }) => Array<{ timestamp?: string }>;
+    }).getRunAuditEvents;
+    if (typeof getRunAuditEvents !== "function") {
+      return null;
+    }
+
+    try {
+      const since = new Date(nowMs - RUNNING_ON_INACTIVE_TASK_STALE_RUN_MS).toISOString();
+      const events = getRunAuditEvents.call(this.store, { taskId: task.id, startTime: since, limit: 1 });
+      const newest = events.find((event) => typeof event.timestamp === "string");
+      if (!newest?.timestamp) return null;
+      const timestampMs = Date.parse(newest.timestamp);
+      return Number.isFinite(timestampMs) ? Math.max(0, nowMs - timestampMs) : null;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn(`[self-healing] unable to inspect recent run-audit activity for ${task.id}: ${message}`);
+      return null;
+    }
+  }
+
+  /**
+   * FNXC:SelfHealingReclaim 2026-06-19-00:00:
+   * FN-6736 requires self-healing to stop treating an in-memory `executor-active` binding as live when the owner is demonstrably dead. Preserve FN-4811 by requiring every live-owner signal to be absent, leave the FN-5219 missing-worktree path untouched, and avoid FN-5704 resume-limbo counters because this path only clears a stale binding and requeues once with progress/worktree preserved.
+   */
+  private isPhantomExecutorBinding(task: Task, options: {
+    executionAgeMs: number | null;
+    graceMs: number;
+    activeHeartbeatTaskIds: Set<string>;
+    lastActivityMs: number | null;
+  }): { phantom: boolean; metadata: Record<string, unknown> } {
+    const normalizedId = task.id.toUpperCase();
+    const agentPresent = options.activeHeartbeatTaskIds.has(normalizedId);
+    const checkedOutBy = typeof task.checkedOutBy === "string" && task.checkedOutBy.trim().length > 0 ? task.checkedOutBy : null;
+    const worktreeExists = Boolean(task.worktree && existsSync(task.worktree));
+    const hasRecentRunAudit = options.lastActivityMs !== null && options.lastActivityMs <= RUNNING_ON_INACTIVE_TASK_STALE_RUN_MS;
+    const safeAgeMs = options.graceMs * PHANTOM_EXECUTOR_BINDING_AGE_MULTIPLIER;
+    const metadata = {
+      taskId: task.id,
+      executionAgeMs: options.executionAgeMs,
+      graceMs: options.graceMs,
+      staleBindingAgeFloorMs: safeAgeMs,
+      checkedOutBy,
+      agentPresent,
+      lastActivityMs: options.lastActivityMs,
+      hasRecentRunAudit,
+      worktree: task.worktree ?? null,
+      branch: task.branch ?? null,
+      worktreeExists,
+    };
+
+    return {
+      phantom: task.column === "in-progress"
+        && worktreeExists
+        && options.executionAgeMs !== null
+        && options.executionAgeMs > safeAgeMs
+        && !checkedOutBy
+        && !agentPresent
+        && !hasRecentRunAudit,
+      metadata,
+    };
+  }
+
   private getFalsePositiveRequeueSignal(task: Task, options: {
     executingIds?: Set<string>;
     activeHeartbeatTaskIds?: Set<string>;
@@ -1070,6 +1164,7 @@ export class SelfHealingManager {
       { name: "clear-stale-blocked-by", fn: () => this.clearStaleBlockedBy().then(() => undefined) },
       { name: "reconcile-self-defeating-deps", fn: () => this.reconcileSelfDefeatingDependencies().then(() => undefined) },
       { name: "reconcile-dependency-blocking-leases", fn: () => this.reconcileDependencyBlockingLeases().then(() => undefined) },
+      { name: "reconcile-in-review-unmet-dependencies", fn: () => this.reconcileInReviewUnmetDependencies().then(() => undefined) },
       { name: "reconcile-dependency-cycles", fn: () => this.reconcileDependencyCycles().then(() => undefined) },
       { name: "reclaim-pr-conflicts", fn: () => this.reclaimPrConflicts().then(() => undefined) },
       { name: "reclaim-self-owned-branch-conflicts", fn: () => this.reclaimSelfOwnedBranchConflicts().then(() => undefined) },
@@ -1911,6 +2006,20 @@ export class SelfHealingManager {
         },
         { name: "cleanup-orphaned-branches", fn: () => this.cleanupOrphanedBranches() },
         {
+          name: "reconcile-orphaned-task-dirs",
+          fn: async () => {
+            /*
+             * FNXC:TaskStoreConsistency 2026-06-20-00:00:
+             * Runtime heartbeat-created task dirs can appear after store init, so paused-safe housekeeping must reconcile orphaned task.json rows during maintenance instead of waiting for a restart.
+             */
+            const result = await this.store.reconcileOrphanedTaskDirs();
+            if (result.recovered.length > 0 || result.skipped.some((entry) => entry.reason.startsWith("malformed"))) {
+              log.warn(`Maintenance batch 1 step "reconcile-orphaned-task-dirs" recovered=${result.recovered.length} skipped=${result.skipped.length}`);
+            }
+            return result;
+          },
+        },
+        {
           name: "cleanup-old-chats",
           fn: async () => {
             const days = Number(settings.chatAutoCleanupDays ?? 0);
@@ -2044,6 +2153,7 @@ export class SelfHealingManager {
           { name: "recover-misclassified-failures", fn: () => this.recoverMisclassifiedFailures() },
           { name: "recover-missing-worktree-review-failures", fn: () => this.recoverMissingWorktreeReviewFailures() },
           { name: "recover-no-progress-no-task-done", fn: () => this.recoverNoProgressNoTaskDoneFailures() },
+          { name: "recover-paused-abort-failures", fn: () => this.recoverPausedAbortFailures() },
           { name: "recover-partial-progress-no-task-done", fn: () => this.recoverPartialProgressNoTaskDoneFailures() },
           { name: "recover-orphaned-executions", fn: () => this.recoverOrphanedExecutions() },
           { name: "recover-approved-triage", fn: () => this.recoverApprovedTriageTasks() },
@@ -2068,6 +2178,11 @@ export class SelfHealingManager {
           { name: "recover-stale-transition-pending", fn: () => this.runStaleTransitionPendingSweep() },
           { name: "reconcile-self-defeating-deps", fn: () => this.reconcileSelfDefeatingDependencies() },
           { name: "reconcile-dependency-blocking-leases", fn: () => this.reconcileDependencyBlockingLeases() },
+          { name: "reconcile-in-review-unmet-dependencies", fn: () => this.reconcileInReviewUnmetDependencies() },
+          // FN-6782: reclaim in-memory worktree slots whose holder is no longer
+          // in-progress (defense-in-depth for the pause-abort leak; conservative,
+          // gated by clearPhantomExecutorBinding's live-session refusal).
+          { name: "reap-leaked-concurrency-slots", fn: () => this.reapLeakedConcurrencySlots() },
           { name: "reconcile-dependency-cycles", fn: () => this.reconcileDependencyCycles().then(() => undefined) },
           { name: "reclaim-pr-conflicts", fn: () => this.reclaimPrConflicts() },
           { name: "reclaim-self-owned-branch-conflicts", fn: () => this.reclaimSelfOwnedBranchConflicts() },
@@ -2659,6 +2774,51 @@ export class SelfHealingManager {
           includeCheckedOutLease: true,
         });
         if (liveExecutionSignal) {
+          const canEvaluatePhantomBinding = task.column === "in-progress"
+            && (liveExecutionSignal.reason === "executor-active" || liveExecutionSignal.reason === "live-worktree-and-branch");
+          if (canEvaluatePhantomBinding) {
+            const nowMs = Date.now();
+            const executionStartedAtMs = task.executionStartedAt ? Date.parse(task.executionStartedAt) : Number.NaN;
+            const executionAgeMs = Number.isFinite(executionStartedAtMs) ? Math.max(0, nowMs - executionStartedAtMs) : null;
+            const lastActivityMs = await this.getRecentRunAuditActivityAgeMs(task, nowMs);
+            const phantomBinding = this.isPhantomExecutorBinding(task, {
+              executionAgeMs,
+              graceMs: STALE_ACTIVE_BRANCH_EXECUTION_GRACE_MS,
+              activeHeartbeatTaskIds: activeTaskIds,
+              lastActivityMs,
+            });
+
+            /*
+            FNXC:SelfHealingReclaim 2026-06-19-00:00:
+            FN-6736 makes the executor-active veto conditional for in-progress tasks whose worktree still exists: if age is far beyond grace and checkout, heartbeat, and run-audit liveness are all absent, clear only the stale in-memory binding and requeue with worktree/progress intact instead of emitting the permanent no-action wedge. Live FN-4811 owners still reach the normal no-action veto, missing worktrees remain FN-5219, and resume-limbo escalation remains FN-5704-owned.
+            */
+            if (phantomBinding.phantom) {
+              this.options.clearPhantomExecutorBinding?.(task.id);
+              await createRunAuditor(this.store, {
+                runId: generateSyntheticRunId("self-healing-phantom-executor-binding", task.id),
+                agentId: "self-healing",
+                taskId: task.id,
+                taskLineageId: task.lineageId,
+                phase: "reclaim-self-owned-branch-conflict",
+              }).database({
+                type: "task:reclaim-phantom-executor-binding",
+                target: task.id,
+                metadata: {
+                  ...phantomBinding.metadata,
+                  signalReason: liveExecutionSignal.reason,
+                },
+              });
+              await this.store.moveTask(task.id, "todo", {
+                moveSource: "engine",
+                recoveryRehome: true,
+                preserveProgress: true,
+                preserveWorktree: true,
+              });
+              recovered++;
+              continue;
+            }
+          }
+
           await this.emitFalsePositiveRequeueNoAction(
             task,
             "reclaim-self-owned-branch-conflict",
@@ -4818,6 +4978,183 @@ export class SelfHealingManager {
         },
       });
       recovered++;
+    }
+
+    return recovered;
+  }
+
+  private evaluateInReviewUnmetDependencyReboundSafety(task: Task, settings: Settings, unmetDeps: string[]): { ok: boolean; stalenessMs: number; reason: string; metadata: Record<string, unknown> } {
+    const livePaths = activeSessionRegistry.pathsForTask(task.id);
+    const hasActiveRegisteredPath = livePaths.some((path) => activeSessionRegistry.isPathActive(path));
+    const sessionDead = !hasActiveRegisteredPath && !executingTaskLock.has(task.id) && this.options.isTaskActive?.(task.id) !== true;
+    const anchorMs = task.columnMovedAt ? Date.parse(task.columnMovedAt) : Date.parse(task.updatedAt ?? "");
+    const stalenessMs = Number.isFinite(anchorMs) ? Math.max(0, Date.now() - anchorMs) : Number.POSITIVE_INFINITY;
+    const ok = sessionDead && !task.checkedOutBy;
+    return {
+      ok,
+      stalenessMs,
+      reason: "in-review-unmet-dependencies",
+      metadata: {
+        taskId: task.id,
+        unmetDeps,
+        blockedBy: unmetDeps[0] ?? null,
+        priorColumn: task.column,
+        priorStatus: task.status ?? null,
+        priorWorktree: task.worktree ?? null,
+        priorBranch: task.branch ?? null,
+        stalenessMs,
+        sessionDead,
+        livePaths,
+        hasActiveRegisteredPath,
+        hasExecutingTaskLock: executingTaskLock.has(task.id),
+        taskActive: this.options.isTaskActive?.(task.id) === true,
+        checkedOutBy: task.checkedOutBy ?? null,
+        autoMerge: settings.autoMerge ?? null,
+      },
+    };
+  }
+
+  async reconcileInReviewUnmetDependencies(): Promise<number> {
+    const settings = await this.store.getSettings();
+    if (settings.globalPause || settings.enginePaused) return 0;
+
+    let tasks: Task[] = [];
+    try {
+      tasks = await this.store.listTasks({ includeArchived: false, slim: true });
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log.warn(`reconcileInReviewUnmetDependencies: failed to list tasks: ${errorMessage}`);
+      return 0;
+    }
+
+    const markerAcceptedByTaskId = new Map<string, boolean>();
+    if (settings.mergeRequestContractShadowEnabled === true) {
+      const dependencyIds = new Set(tasks.flatMap((task) => task.dependencies));
+      for (const depId of dependencyIds) {
+        markerAcceptedByTaskId.set(depId, this.store.getCompletionHandoffAcceptedMarker(depId) !== null);
+      }
+    }
+    const dependencyOptions = settings.mergeRequestContractShadowEnabled === true
+      ? { markerAcceptedByTaskId }
+      : undefined;
+
+    let recovered = 0;
+    for (const task of tasks) {
+      if (task.column !== "in-review" || task.deletedAt) continue;
+
+      const unmetDeps = getUnmetSchedulingDependencies(task, tasks, dependencyOptions);
+      if (unmetDeps.length === 0) continue;
+
+      /*
+      FNXC:DependencyGating 2026-06-20-09:22:
+      In-review tasks with unmet dependencies must never be silently wedged. If a guard or store mutation prevents the rebound, emit the FN-6793 no-action audit event with the blocking reason so operators can distinguish allowed terminal holds from lifecycle bugs.
+      */
+      if (task.paused === true || task.userPaused === true) {
+        await this.emitBackwardMoveNoAction(
+          task,
+          "reconcile-in-review-unmet-dependencies",
+          "task:reconcile-in-review-unmet-dependencies-no-action",
+          {
+            stalenessMs: 0,
+            reason: "in-review-unmet-dependencies-paused",
+            metadata: {
+              taskId: task.id,
+              unmetDeps,
+              blockedBy: unmetDeps[0] ?? null,
+              priorColumn: task.column,
+              priorStatus: task.status ?? null,
+              paused: task.paused === true,
+              userPaused: task.userPaused === true,
+              reason: "paused-guard",
+            },
+          },
+        );
+        continue;
+      }
+
+      if (!allowsAutoMergeProcessing(task, settings)) {
+        await this.emitBackwardMoveNoAction(
+          task,
+          "reconcile-in-review-unmet-dependencies",
+          "task:reconcile-in-review-unmet-dependencies-no-action",
+          {
+            stalenessMs: 0,
+            reason: "in-review-unmet-dependencies-auto-merge-disabled",
+            metadata: {
+              taskId: task.id,
+              unmetDeps,
+              blockedBy: unmetDeps[0] ?? null,
+              priorColumn: task.column,
+              priorStatus: task.status ?? null,
+              autoMerge: settings.autoMerge ?? null,
+              taskAutoMerge: task.autoMerge ?? null,
+              reason: "auto-merge-processing-disabled",
+            },
+          },
+        );
+        continue;
+      }
+
+      const proof = this.evaluateInReviewUnmetDependencyReboundSafety(task, settings, unmetDeps);
+      if (!proof.ok) {
+        await this.emitBackwardMoveNoAction(
+          task,
+          "reconcile-in-review-unmet-dependencies",
+          "task:reconcile-in-review-unmet-dependencies-no-action",
+          proof,
+        );
+        continue;
+      }
+
+      try {
+        await this.store.moveTask(task.id, "todo", {
+          preserveProgress: true,
+          preserveWorktree: true,
+          preserveResumeState: true,
+          moveSource: "engine",
+          recoveryRehome: true,
+          bypassGuards: true,
+        });
+        await this.store.updateTask(task.id, { status: "queued", blockedBy: unmetDeps[0] });
+        await this.store.logEntry(
+          task.id,
+          `Auto-rebounded (FN-6793): in-review task had unmet dependencies: ${unmetDeps.join(", ")}`,
+        );
+        await createRunAuditor(this.store, {
+          runId: generateSyntheticRunId("fn6793-in-review-unmet-dependencies", task.id),
+          agentId: "self-healing",
+          taskId: task.id,
+          taskLineageId: task.lineageId,
+          phase: "reconcile-in-review-unmet-dependencies",
+        }).database({
+          type: "task:reconcile-in-review-unmet-dependencies" as DatabaseMutationType,
+          target: task.id,
+          metadata: {
+            taskId: task.id,
+            unmetDeps,
+            blockedBy: unmetDeps[0] ?? null,
+            priorColumn: "in-review",
+            priorStatus: task.status ?? null,
+          },
+        });
+        recovered++;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await this.emitBackwardMoveNoAction(
+          task,
+          "reconcile-in-review-unmet-dependencies",
+          "task:reconcile-in-review-unmet-dependencies-no-action",
+          {
+            stalenessMs: proof.stalenessMs,
+            reason: "in-review-unmet-dependencies-rebound-failed",
+            metadata: {
+              ...proof.metadata,
+              reason: "rebound-mutation-failed",
+              error: message,
+            },
+          },
+        );
+      }
     }
 
     return recovered;
@@ -7762,6 +8099,150 @@ export class SelfHealingManager {
     }
   }
 
+  /**
+   * FN-6782 / pause-abort auto-recovery: a global pause/resume cycle can leave a
+   * task parked `status: "failed"` with the "operator action required" message
+   * produced by the executor's genuine-pause-abort branch (executor.ts
+   * handleGraphFailure). Historically that required a human to retry/unpause.
+   * This sweep auto-recovers those parks: it clears the failed status/error and
+   * rehomes the task to `todo` with `status: null`. The scheduler treats a
+   * non-paused `todo` task with `status: null` as runnable (scheduler.ts builds
+   * its dispatch set from `column === "todo" && !paused`; `status: "queued"` is
+   * the *blocked* marker, not the runnable one), so clearing to null is what
+   * makes the task schedulable again.
+   *
+   * Guards mirror the other failed-task recoverers: never touch a task that is
+   * paused, currently executing, or whose error is not the pause-abort park.
+   */
+  async recoverPausedAbortFailures(): Promise<number> {
+    try {
+      // FNXC:WorkflowLifecycle 2026-06-20-00:00: self-guard against global/engine
+      // pause at the method entry, not just the batch-2 runner. This method is
+      // public and exercised directly (tests, potential API path); without this,
+      // calling it while paused would requeue tasks the operator intentionally
+      // froze (greptile P1, PR #1687). Mirrors every peer recovery func.
+      const settings = await this.store.getSettings();
+      if (settings.globalPause || settings.enginePaused) return 0;
+
+      const executingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
+      const tasks = await this.store.listTasks({ slim: true });
+
+      const isPausedAbortPark = (t: Task): boolean =>
+        t.status === "failed" &&
+        typeof t.error === "string" &&
+        t.error.includes(PAUSE_ABORT_PARK_OPERATOR_MARKER) &&
+        t.error.includes(PAUSE_ABORT_PARK_ERROR_MARKER);
+      const isTerminalMergePark = (t: Task): boolean => {
+        const text = typeof t.error === "string" ? t.error.toLowerCase() : "";
+        return text.includes("conflict")
+          || text.includes("contamination")
+          || text.includes("foreign")
+          || text.includes("retry-exhausted")
+          || text.includes("retries exhausted")
+          || text.includes("max retries");
+      };
+      const isRecoverableInReviewPauseAbortPark = (t: Task): boolean => {
+        /*
+        FNXC:WorkflowLifecycle 2026-06-20-00:00:
+        FN-6796 defense-in-depth: executor memory that distinguishes benign engine aborts from user hard-cancel is gone after restart, so self-healing may recover only persisted clean `in-review` pause-abort parks: non-paused, not executing, auto-merge eligible, completed steps, no terminal/confirmed merge evidence. User hard-cancel rows rest in `todo`; global/user pauses and autoMerge:false review rows remain operator-controlled.
+        */
+        return t.column === "in-review"
+          && allowsAutoMergeProcessing(t, settings)
+          && t.mergeDetails?.mergeConfirmed !== true
+          && !isTerminalMergePark(t)
+          && t.steps.length > 0
+          && t.steps.every((step) => step.status === "done" || step.status === "skipped");
+      };
+
+      const parked = tasks.filter((t) =>
+        isPausedAbortPark(t) &&
+        !t.paused &&
+        !t.userPaused &&
+        !executingIds.has(t.id) &&
+        (t.column === "todo" || t.column === "in-progress" || isRecoverableInReviewPauseAbortPark(t)),
+      );
+
+      if (parked.length === 0) return 0;
+
+      log.warn(`Found ${parked.length} pause-abort park(s) requiring auto-recovery`);
+
+      let recovered = 0;
+      for (const task of parked) {
+        try {
+          // FNXC:WorkflowLifecycle 2026-06-20-00:00: re-read AND re-validate the
+          // FULL predicate against the refreshed row with a FRESH executing set
+          // before mutating — the outer snapshot can go stale across awaits, so a
+          // task that became ineligible (paused, user-paused, started executing,
+          // or moved to a non-recoverable column) must not get a backward move
+          // applied (coderabbit Major + greptile, PR #1687).
+          const fresh = await this.store.getTask(task.id);
+          const latestExecutingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
+          if (
+            !fresh ||
+            !isPausedAbortPark(fresh) ||
+            fresh.paused ||
+            fresh.userPaused ||
+            latestExecutingIds.has(fresh.id) ||
+            !(fresh.column === "todo" || fresh.column === "in-progress" || isRecoverableInReviewPauseAbortPark(fresh))
+          ) {
+            continue;
+          }
+
+          await this.store.updateTask(task.id, { status: null, error: null });
+          if (fresh.column !== "todo" && fresh.column !== "in-review") {
+            await this.store.moveTask(task.id, "todo", {
+              preserveProgress: true,
+              moveSource: "engine",
+              recoveryRehome: true,
+            });
+          }
+          // Release any in-memory worktree ownership the leaked park may still
+          // pin, so the requeued task does not re-block the concurrency gate.
+          // FNXC:WorkflowLifecycle 2026-06-20-00:00: use clearPhantomExecutorBinding
+          // (wired + live-session-refusal guarded), NOT releaseExecutorWorktreeOwnership
+          // which is a declared-but-never-wired option — it would silently no-op.
+          this.options.clearPhantomExecutorBinding?.(task.id);
+
+          await this.store.logEntry(
+            task.id,
+            fresh.column === "in-review"
+              ? "Auto-recovered: in-review pause-abort park cleared — preserved for normal review progression"
+              : "Auto-recovered: pause-abort park cleared — requeued for normal scheduling",
+          );
+          // FNXC:WorkflowLifecycle 2026-06-20-00:00: audit emission is strictly
+          // best-effort — an audit throw AFTER the successful state mutation must
+          // not drop into the per-task catch and falsely log "recovery failed" /
+          // skip the recovered++ (coderabbit, PR #1687).
+          try {
+            await this.store.recordRunAuditEvent?.({
+              taskId: task.id,
+              agentId: "self-healing",
+              runId: generateSyntheticRunId("self-healing", task.id),
+              domain: "database",
+              mutationType: "task:auto-recover-paused-abort-park",
+              target: task.id,
+              metadata: { fromColumn: fresh.column, preservedInReview: fresh.column === "in-review" },
+            });
+          } catch (auditErr: unknown) {
+            log.warn(`Pause-abort park audit emission failed for ${task.id}: ${auditErr instanceof Error ? auditErr.message : String(auditErr)}`);
+          }
+          log.log(`Recovered pause-abort park ${task.id}: ${task.title || task.description?.slice(0, 60) || "(untitled)"}`);
+          recovered++;
+        } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+          log.error(`Failed to recover pause-abort park ${task.id}: ${errorMessage}`);
+        }
+      }
+
+      if (recovered > 0) {
+        log.log(`Recovered ${recovered} pause-abort park(s) → requeued to todo or preserved in review`);
+      }
+      return recovered;
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Pause-abort park recovery failed: ${errorMessage}`);
+      return 0;
+    }
+  }
+
   async auditNoCommitsExpectedCandidates(): Promise<number> {
     try {
       const inReviewTasks = await this.store.listTasks({ column: "in-review", slim: true });
@@ -7798,6 +8279,81 @@ export class SelfHealingManager {
       log.error(`No-commits-expected audit failed: ${errorMessage}`);
       return 0;
     }
+  }
+
+  /**
+   * FN-6782 leaked-slot reaper (defense-in-depth). The source leak is closed in
+   * the executor's pause-abort park path, but a worktree slot leaked by any
+   * other/future path would silently pin `maxWorktrees` and concurrency-starve
+   * the whole queue (the FN-6756 "in todo yet still maxWorktrees=3/3 holder"
+   * symptom) until an engine restart. This sweep cross-checks each in-memory
+   * worktree holder against its task column and reclaims slots whose holder is
+   * no longer legitimately holding one.
+   *
+   * Conservative by construction — release happens ONLY when every guard agrees:
+   *   - the holder is NOT in the executor's executing set;
+   *   - its task is missing, or in `todo`/`triage` (a task waiting to run must
+   *     not pin a worktree). `in-progress` and `in-review` holders legitimately
+   *     retain their worktree; `done`/`archived` are handled by worktree-metadata
+   *     reconcile + merge cleanup, so they are left alone here;
+   *   - it has sat in the reapable column past a short grace (no mid-transition race);
+   *   - and finally `clearPhantomExecutorBinding` itself refuses (returns false)
+   *     if any live session surface is still registered — the last line of
+   *     defense against pulling a worktree out from under a running agent.
+   */
+  async reapLeakedConcurrencySlots(): Promise<number> {
+    const settings = await this.store.getSettings();
+    if (settings.globalPause || settings.enginePaused) {
+      return 0;
+    }
+
+    const holders = this.options.listWorktreeHolders?.() ?? [];
+    if (holders.length === 0) return 0;
+
+    const executingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
+    const now = Date.now();
+    let reaped = 0;
+
+    for (const { taskId } of holders) {
+      try {
+        if (executingIds.has(taskId)) continue;
+
+        const task = await this.store.getTask(taskId).catch(() => null);
+        const reapableColumn = !task || task.column === "todo" || task.column === "triage";
+        if (!reapableColumn) continue;
+
+        if (task) {
+          const since = new Date(task.columnMovedAt ?? task.updatedAt).getTime();
+          if (Number.isFinite(since) && now - since < LEAKED_WORKTREE_SLOT_GRACE_MS) continue;
+        }
+
+        // FNXC:WorkflowLifecycle 2026-06-20-00:00: re-check execution ownership
+        // against a FRESH executing set immediately before releasing — the outer
+        // `executingIds` snapshot predates this holder's `getTask` await, so a
+        // task that started executing mid-sweep must not have its slot pulled
+        // (coderabbit Major, PR #1687). clearPhantomExecutorBinding's live-session
+        // refusal is the last line of defense, but this avoids racing it at all.
+        const latestExecutingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
+        if (latestExecutingIds.has(taskId)) continue;
+
+        const released = this.options.clearPhantomExecutorBinding?.(taskId);
+        // false = executor refused (live session surface); undefined = not wired.
+        if (released !== true) continue;
+
+        reaped++;
+        await this.store.logEntry(
+          taskId,
+          "Auto-recovered: released leaked worktree/concurrency slot (holder no longer in-progress)",
+        );
+        log.warn(`Reaped leaked worktree slot held by ${taskId} (column=${task?.column ?? "missing"})`);
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        log.error(`Leaked-slot reaper failed for ${taskId}: ${errorMessage}`);
+      }
+    }
+
+    if (reaped > 0) log.log(`Reaped ${reaped} leaked worktree slot(s)`);
+    return reaped;
   }
 
   /**

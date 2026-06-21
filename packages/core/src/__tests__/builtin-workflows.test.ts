@@ -20,7 +20,12 @@ const EXECUTE_NODE_MAX_RETRIES = 2;
 describe("built-in workflows", () => {
   // Non-compiler built-ins model graph-only node kinds or reusable fragments the
   // linear compiler cannot lower to a step list. They still must parse as valid IR.
-  const NON_COMPILABLE_BUILTIN_IDS = new Set(["builtin:coding", "builtin:stepwise-coding", "builtin:pr-workflow"]);
+  const NON_COMPILABLE_BUILTIN_IDS = new Set([
+    "builtin:coding",
+    "builtin:marketing",
+    "builtin:stepwise-coding",
+    "builtin:pr-workflow",
+  ]);
 
   it("every built-in has a valid IR; linear built-ins compile without error", () => {
     expect(BUILTIN_WORKFLOWS.length).toBeGreaterThanOrEqual(4);
@@ -90,6 +95,16 @@ describe("built-in workflows", () => {
     expect(serializeWorkflowIr(reparsed)).toBe(serialized);
   });
 
+  it("includes the lead-generation built-in after existing built-ins without disturbing default order", () => {
+    const leadGeneration = getBuiltinWorkflow("builtin:lead-generation");
+    expect(leadGeneration).toBeDefined();
+    expect(leadGeneration!.kind).toBe("workflow");
+    expect(defaultEnabledBuiltinWorkflowIds()).toContain("builtin:lead-generation");
+    expect(BUILTIN_WORKFLOWS.findIndex((workflow) => workflow.id === "builtin:lead-generation")).toBeGreaterThan(
+      BUILTIN_WORKFLOWS.findIndex((workflow) => workflow.id === "builtin:pr-workflow"),
+    );
+  });
+
   it("default workflow column ids equal the legacy enum values, in legacy order (KTD-1)", () => {
     expect(BUILTIN_CODING_WORKFLOW_IR.version).toBe("v2");
     if (BUILTIN_CODING_WORKFLOW_IR.version !== "v2") throw new Error("expected v2");
@@ -150,6 +165,76 @@ describe("built-in workflows", () => {
     expect(ir.settings).toEqual(BUILTIN_WORKFLOW_SETTINGS);
   });
 
+  it("includes the marketing built-in with custom columns, prompts, and lifecycle traits", () => {
+    const marketing = getBuiltinWorkflow("builtin:marketing");
+    expect(marketing).toBeDefined();
+    expect(marketing!.kind).toBe("workflow");
+    expect(BUILTIN_WORKFLOWS.some((workflow) => workflow.id === "builtin:marketing")).toBe(true);
+    expect(defaultEnabledBuiltinWorkflowIds()).toContain("builtin:marketing");
+    expect(() => parseWorkflowIr(marketing!.ir)).not.toThrow();
+
+    const ir = parseWorkflowIr(marketing!.ir);
+    expect(ir.version).toBe("v2");
+    if (ir.version !== "v2") throw new Error("expected v2");
+
+    expect(ir.columns.map((column) => column.id)).toEqual([
+      "ideation",
+      "backlog",
+      "drafting",
+      "editorial-review",
+      "published",
+      "archived",
+    ]);
+
+    const editorialReview = ir.columns.find((column) => column.id === "editorial-review");
+    expect(editorialReview).toBeDefined();
+    expect(editorialReview!.traits.map((trait) => trait.trait)).toEqual([
+      "merge-blocker",
+      "human-review",
+      "stall-detection",
+      "merge",
+    ]);
+    const editorialFlags = resolveColumnFlags(editorialReview!);
+    expect(editorialFlags.mergeBlocker).toBe(true);
+    expect(editorialFlags.humanReview).toBe(true);
+
+    const drafting = ir.columns.find((column) => column.id === "drafting");
+    expect(drafting).toBeDefined();
+    expect(resolveColumnFlags(drafting!).countsTowardWip).toBe(true);
+
+    const execute = ir.nodes.find((node) => node.config?.seam === "execute");
+    const review = ir.nodes.find((node) => node.config?.seam === "review");
+    expect(execute?.id).toBe("draft");
+    expect(execute?.config?.name).toBe("Draft content");
+    expect(String(execute?.config?.prompt ?? "")).toContain("marketing copywriter");
+    expect(String(execute?.config?.prompt ?? "").length).toBeGreaterThan(100);
+    expect(review?.id).toBe("editorial");
+    expect(review?.config?.name).toBe("Editorial review");
+    expect(String(review?.config?.prompt ?? "")).toContain("editorial reviewer");
+    expect(String(review?.config?.prompt ?? "").length).toBeGreaterThan(100);
+  });
+
+  it("includes the design built-in with an ordered design review gate", () => {
+    const design = getBuiltinWorkflow("builtin:design");
+    expect(design).toBeDefined();
+    expect(design!.kind).toBe("workflow");
+    expect(() => parseWorkflowIr(design!.ir)).not.toThrow();
+    expect(() => compileWorkflowToSteps(design!.ir)).not.toThrow();
+
+    const authoredNodeIds = design!.ir.nodes.filter((node) => node.id !== "start" && node.id !== "end").map((node) => node.id);
+    expect(authoredNodeIds).toEqual(["execute", "design-review", "review", "merge"]);
+
+    const designReview = design!.ir.nodes.find((node) => node.id === "design-review");
+    expect(designReview?.kind).toBe("gate");
+    expect(designReview?.config?.name).toBe("Design review");
+    expect(designReview?.config?.gateMode).toBe("gate");
+    const prompt = String(designReview?.config?.prompt ?? "");
+    expect(prompt.length).toBeGreaterThan(100);
+    expect(prompt).toContain("visual hierarchy");
+    expect(prompt).toContain("design tokens");
+    expect(prompt).toContain("responsive behavior");
+  });
+
   it("repeated catalog reads and listings keep builtin:coding in the enabled order", () => {
     expect(getBuiltinWorkflow("builtin:coding")?.ir).toBe(BUILTIN_CODING_WORKFLOW_IR);
     expect(getBuiltinWorkflow("builtin:coding")?.ir).toBe(BUILTIN_CODING_WORKFLOW_IR);
@@ -159,13 +244,17 @@ describe("built-in workflows", () => {
         (workflow) => workflow.kind !== "fragment" && !isBuiltinWorkflowPluginGated(workflow.id),
       ).map((workflow) => workflow.id),
     );
+    expect(defaultEnabledBuiltinWorkflowIds()).toContain("builtin:design");
+    expect(defaultEnabledBuiltinWorkflowIds()).toContain("builtin:marketing");
     expect(defaultEnabledBuiltinWorkflowIds()).not.toContain("builtin:compound-engineering");
     expect(defaultEnabledBuiltinWorkflowIds()).not.toContain("builtin:pr-workflow");
     expect(getBuiltinWorkflow("builtin:pr-workflow")!.kind).toBe("fragment");
-    expect(defaultEnabledBuiltinWorkflowIds().slice(0, 4)).toEqual([
+    expect(defaultEnabledBuiltinWorkflowIds().length).toBeGreaterThanOrEqual(5);
+    expect(defaultEnabledBuiltinWorkflowIds().slice(0, 5)).toEqual([
       "builtin:coding",
       "builtin:quick-fix",
       "builtin:review-heavy",
+      "builtin:marketing",
       "builtin:stepwise-coding",
     ]);
   });
@@ -382,7 +471,7 @@ describe("built-in workflows", () => {
     });
 
     it("branching built-ins can be selected without throwing", async () => {
-      for (const workflowId of ["builtin:coding", "builtin:stepwise-coding"]) {
+      for (const workflowId of ["builtin:coding", "builtin:marketing", "builtin:stepwise-coding"]) {
         const task = await store.createTask({ description: `select ${workflowId}`, enabledWorkflowSteps: [] });
 
         await expect(store.selectTaskWorkflow(task.id, workflowId)).resolves.toEqual([]);

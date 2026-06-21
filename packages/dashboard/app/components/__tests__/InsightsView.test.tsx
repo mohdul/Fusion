@@ -4,6 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { loadAllAppCss, loadAllAppCssBaseOnly } from "../../test/cssFixture";
 import { InsightsView } from "../InsightsView";
 
 // Mock the useInsights hook
@@ -1349,6 +1350,25 @@ describe("InsightsView", () => {
 
       expect(dismiss1Button).toBeDisabled();
       expect(dismiss2Button).toBeDisabled(); // All actions disabled when any is in-flight
+    });
+  });
+
+  describe("responsive CSS contracts", () => {
+    it("FN-6764: adds a tablet full-width reflow without regressing desktop or mobile tiers", () => {
+      const baseCss = loadAllAppCssBaseOnly();
+      const css = loadAllAppCss();
+
+      expect(baseCss).toMatch(/\.insights-body\s*\{[^}]*display:\s*flex;[^}]*overflow:\s*hidden;[^}]*\}/);
+      expect(baseCss).toMatch(/\.insights-sidebar\s*\{[^}]*width:\s*calc\(var\(--space-2xl\)\s*\*\s*7\s*\+\s*var\(--space-lg\)\);[^}]*flex-shrink:\s*0;[^}]*overflow-y:\s*auto;[^}]*\}/);
+      expect(baseCss).toMatch(/\.insights-detail\s*\{[^}]*flex:\s*1;[^}]*min-width:\s*0;[^}]*overflow-y:\s*auto;[^}]*\}/);
+
+      expect(css).toMatch(/@media[^{]*\(max-width:\s*768px\)[^{]*\{[\s\S]*?\.insights-body\s*\{[^}]*flex-direction:\s*column;[^}]*\}/);
+      expect(css).toMatch(/@media[^{]*\(max-width:\s*768px\)[^{]*\{[\s\S]*?\.insights-sidebar\s*\{[^}]*width:\s*100%;[^}]*border-right:\s*none;[^}]*overflow-x:\s*auto;[^}]*overflow-y:\s*hidden;[^}]*\}/);
+
+      expect(css).toMatch(/@media[^{]*\(min-width:\s*769px\)\s*and\s*\(max-width:\s*1024px\)[^{]*\{[\s\S]*?\.insights-view\s*\{[^}]*inline-size:\s*100%;[^}]*min-inline-size:\s*0;[^}]*overflow:\s*hidden;[^}]*\}/);
+      expect(css).toMatch(/@media[^{]*\(min-width:\s*769px\)\s*and\s*\(max-width:\s*1024px\)[^{]*\{[\s\S]*?\.insights-body\s*\{[^}]*flex-direction:\s*column;[^}]*inline-size:\s*100%;[^}]*min-width:\s*0;[^}]*min-inline-size:\s*0;[^}]*overflow:\s*hidden;[^}]*\}/);
+      expect(css).toMatch(/@media[^{]*\(min-width:\s*769px\)\s*and\s*\(max-width:\s*1024px\)[^{]*\{[\s\S]*?\.insights-sidebar\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;[^}]*min-inline-size:\s*0;[^}]*border-right:\s*none;[^}]*border-bottom:\s*var\(--btn-border-width\)\s+solid\s+var\(--border\);[^}]*overflow-x:\s*auto;[^}]*overflow-y:\s*hidden;[^}]*\}/);
+      expect(css).toMatch(/@media[^{]*\(min-width:\s*769px\)\s*and\s*\(max-width:\s*1024px\)[^{]*\{[\s\S]*?\.insights-detail\s*\{[^}]*flex:\s*1\s+1\s+0;[^}]*min-width:\s*0;[^}]*min-inline-size:\s*0;[^}]*overflow-y:\s*auto;[^}]*\}/);
     });
   });
 });

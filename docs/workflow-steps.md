@@ -9,6 +9,9 @@ Workflow steps are reusable quality gates that run around task completion.
 <!--
 FNXC:Docs 2026-06-16-23:25:
 Public docs need one concise workflow overview that names the shipped built-ins, explains per-task selection, and points authors to the visual editor while leaving low-level runtime details in this canonical workflow document.
+
+FNXC:Docs 2026-06-20-08:47:
+The built-in catalog now includes a business lead-generation workflow with custom columns, custom lead fields, and inline per-stage prompts, so the public inventory must show it beside coding workflows instead of implying all selectable built-ins are engineering-only.
 -->
 
 Fusion workflows define the task lifecycle policy that moves work from an idea to delivery. The default coding path is **Plan/Triage → Execute → Workflow steps → Review → Merge**, but that path is now represented as a workflow selection rather than only as fixed engine behavior. A task with no explicit workflow resolves to `builtin:coding`; an explicit missing/corrupt custom workflow fails closed instead of silently falling back.
@@ -30,9 +33,12 @@ Decision-only or investigation tasks can also declare `noCommitsExpected` / `**N
 | Coding | `builtin:coding` | Default coding lifecycle and fallback for tasks without an explicit selection. |
 | Quick fix | `builtin:quick-fix` | Short path for trivial or no-commit/decision work; omits the standard review stage. |
 | Review-heavy | `builtin:review-heavy` | Standard execute/review/merge path with an additional gated security review. |
+| Marketing | `builtin:marketing` | Content pipeline with custom Ideation, Backlog, Drafting, Editorial review, Published, and Archived columns plus marketing brief/draft/editorial prompts; it reuses the standard lifecycle traits and merge-primitive region. |
 | Compound engineering | `builtin:compound-engineering` | Plugin-gated workflow that invokes Compound Engineering skills for planning, work, review, PR/feedback, and learnings capture. |
 | Stepwise coding | `builtin:stepwise-coding` | Graph-executor workflow that models per-step parse/execute/review/rework explicitly. |
+| Design | `builtin:design` | UI-heavy work path that implements, runs a gated design/UX review, then performs the standard review and merge. |
 | PR lifecycle | `builtin:pr-workflow` | Reusable PR lifecycle graph fragment (create PR → await review → respond → gate → merge); it is a fragment, not directly selectable as a task workflow. |
+| Lead generation | `builtin:lead-generation` | Selectable business workflow for sourcing, qualifying, enriching, and contacting leads with custom lead fields and stage columns; requires the workflow graph executor for custom board columns. |
 
 ### Custom workflow authoring
 
@@ -73,6 +79,8 @@ The default built-in catalog entry `builtin:coding` is backed by the canonical `
 - `triage/planning` → `execute` → `workflow-step` → `review` → `merge-gate` / branch-group integration / `merge-attempt` / retry or manual hold → `end`
 
 `builtin:stepwise-coding` is a separate graph variant backed by `BUILTIN_STEPWISE_CODING_WORKFLOW_IR`; it keeps the same lifecycle columns/traits while modeling per-step parse/execute/review/rework as authored graph structure.
+
+`builtin:marketing` is a non-coding content workflow with marketing-specific columns (`ideation`, `backlog`, `drafting`, `editorial-review`, `published`, `archived`) and prompt seams for content brief, draft, and editorial review. It uses the same lifecycle traits (`intake`, `hold`, `wip`, `merge-blocker`, `human-review`, `complete`, `archived`) and the same merge-gate/branch-group/merge-attempt primitive region as coding workflows, so scheduler, capacity, review blocking, and merge orchestration behavior remain standard.
 
 During triage/planning sessions, agents can call `fn_workflow_list` to discover available built-in and custom workflows and read their descriptions before routing work. They can call `fn_workflow_select` to select a workflow for the task being specified, or pass `workflow_id` when creating child tasks with `fn_task_create`; decision-only or investigation tasks can also set `noCommitsExpected` / `**No commits expected:** true` when no code changes are expected. The built-in triage thresholds, decision-only verb list, and default routing IDs are workflow-native typed settings resolved from the selected workflow.
 

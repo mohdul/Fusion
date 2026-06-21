@@ -8,6 +8,7 @@ import {
   connectSubtaskStream,
   createTasksFromBreakdown,
   fetchAiSession,
+  fetchTaskWorkflow,
   parseConversationHistory,
   type SubtaskItem,
   type ConversationHistoryEntry,
@@ -27,6 +28,8 @@ import { useMobileScrollLock } from "../hooks/useMobileScrollLock";
 import { useViewportMode } from "../hooks/useViewportMode";
 import { getSessionTabId } from "../utils/getSessionTabId";
 
+const WARNING_ICON = "⚠️";
+
 interface SubtaskBreakdownModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -34,6 +37,8 @@ interface SubtaskBreakdownModalProps {
   onTasksCreated: (tasks: Task[]) => void;
   parentTaskId?: string;
   projectId?: string;
+  /** Active workflow lane selected when the breakdown modal was opened. */
+  workflowId?: string | null;
   resumeSessionId?: string;
   onOpenGroupModal?: (groupId: string) => void;
 }
@@ -75,7 +80,7 @@ function hasDependencyCycle(subtasks: SubtaskItem[]): boolean {
   return subtasks.some((item) => visit(item.id));
 }
 
-export function SubtaskBreakdownModal({ isOpen, onClose, initialDescription, onTasksCreated, parentTaskId, projectId, resumeSessionId, onOpenGroupModal }: SubtaskBreakdownModalProps) {
+export function SubtaskBreakdownModal({ isOpen, onClose, initialDescription, onTasksCreated, parentTaskId, projectId, workflowId, resumeSessionId, onOpenGroupModal }: SubtaskBreakdownModalProps) {
   const { t } = useTranslation("app");
   const viewportMode = useViewportMode();
   useMobileScrollLock(isOpen);
@@ -543,6 +548,14 @@ export function SubtaskBreakdownModal({ isOpen, onClose, initialDescription, onT
     setError(null);
     setView({ type: "creating", sessionId });
     try {
+      let effectiveWorkflowId = workflowId;
+      if (parentTaskId) {
+        try {
+          effectiveWorkflowId = (await fetchTaskWorkflow(parentTaskId, projectId)).workflowId;
+        } catch {
+          effectiveWorkflowId = workflowId;
+        }
+      }
       const result = await createTasksFromBreakdown(sessionId, subtasks, parentTaskId, projectId, {
         branchSelection: {
           mode: branchMode,
@@ -550,6 +563,11 @@ export function SubtaskBreakdownModal({ isOpen, onClose, initialDescription, onT
           ...(baseBranch.trim() ? { baseBranch: baseBranch.trim() } : {}),
         },
         branchAssignment: { mode: branchAssignmentMode },
+        /*
+        FNXC:WorkflowSelection 2026-06-20-16:48:
+        Subtask Breakdown children inherit the parent task's workflow when available, otherwise they keep the workflow lane that opened this modal.
+        */
+        ...(effectiveWorkflowId !== undefined ? { workflowId: effectiveWorkflowId } : {}),
       });
       onTasksCreated(result.tasks);
       resetState();
@@ -558,7 +576,7 @@ export function SubtaskBreakdownModal({ isOpen, onClose, initialDescription, onT
       setError(getErrorMessage(err) || t("subtasks.errorCreateTasks", "Failed to create tasks"));
       setView({ type: "editing", sessionId });
     }
-  }, [baseBranch, branchAssignmentMode, branchMode, branchName, isInvalid, onClose, onTasksCreated, parentTaskId, projectId, resetState, sessionId, subtasks]);
+  }, [baseBranch, branchAssignmentMode, branchMode, branchName, isInvalid, onClose, onTasksCreated, parentTaskId, projectId, resetState, sessionId, subtasks, workflowId]);
 
   const handleRetry = useCallback(async () => {
     if (view.type !== "error") {
@@ -718,7 +736,7 @@ export function SubtaskBreakdownModal({ isOpen, onClose, initialDescription, onT
                   className="ai-error-panel"
                   role="alert"
                 >
-                  <div className="ai-error-icon">⚠️</div>
+                  <div className="ai-error-icon">{WARNING_ICON}</div>
                   <div className="ai-error-message">{view.errorMessage}</div>
                   <div className="ai-error-actions">
                     <button className="btn btn-primary" onClick={() => void handleRetry()} disabled={isRetrying}>

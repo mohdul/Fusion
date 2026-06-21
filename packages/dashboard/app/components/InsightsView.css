@@ -613,3 +613,70 @@
     max-width: 200px;
   }
 }
+
+/*
+FNXC:InsightsView 2026-06-20-00:34:
+Insights tablets at 769px–1024px were inheriting the desktop fixed category sidebar, which squeezed the detail pane inside the .project-content flex chain. Stack the category rail above the detail pane and keep both panes shrinkable so long insight content cannot force horizontal cut-off.
+*/
+@media (min-width: 769px) and (max-width: 1024px) {
+  .insights-view {
+    flex: 1;
+    inline-size: 100%;
+    min-inline-size: 0;
+    min-block-size: 0;
+    overflow: hidden;
+  }
+
+  .insights-view-header {
+    min-inline-size: 0;
+  }
+
+  .insights-view-title {
+    flex: 1 1 auto;
+    min-inline-size: 0;
+  }
+
+  .insights-view-actions {
+    flex-shrink: 0;
+  }
+
+  .insights-body {
+    flex-direction: column;
+    inline-size: 100%;
+    min-width: 0;
+    min-inline-size: 0;
+    min-block-size: 0;
+    overflow: hidden;
+  }
+
+  .insights-sidebar {
+    width: 100%;
+    min-width: 0;
+    min-inline-size: 0;
+    border-right: none;
+    border-bottom: var(--btn-border-width) solid var(--border);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .insights-category-list {
+    flex-direction: row;
+    flex-wrap: nowrap;
+  }
+
+  .insights-category-list > li {
+    flex-shrink: 0;
+  }
+
+  .insights-category-item {
+    white-space: nowrap;
+  }
+
+  .insights-detail {
+    flex: 1 1 0;
+    min-width: 0;
+    min-inline-size: 0;
+    min-block-size: 0;
+    overflow-y: auto;
+  }
+}

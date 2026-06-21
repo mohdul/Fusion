@@ -3,13 +3,16 @@ import {
   Database,
   createDatabase,
   quickCheckSqliteFile,
+  integrityCheckSqliteFileAsync,
   toJson,
   toJsonNullable,
   fromJson,
   normalizeTaskComments,
   getSchemaSqlTableSchemas,
   MIGRATION_ONLY_TABLE_SCHEMAS,
+  SCHEMA_VERSION,
 } from "../db.js";
+import { DatabaseSync } from "../sqlite-adapter.js";
 import { DEFAULT_PROJECT_SETTINGS } from "../types.js";
 import { TaskStore } from "../store.js";
 import { mkdtempSync, existsSync, readFileSync, rmSync, statSync, openSync, writeSync, closeSync } from "node:fs";
@@ -22,6 +25,10 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:chil
 import { ensureRoadmapSchema } from "../../../../plugins/fusion-plugin-roadmap/src/roadmap-schema.js";
 import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 
+/*
+FNXC:CoreSchemaTesting 2026-06-19-08:29:
+Schema migrations are cumulative; version assertions should follow SCHEMA_VERSION so new analytics tables do not leave unrelated migration tests pinned to stale numeric targets.
+*/
 const createdTmpDirs = new Set<string>();
 const TMP_DIR_RM_OPTIONS = { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as const;
 const TMP_DIR_CLEANUP_HOOK_KEY = Symbol.for("fusion.core.db-test.tmp-cleanup-hooks-installed");
@@ -334,7 +341,7 @@ describe("Database", () => {
     });
 
     it("seeds schema version", () => {
-      expect(db.getSchemaVersion()).toBe(124);
+      expect(db.getSchemaVersion()).toBe(SCHEMA_VERSION);
     });
 
     it("includes tokenUsageCacheWriteTokens on freshly initialized tasks table", () => {
@@ -393,7 +400,7 @@ describe("Database", () => {
 
     it("is idempotent - calling init() twice does not fail", () => {
       expect(() => db.init()).not.toThrow();
-      expect(db.getSchemaVersion()).toBe(124);
+      expect(db.getSchemaVersion()).toBe(SCHEMA_VERSION);
     });
     it("does not overwrite existing config on re-init", () => {
       // Update the config
@@ -440,9 +447,25 @@ describe("Database", () => {
   });
 
   describe("startup integrity check", () => {
-    it("schedules full integrity check after init instead of blocking startup", () => {
+    // The background check is offloaded to the sqlite3 CLI off the event loop
+    // (db.ts runBackgroundIntegrityCheck → integrityCheckSqliteFileAsync). Spy on
+    // that seam so these tests stay deterministic regardless of whether the
+    // sqlite3 CLI exists in the environment, and advance timers with the async
+    // variant so the awaited check resolves before assertions run.
+    type BackgroundCheckResult = { ok: true } | { ok: false; errors: string[] };
+    const spyBackgroundCheck = (result: BackgroundCheckResult) =>
+      vi
+        .spyOn(
+          Database.prototype as unknown as {
+            runBackgroundIntegrityCheck: () => Promise<BackgroundCheckResult>;
+          },
+          "runBackgroundIntegrityCheck",
+        )
+        .mockResolvedValue(result);
+
+    it("schedules full integrity check after init instead of blocking startup", async () => {
       vi.useFakeTimers();
-      const integritySpy = vi.spyOn(Database.prototype, "integrityCheck");
+      const checkSpy = spyBackgroundCheck({ ok: true });
 
       const freshDir = makeTmpDir();
       const freshFusionDir = join(freshDir, ".fusion");
@@ -451,24 +474,24 @@ describe("Database", () => {
       try {
         expect(() => freshDb.init()).not.toThrow();
         expect(freshDb.integrityCheckPending).toBe(true);
-        expect(integritySpy).not.toHaveBeenCalled();
+        expect(checkSpy).not.toHaveBeenCalled();
 
-        vi.advanceTimersByTime(60_000);
+        await vi.advanceTimersByTimeAsync(60_000);
 
-        expect(integritySpy).toHaveBeenCalledTimes(1);
+        expect(checkSpy).toHaveBeenCalledTimes(1);
         expect(freshDb.integrityCheckPending).toBe(false);
         expect(freshDb.integrityCheckLastRunAt).toBeTruthy();
       } finally {
         freshDb.close();
         removeTrackedTmpDirSync(freshDir);
-        integritySpy.mockRestore();
+        checkSpy.mockRestore();
         vi.useRealTimers();
       }
     });
 
-    it("does not schedule duplicate background integrity checks across repeated init calls", () => {
+    it("does not schedule duplicate background integrity checks across repeated init calls", async () => {
       vi.useFakeTimers();
-      const integritySpy = vi.spyOn(Database.prototype, "integrityCheck");
+      const checkSpy = spyBackgroundCheck({ ok: true });
       const freshDir = makeTmpDir();
       const freshFusionDir = join(freshDir, ".fusion");
       const freshDb = new Database(freshFusionDir);
@@ -478,20 +501,20 @@ describe("Database", () => {
         expect(freshDb.integrityCheckPending).toBe(true);
 
         freshDb.init();
-        vi.advanceTimersByTime(60_000);
+        await vi.advanceTimersByTimeAsync(60_000);
 
-        expect(integritySpy).toHaveBeenCalledTimes(1);
+        expect(checkSpy).toHaveBeenCalledTimes(1);
       } finally {
         freshDb.close();
         removeTrackedTmpDirSync(freshDir);
-        integritySpy.mockRestore();
+        checkSpy.mockRestore();
         vi.useRealTimers();
       }
     });
 
-    it("deduplicates background integrity check across multiple instances sharing a db path", () => {
+    it("deduplicates background integrity check across multiple instances sharing a db path", async () => {
       vi.useFakeTimers();
-      const integritySpy = vi.spyOn(Database.prototype, "integrityCheck");
+      const checkSpy = spyBackgroundCheck({ ok: true });
       const freshDir = makeTmpDir();
       const freshFusionDir = join(freshDir, ".fusion");
       const dbA = new Database(freshFusionDir);
@@ -504,9 +527,9 @@ describe("Database", () => {
         expect(dbA.integrityCheckPending).toBe(true);
         expect(dbB.integrityCheckPending).toBe(true);
 
-        vi.advanceTimersByTime(60_000);
+        await vi.advanceTimersByTimeAsync(60_000);
 
-        expect(integritySpy).toHaveBeenCalledTimes(1);
+        expect(checkSpy).toHaveBeenCalledTimes(1);
         expect(dbA.integrityCheckPending).toBe(false);
         expect(dbB.integrityCheckPending).toBe(false);
         expect(dbA.integrityCheckLastRunAt).toBeTruthy();
@@ -519,14 +542,14 @@ describe("Database", () => {
         dbA.close();
         dbB.close();
         removeTrackedTmpDirSync(freshDir);
-        integritySpy.mockRestore();
+        checkSpy.mockRestore();
         vi.useRealTimers();
       }
     });
 
-    it("fans out corruption detection to all instances participating in shared background check", () => {
+    it("fans out corruption detection to all instances participating in shared background check", async () => {
       vi.useFakeTimers();
-      const integritySpy = vi.spyOn(Database.prototype, "integrityCheck").mockReturnValue({
+      const checkSpy = spyBackgroundCheck({
         ok: false,
         errors: ["malformed database", "broken index"],
       });
@@ -539,9 +562,9 @@ describe("Database", () => {
         dbA.init();
         dbB.init();
 
-        vi.advanceTimersByTime(60_000);
+        await vi.advanceTimersByTimeAsync(60_000);
 
-        expect(integritySpy).toHaveBeenCalledTimes(1);
+        expect(checkSpy).toHaveBeenCalledTimes(1);
         expect(dbA.integrityCheckPending).toBe(false);
         expect(dbB.integrityCheckPending).toBe(false);
         expect(dbA.integrityCheckLastRunAt).toBeTruthy();
@@ -554,8 +577,74 @@ describe("Database", () => {
         dbA.close();
         dbB.close();
         removeTrackedTmpDirSync(freshDir);
-        integritySpy.mockRestore();
+        checkSpy.mockRestore();
         vi.useRealTimers();
+      }
+    });
+
+    it("clears integrityCheckPending for every participant even when the check throws", async () => {
+      // Regression: the participant-clearing loop must run unconditionally
+      // (in finally). If the background check rejects, no participant may be
+      // left stuck with integrityCheckPending=true for the life of the process.
+      vi.useFakeTimers();
+      const checkSpy = vi
+        .spyOn(
+          Database.prototype as unknown as {
+            runBackgroundIntegrityCheck: () => Promise<{ ok: boolean; errors?: string[] }>;
+          },
+          "runBackgroundIntegrityCheck",
+        )
+        .mockRejectedValue(new Error("background check blew up"));
+      const freshDir = makeTmpDir();
+      const freshFusionDir = join(freshDir, ".fusion");
+      const dbA = new Database(freshFusionDir);
+      const dbB = new Database(freshFusionDir);
+
+      try {
+        dbA.init();
+        dbB.init();
+        expect(dbA.integrityCheckPending).toBe(true);
+        expect(dbB.integrityCheckPending).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        // Thrown check is treated as benign (logged via .catch), but pending
+        // MUST be cleared for all participants.
+        expect(dbA.integrityCheckPending).toBe(false);
+        expect(dbB.integrityCheckPending).toBe(false);
+        expect(dbA.integrityCheckLastRunAt).toBeTruthy();
+        expect(dbB.integrityCheckLastRunAt).toBeTruthy();
+        expect(dbA.corruptionDetected).toBe(false);
+        expect(dbB.corruptionDetected).toBe(false);
+      } finally {
+        dbA.close();
+        dbB.close();
+        removeTrackedTmpDirSync(freshDir);
+        checkSpy.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+
+    it("runBackgroundIntegrityCheck returns ok without throwing on a closed instance", async () => {
+      // Guards the fallback against calling integrityCheck() (this.db.prepare)
+      // on a closed DatabaseSync, which would throw and strand other
+      // participants when the instance closes during the offload await.
+      const freshDir = makeTmpDir();
+      const freshFusionDir = join(freshDir, ".fusion");
+      const db = new Database(freshFusionDir);
+      try {
+        db.init();
+        db.close();
+
+        const run = (
+          db as unknown as {
+            runBackgroundIntegrityCheck: () => Promise<{ ok: boolean }>;
+          }
+        ).runBackgroundIntegrityCheck();
+
+        await expect(run).resolves.toEqual({ ok: true });
+      } finally {
+        removeTrackedTmpDirSync(freshDir);
       }
     });
   });
@@ -686,6 +775,32 @@ describe("Database", () => {
       expect(result.afterBytes).toBe(expectedAfterBytes);
     });
 
+    it("releases the EXCLUSIVE lock so other connections can read immediately after", () => {
+      const now = new Date().toISOString();
+      db.prepare(
+        "INSERT INTO tasks (id, description, \"column\", createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)",
+      ).run("FN-VACUUM-LOCK", "vacuum lock task", "todo", now, now);
+
+      db.vacuum();
+
+      // vacuum() runs under PRAGMA locking_mode=EXCLUSIVE. Resetting to NORMAL
+      // does not drop the file lock until the connection next touches the DB, so
+      // without the forced post-vacuum read every OTHER connection would be
+      // locked out (SQLITE_BUSY) until some unrelated query happened to run.
+      // Probe with a second connection whose busy_timeout is 0 so a lingering
+      // exclusive lock fails fast instead of blocking for the default 5s.
+      const probe = new DatabaseSync(join(fusionDir, "fusion.db"));
+      try {
+        probe.exec("PRAGMA busy_timeout = 0");
+        const row = probe
+          .prepare("SELECT id FROM tasks WHERE id = ?")
+          .get("FN-VACUUM-LOCK") as { id: string } | undefined;
+        expect(row?.id).toBe("FN-VACUUM-LOCK");
+      } finally {
+        probe.close();
+      }
+    });
+
     it("throws a descriptive error when checkpointing fails", () => {
       const checkpointSpy = vi
         .spyOn(db, "walCheckpoint")
@@ -697,6 +812,37 @@ describe("Database", () => {
         /Database vacuum maintenance failed during WAL checkpoint.*checkpoint exploded/,
       );
       checkpointSpy.mockRestore();
+    });
+  });
+
+  describe("integrityCheckSqliteFileAsync (off-event-loop integrity check)", () => {
+    it("verifies a healthy live DB via the sqlite3 CLI", async () => {
+      const now = new Date().toISOString();
+      db.prepare(
+        "INSERT INTO tasks (id, description, \"column\", createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)",
+      ).run("FN-IC-OK", "integrity ok", "todo", now, now);
+
+      // The harness keeps `db` open, so the -readonly CLI connection can attach
+      // to the live WAL (its -shm exists) — the production scenario.
+      const result = await integrityCheckSqliteFileAsync(join(fusionDir, "fusion.db"));
+
+      // If the sqlite3 CLI is unavailable in this environment, the helper reports
+      // verified:false so the caller falls back to the in-process check. Assert
+      // the contract distinctly per branch so the else-branch isn't a vacuous
+      // restatement of the hardcoded fallback value.
+      if (result.verified) {
+        expect(result).toEqual({ ok: true, verified: true });
+      } else {
+        // CLI absent: must signal "could not verify" (ok:true is the safe
+        // fallback default, but verified:false is the load-bearing assertion).
+        expect(result.verified).toBe(false);
+        expect(result.ok).toBe(true);
+      }
+    });
+
+    it("returns a verified failure for a non-existent file without spawning", async () => {
+      const result = await integrityCheckSqliteFileAsync(join(fusionDir, "does-not-exist.db"));
+      expect(result).toEqual({ ok: false, verified: true, errors: ["file does not exist"] });
     });
   });
 
@@ -1462,8 +1608,8 @@ describe("schema migrations", () => {
     // Now run init() which should trigger migration
     db.init();
 
-    // Verify version bumped to 29 (includes v1→v2 through v26→v29)
-    expect(db.getSchemaVersion()).toBe(124);
+    // Verify version reached the current schema after applying the full legacy chain.
+    expect(db.getSchemaVersion()).toBe(SCHEMA_VERSION);
 
     // Verify new columns exist and existing data is intact
     const cols = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
@@ -1488,15 +1634,15 @@ describe("schema migrations", () => {
     const db = new Database(fusionDir);
     db.init();
 
-    expect(db.getSchemaVersion()).toBe(124);
+    expect(db.getSchemaVersion()).toBe(SCHEMA_VERSION);
 
     // Re-init should not fail
     db.init();
-    expect(db.getSchemaVersion()).toBe(124);
+    expect(db.getSchemaVersion()).toBe(SCHEMA_VERSION);
 
     // Re-init should not fail
     db.init();
-    expect(db.getSchemaVersion()).toBe(124);
+    expect(db.getSchemaVersion()).toBe(SCHEMA_VERSION);
 
     db.close();
   });
@@ -1531,7 +1677,7 @@ describe("schema migrations", () => {
 
     db.init();
 
-    expect(db.getSchemaVersion()).toBe(124);
+    expect(db.getSchemaVersion()).toBe(SCHEMA_VERSION);
 
     const cols = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
     expect(cols.map((col) => col.name)).toContain("priority");
@@ -1572,7 +1718,7 @@ describe("schema migrations", () => {
 
     db.init();
 
-    expect(db.getSchemaVersion()).toBe(124);
+    expect(db.getSchemaVersion()).toBe(SCHEMA_VERSION);
 
     const cols = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
     const colNames = cols.map((col) => col.name);
@@ -1644,7 +1790,7 @@ describe("schema migrations", () => {
 
     db.init();
 
-    expect(db.getSchemaVersion()).toBe(124);
+    expect(db.getSchemaVersion()).toBe(SCHEMA_VERSION);
 
     const cols = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
     const colNames = cols.map((col) => col.name);
@@ -1923,7 +2069,7 @@ describe("schema migrations", () => {
 
     db.init();
 
-    expect(db.getSchemaVersion()).toBe(124);
+    expect(db.getSchemaVersion()).toBe(SCHEMA_VERSION);
 
     const cols = db.prepare("PRAGMA table_info(chat_messages)").all() as Array<{ name: string }>;
     expect(cols.map((col) => col.name)).toContain("attachments");
@@ -1997,7 +2143,7 @@ describe("schema migrations", () => {
 
     db.init();
 
-    expect(db.getSchemaVersion()).toBe(124);
+    expect(db.getSchemaVersion()).toBe(SCHEMA_VERSION);
 
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = 'agentRatings'").all() as Array<{ name: string }>;
     expect(tables).toEqual([{ name: "agentRatings" }]);
@@ -2021,7 +2167,7 @@ describe("schema migrations", () => {
 
     db.init();
 
-    expect(db.getSchemaVersion()).toBe(124);
+    expect(db.getSchemaVersion()).toBe(SCHEMA_VERSION);
 
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = 'mission_events'").all() as Array<{ name: string }>;
     expect(tables).toEqual([{ name: "mission_events" }]);
@@ -2124,8 +2270,8 @@ describe("schema migrations", () => {
     // Now run init() which should trigger migrations v2→v3→v4
     db.init();
 
-    // Verify version bumped to 29
-    expect(db.getSchemaVersion()).toBe(124);
+    // Verify version reached the current schema after applying the full legacy chain.
+    expect(db.getSchemaVersion()).toBe(SCHEMA_VERSION);
 
     // Verify new columns exist and existing data is intact
     const cols = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
@@ -2338,7 +2484,7 @@ describe("schema migrations", () => {
 
     localDb.init();
 
-    expect(localDb.getSchemaVersion()).toBe(123);
+    expect(localDb.getSchemaVersion()).toBe(SCHEMA_VERSION);
     const columns = localDb.prepare("PRAGMA table_info(task_commit_associations)").all() as Array<{ name: string; notnull: number; dflt_value: string | null }>;
     const additions = columns.find((column) => column.name === "additions");
     const deletions = columns.find((column) => column.name === "deletions");
@@ -2386,7 +2532,7 @@ describe("schema migrations", () => {
 
     localDb.init();
 
-    expect(localDb.getSchemaVersion()).toBe(124);
+    expect(localDb.getSchemaVersion()).toBe(SCHEMA_VERSION);
     const columns = localDb.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
     expect(columns.map((column) => column.name)).toContain("tokenUsageCacheWriteTokens");
 
@@ -2697,7 +2843,7 @@ describe("createDatabase factory", () => {
     const db = createDatabase(fusionDir);
     db.init();
 
-    expect(db.getSchemaVersion()).toBe(124);
+    expect(db.getSchemaVersion()).toBe(SCHEMA_VERSION);
     expect(db.getLastModified()).toBeGreaterThan(0);
 
     db.close();
@@ -2851,7 +2997,7 @@ describe("migration v77 task token budget columns", () => {
 
       migrated = new Database(fusion);
       migrated.init();
-      expect(migrated.getSchemaVersion()).toBe(124);
+      expect(migrated.getSchemaVersion()).toBe(SCHEMA_VERSION);
       const rows = migrated.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
       const names = new Set(rows.map((row) => row.name));
       expect(names.has("tokenBudgetSoftAlertedAt")).toBe(true);
@@ -2882,7 +3028,7 @@ describe("migration v106 adds tasks.transitionPending (FN-1417)", () => {
     const fresh = new Database(fusion);
     try {
       fresh.init();
-      expect(fresh.getSchemaVersion()).toBe(124);
+      expect(fresh.getSchemaVersion()).toBe(SCHEMA_VERSION);
       const names = new Set(
         (fresh.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).map((r) => r.name),
       );
@@ -2910,7 +3056,7 @@ describe("migration v106 adds tasks.transitionPending (FN-1417)", () => {
 
       migrated = new Database(fusion);
       migrated.init();
-      expect(migrated.getSchemaVersion()).toBe(124);
+      expect(migrated.getSchemaVersion()).toBe(SCHEMA_VERSION);
       const names = new Set(
         (migrated.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).map((r) => r.name),
       );
@@ -2936,7 +3082,7 @@ describe("migration v107 adds workflow_run_branches + index (FN-1417)", () => {
     const fresh = new Database(fusion);
     try {
       fresh.init();
-      expect(fresh.getSchemaVersion()).toBe(124);
+      expect(fresh.getSchemaVersion()).toBe(SCHEMA_VERSION);
       const table = fresh
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = 'workflow_run_branches'")
         .get() as { name: string } | undefined;
@@ -2970,7 +3116,7 @@ describe("migration v107 adds workflow_run_branches + index (FN-1417)", () => {
 
       migrated = new Database(fusion);
       migrated.init();
-      expect(migrated.getSchemaVersion()).toBe(124);
+      expect(migrated.getSchemaVersion()).toBe(SCHEMA_VERSION);
       const table = migrated
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = 'workflow_run_branches'")
         .get() as { name: string } | undefined;
@@ -2996,7 +3142,7 @@ describe("migration v120 adds deployments + incidents tables (U13)", () => {
     const fresh = new Database(fusion);
     try {
       fresh.init();
-      expect(fresh.getSchemaVersion()).toBe(123);
+      expect(fresh.getSchemaVersion()).toBe(SCHEMA_VERSION);
       const tables = new Set(
         (
           fresh
@@ -3049,7 +3195,7 @@ describe("migration v120 adds deployments + incidents tables (U13)", () => {
       // creation while table + row assertions still pass. Assert the real index
       // names the v120 migration creates (idxDeployments*, idxIncidents*) so that
       // regression is caught.
-      expect(migrated.getSchemaVersion()).toBe(123);
+      expect(migrated.getSchemaVersion()).toBe(SCHEMA_VERSION);
       const tables = new Set(
         (
           migrated
@@ -3108,7 +3254,7 @@ describe("migration v67 drops orphan project auth tables", () => {
 
       migrated = new Database(fusion);
       migrated.init();
-      expect(migrated.getSchemaVersion()).toBe(124);
+      expect(migrated.getSchemaVersion()).toBe(SCHEMA_VERSION);
       const tables = migrated
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'project_auth_%'")
         .all() as Array<{ name: string }>;
@@ -3135,7 +3281,7 @@ describe("migration v67 drops orphan project auth tables", () => {
 
     try {
       fresh.init();
-      expect(fresh.getSchemaVersion()).toBe(124);
+      expect(fresh.getSchemaVersion()).toBe(SCHEMA_VERSION);
       const tables = fresh
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'project_auth_%'")
         .all() as Array<{ name: string }>;

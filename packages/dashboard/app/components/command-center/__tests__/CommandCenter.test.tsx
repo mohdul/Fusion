@@ -9,6 +9,21 @@ import { CommandCenter } from "../CommandCenter";
 const apiMock = vi.fn();
 vi.mock("../../../api/legacy", () => ({
   api: (path: string, opts?: RequestInit) => apiMock(path, opts),
+  fetchOrgTree: vi.fn().mockResolvedValue([]),
+  fetchExecutorStats: vi.fn().mockResolvedValue({ globalPause: false, enginePaused: false, maxConcurrent: 2 }),
+  fetchSettings: vi.fn().mockResolvedValue({ maxConcurrent: 2, maxTriageConcurrent: 1, maxWorktrees: 5 }),
+  fetchConfig: vi.fn().mockResolvedValue({ maxConcurrent: 2, rootDir: "/" }),
+  updateSettings: vi.fn().mockResolvedValue({}),
+}));
+
+vi.mock("../../../hooks/useAppSettings", () => ({
+  useAppSettings: () => ({
+    globalPaused: false,
+    enginePaused: false,
+    toggleGlobalPause: vi.fn(),
+    toggleEnginePause: vi.fn(),
+    refresh: vi.fn().mockResolvedValue(undefined),
+  }),
 }));
 
 vi.mock("../../../api", () => ({
@@ -16,6 +31,16 @@ vi.mock("../../../api", () => ({
   fetchGlobalSettings: () => Promise.resolve({ vitestAutoKillEnabled: true, vitestKillThresholdPct: 90 }),
   killVitestProcesses: () => Promise.resolve({ killed: 0, pids: [] }),
   updateGlobalSettings: () => Promise.resolve({}),
+}));
+
+vi.mock("../../NodesView", () => ({
+  NodesView: ({ addToast }: { addToast: (message: string, type?: "success" | "error") => void }) => (
+    <section data-testid="nodes-view">
+      <button type="button" data-testid="nodes-view-toast-probe" onClick={() => addToast("Nodes tab toast", "success")}>
+        Nodes toast probe
+      </button>
+    </section>
+  ),
 }));
 
 function tokenFixture(totalTokens = 1_500) {
@@ -291,14 +316,14 @@ function liveMetricValue(testId = "command-center-live-tasks-in-progress") {
   return screen.getByTestId(testId).querySelector(".cc-live-metric-value")?.textContent ?? null;
 }
 
-function expectThroughputFirstBefore(...followingTestIds: string[]) {
+function expectThroughputLastAfter(...precedingTestIds: string[]) {
   const throughput = screen.getByTestId("command-center-throughput");
   expect(throughput.parentElement?.classList.contains("cc-overview")).toBe(true);
-  expect(throughput.parentElement?.firstElementChild).toBe(throughput);
+  expect(throughput.parentElement?.lastElementChild).toBe(throughput);
 
-  for (const testId of followingTestIds) {
-    const followingNode = screen.getByTestId(testId);
-    expect(Boolean(throughput.compareDocumentPosition(followingNode) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+  for (const testId of precedingTestIds) {
+    const precedingNode = screen.getByTestId(testId);
+    expect(Boolean(precedingNode.compareDocumentPosition(throughput) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
   }
 }
 
@@ -319,17 +344,28 @@ afterEach(() => {
 
 describe("CommandCenter shell", () => {
   it("renders with the Overview tab active by default", () => {
-    render(<CommandCenter />);
+    render(
+      <CommandCenter
+        projectId="project-a"
+        colorTheme="default"
+        themeMode="dark"
+        onColorThemeChange={vi.fn()}
+        onThemeModeChange={vi.fn()}
+      />,
+    );
     const overviewTab = screen.getByTestId("command-center-tab-overview");
     expect(overviewTab.getAttribute("aria-selected")).toBe("true");
     expect(screen.getByTestId("command-center-panel-overview")).toBeTruthy();
+    expect(screen.getByTestId("command-center-controls")).toBeTruthy();
+    expect(screen.queryByTestId("cc-controls-org-chart")).toBeNull();
+    expect(screen.queryByTestId("cc-controls-heartbeat")).toBeNull();
   });
 
-  it("renders throughput first while the Overview branch is loading", () => {
+  it("renders throughput last while the Overview branch is loading", () => {
     mockEmptyOverviewApi();
     render(<CommandCenter />);
     expect(screen.getByTestId("command-center-overview-loading")).toBeTruthy();
-    expectThroughputFirstBefore("command-center-overview-loading");
+    expectThroughputLastAfter("command-center-overview-loading");
   });
 
   it("renders the documented empty state when there is no data (no crash)", async () => {
@@ -342,7 +378,8 @@ describe("CommandCenter shell", () => {
     expect(screen.queryByTestId("cc-overview-line")).toBeNull();
     expect(screen.queryByTestId("command-center-overview-chart-activity")).toBeNull();
     await screen.findByTestId("command-center-empty");
-    expectThroughputFirstBefore("command-center-empty");
+    expectThroughputLastAfter("command-center-empty");
+    expect(screen.queryByTestId("command-center-stat-sessions")).toBeNull();
     expect(screen.queryByTestId("command-center-overview-charts")).toBeNull();
     expect(screen.queryByTestId("cc-overview-pie")).toBeNull();
     expect(screen.queryByTestId("cc-overview-line")).toBeNull();
@@ -363,6 +400,57 @@ describe("CommandCenter shell", () => {
     expect(statValue("command-center-stat-agentRuns")).toBe("5");
   });
 
+  it("renders the date-range Sessions stat card when sessions exist", async () => {
+    mockOverviewApi({
+      tokens: tokenFixture(0),
+      tools: toolsFixture(0),
+      activity: activityFixture({ sessions: 3, messages: 0, activeNodes: 0, activeAgents: 0, agentRuns: 0, doneInRange: 0 }),
+      signals: signalsFixture(0),
+      live: liveFixture([{ column: "in-progress", count: 0 }]),
+    });
+    render(<CommandCenter />);
+
+    await screen.findByTestId("command-center-stat-sessions");
+    expect(statValue("command-center-stat-sessions")).toBe("3");
+    expect(screen.queryByTestId("command-center-empty")).toBeNull();
+  });
+
+  it("renders zero in the Sessions card when other activity keeps Overview populated", async () => {
+    mockOverviewApi({
+      tokens: tokenFixture(0),
+      tools: toolsFixture(0),
+      activity: activityFixture({ sessions: 0, messages: 4, activeNodes: 0, activeAgents: 0, agentRuns: 0, doneInRange: 0 }),
+      signals: signalsFixture(0),
+      live: liveFixture([{ column: "in-progress", count: 0 }]),
+    });
+    render(<CommandCenter />);
+
+    await screen.findByTestId("command-center-stat-sessions");
+    expect(statValue("command-center-stat-sessions")).toBe("0");
+    expect(screen.queryByTestId("command-center-empty")).toBeNull();
+  });
+
+  it("defaults the Sessions stat card to zero when activity payload omits sessions", async () => {
+    const { sessions: _omitted, ...activityWithoutSessions } = activityFixture({
+      messages: 5,
+      activeNodes: 0,
+      activeAgents: 0,
+      agentRuns: 0,
+      doneInRange: 0,
+    });
+    mockOverviewApi({
+      tokens: tokenFixture(0),
+      tools: toolsFixture(0),
+      activity: activityWithoutSessions,
+      signals: signalsFixture(0),
+      live: liveFixture([{ column: "in-progress", count: 0 }]),
+    });
+    render(<CommandCenter />);
+
+    await screen.findByTestId("command-center-stat-sessions");
+    expect(statValue("command-center-stat-sessions")).toBe("0");
+  });
+
   it("renders live Overview headline values when analytics data exists", async () => {
     mockOverviewApi();
     render(<CommandCenter />);
@@ -374,12 +462,12 @@ describe("CommandCenter shell", () => {
     expect(screen.getByTestId("command-center-stat-tokens").textContent).toContain("$12.50");
     expect(statValue("command-center-stat-autonomy")).toBe("10.0:1");
     expect(statValue("command-center-stat-nodes")).toBe("3");
+    expect(statValue("command-center-stat-sessions")).toBe("4");
     expect(statValue("command-center-stat-agentRuns")).toBe("8");
     expect(statValue("command-center-stat-tasksDone")).toBe("7");
     expect(statValue("command-center-stat-models")).toBe("2");
     expect(statValue("command-center-stat-signals")).toBe("2");
     expect(screen.getByTestId("command-center-live-strip")).toBeTruthy();
-    expectThroughputFirstBefore("command-center-stat-tokens", "command-center-live-strip");
     expect(screen.getByTestId("command-center-live-snapshot")).toBeTruthy();
     await waitFor(() => expect(liveMetricValue()).toBe("3"));
     expect(screen.getByTestId("command-center-live-agents-working").textContent).toContain("2");
@@ -399,6 +487,16 @@ describe("CommandCenter shell", () => {
     expect(screen.getByRole("img", { name: "Token share by model" })).toBeTruthy();
     expect(screen.getByRole("img", { name: "Daily activity line" })).toBeTruthy();
     expect(screen.getByRole("img", { name: "Daily activity trend" })).toBeTruthy();
+    expectThroughputLastAfter("command-center-stat-tokens", "command-center-live-strip", "command-center-overview-charts");
+  });
+
+  it("renders large comma-grouped token totals unchanged in Overview stat surfaces", async () => {
+    mockOverviewApi({ tokens: tokenFixture(1_234_567_890) });
+    render(<CommandCenter />);
+
+    await screen.findByTestId("command-center-stat-tokens");
+    expect(statValue("command-center-stat-tokens")).toBe("1,234,567,890");
+    expect(liveMetricValue("command-center-live-tokens")).toBe("1,234,567,890");
   });
 
   it("live-polls token totals for the Overview card and live strip", async () => {
@@ -511,6 +609,7 @@ describe("CommandCenter shell", () => {
     await screen.findByTestId("command-center-stat-nodes");
     expect(screen.queryByTestId("command-center-empty")).toBeNull();
     expect(statValue("command-center-stat-tokens")).toBe("0");
+    expect(liveMetricValue("command-center-live-tokens")).toBe("0");
     expect(statValue("command-center-stat-nodes")).toBe("1");
     expect(screen.queryByTestId("command-center-overview-charts")).toBeNull();
     expect(screen.queryByTestId("command-center-overview-loading")).toBeNull();
@@ -590,7 +689,7 @@ describe("CommandCenter shell", () => {
     render(<CommandCenter />);
 
     await screen.findByTestId("command-center-overview-error");
-    expectThroughputFirstBefore("command-center-overview-error");
+    expectThroughputLastAfter("command-center-overview-error");
     expect(screen.getByTestId("command-center-overview-error").textContent).toContain("tokens failed");
     expect(screen.queryByTestId("command-center-overview-loading")).toBeNull();
     expect(screen.queryByTestId("command-center-empty")).toBeNull();
@@ -629,6 +728,7 @@ describe("CommandCenter shell", () => {
     const tabs = within(tablist).getAllByRole("tab");
     // Overview, Tokens, Tools, Activity, Productivity, Team, Ecosystem, GitHub, Signals, System, Reliability, Mission Control.
     expect(tabs.length).toBe(12);
+    expect(screen.queryByTestId("command-center-tab-nodes")).toBeNull();
     // roving tabindex: exactly one tab is focusable.
     const focusable = tabs.filter((tab) => tab.getAttribute("tabindex") === "0");
     expect(focusable.length).toBe(1);
@@ -653,6 +753,25 @@ describe("CommandCenter shell", () => {
     expect(screen.getByTestId("command-center-panel-system")).toBeTruthy();
     await screen.findByTestId("cc-area-system");
     expect(screen.getByTestId("cc-system-cpu-gauge")).toBeTruthy();
+  });
+
+  it("renders and routes the Nodes tab when the nodes feature is enabled", () => {
+    const addToast = vi.fn();
+    render(<CommandCenter addToast={addToast} nodesEnabled={true} />);
+    expect(screen.getAllByTestId("command-center-tab-nodes")).toHaveLength(1);
+
+    fireEvent.click(screen.getByTestId("command-center-tab-nodes"));
+    expect(screen.getByTestId("command-center-tab-nodes").getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("command-center-panel-nodes")).toBeTruthy();
+    expect(screen.getByTestId("nodes-view")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("nodes-view-toast-probe"));
+    expect(addToast).toHaveBeenCalledWith("Nodes tab toast", "success");
+  });
+
+  it("omits the Nodes tab when the nodes feature is disabled", () => {
+    render(<CommandCenter nodesEnabled={false} />);
+    expect(screen.queryByTestId("command-center-tab-nodes")).toBeNull();
   });
 
   it("renders and routes the GitHub tab exactly once", async () => {
@@ -696,6 +815,8 @@ describe("CommandCenter shell", () => {
 
     await screen.findByTestId("cc-area-team");
     expect(screen.getByTestId("command-center-tab-team").getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("cc-team-org-chart")).toBeTruthy();
+    expect(screen.getByTestId("cc-team-heartbeat")).toBeTruthy();
     const alphaRow = screen.getByTestId("cc-team-row-agent-alpha");
     expect(alphaRow).toBeTruthy();
     expect(within(alphaRow).getByText("Alpha Agent")).toBeTruthy();
@@ -771,7 +892,7 @@ describe("CommandCenter shell", () => {
   });
 
   it("keeps existing Command Center tab test ids after adding Team", () => {
-    render(<CommandCenter />);
+    render(<CommandCenter nodesEnabled={true} />);
     for (const id of [
       "overview",
       "tokens",
@@ -782,6 +903,7 @@ describe("CommandCenter shell", () => {
       "github",
       "signals",
       "system",
+      "nodes",
       "reliability",
       "mission-control",
       "team",
@@ -791,7 +913,7 @@ describe("CommandCenter shell", () => {
   });
 
   it("supports arrow-key navigation between tabs (roving tabindex)", () => {
-    render(<CommandCenter />);
+    render(<CommandCenter nodesEnabled={true} />);
     const overviewTab = screen.getByTestId("command-center-tab-overview");
     overviewTab.focus();
     fireEvent.keyDown(overviewTab, { key: "ArrowRight" });
@@ -802,6 +924,11 @@ describe("CommandCenter shell", () => {
     const systemTab = screen.getByTestId("command-center-tab-system");
     systemTab.focus();
     fireEvent.keyDown(systemTab, { key: "ArrowRight" });
+    const nodesTab = screen.getByTestId("command-center-tab-nodes");
+    expect(nodesTab.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(nodesTab);
+
+    fireEvent.keyDown(nodesTab, { key: "ArrowRight" });
     const reliabilityTab = screen.getByTestId("command-center-tab-reliability");
     expect(reliabilityTab.getAttribute("aria-selected")).toBe("true");
     expect(document.activeElement).toBe(reliabilityTab);

@@ -4,14 +4,37 @@ Command Center area component tests (PR #1683). Pin loading/error/unavailable-vs
 */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within, act, renderHook } from "@testing-library/react";
+import type { OrgTreeNode } from "@fusion/core";
 
 // Mock the api() helper so the areas fetch deterministic fixtures.
-const apiMock = vi.fn();
-const backfillGithubSourceIssueClosedAtMock = vi.fn();
+const mocks = vi.hoisted(() => ({
+  api: vi.fn(),
+  backfillGithubSourceIssueClosedAt: vi.fn(),
+  fetchOrgTree: vi.fn(),
+  fetchExecutorStats: vi.fn(),
+  toggleEnginePause: vi.fn(),
+  appSettings: { globalPaused: false, enginePaused: false },
+}));
+const apiMock = mocks.api;
+const backfillGithubSourceIssueClosedAtMock = mocks.backfillGithubSourceIssueClosedAt;
+const fetchOrgTreeMock = mocks.fetchOrgTree;
+const fetchExecutorStatsMock = mocks.fetchExecutorStats;
+const toggleEnginePauseMock = mocks.toggleEnginePause;
+const appSettingsMock = mocks.appSettings;
 vi.mock("../../../../api/legacy", () => ({
-  api: (path: string, opts?: RequestInit) => apiMock(path, opts),
+  api: (path: string, opts?: RequestInit) => mocks.api(path, opts),
   apiBackfillGithubSourceIssueClosedAt: (options?: { offset?: number; limit?: number }, projectId?: string) =>
-    backfillGithubSourceIssueClosedAtMock(options, projectId),
+    mocks.backfillGithubSourceIssueClosedAt(options, projectId),
+  fetchOrgTree: mocks.fetchOrgTree,
+  fetchExecutorStats: mocks.fetchExecutorStats,
+}));
+
+vi.mock("../../../../hooks/useAppSettings", () => ({
+  useAppSettings: () => ({
+    globalPaused: mocks.appSettings.globalPaused,
+    enginePaused: mocks.appSettings.enginePaused,
+    toggleEnginePause: mocks.toggleEnginePause,
+  }),
 }));
 
 import { TokensArea } from "../TokensArea";
@@ -28,18 +51,18 @@ import type { DateRange } from "../DateRangePicker";
 const range7d: DateRange = { from: "2026-06-08", to: null, preset: "7d" };
 const customRange = (from: string, to: string): DateRange => ({ from, to, preset: "custom" });
 
-function tokenFixture() {
+function tokenFixture(totalTokens = 1500) {
   return {
     from: "2026-06-08",
     to: null,
     groupBy: "model",
     totals: {
-      inputTokens: 1000,
-      outputTokens: 500,
-      cachedTokens: 200,
+      inputTokens: Math.round(totalTokens * 0.6),
+      outputTokens: Math.round(totalTokens * 0.3),
+      cachedTokens: Math.round(totalTokens * 0.1),
       cacheWriteTokens: 0,
-      totalTokens: 1500,
-      nTasks: 5,
+      totalTokens,
+      nTasks: totalTokens > 0 ? 5 : 0,
     },
     cost: { usd: 12.5, unavailable: false, stale: false },
     series: [
@@ -107,6 +130,22 @@ function githubFixture() {
   };
 }
 
+function agentNode(id: string, name: string, children: OrgTreeNode[] = [], title = "Team Lead"): OrgTreeNode {
+  return {
+    agent: {
+      id,
+      name,
+      title,
+      role: "executor",
+      state: "idle",
+      createdAt: "2026-06-19T00:00:00.000Z",
+      updatedAt: "2026-06-19T00:00:00.000Z",
+      metadata: {},
+    },
+    children,
+  };
+}
+
 function emptyTeamFixture() {
   return {
     from: null,
@@ -123,11 +162,18 @@ function emptyTeamFixture() {
   };
 }
 
-function populatedTeamFixture() {
+function populatedTeamFixture(totalTokens = 1500) {
   return {
     ...emptyTeamFixture(),
     totals: {
-      tokens: { inputTokens: 900, outputTokens: 450, cachedTokens: 150, cacheWriteTokens: 0, totalTokens: 1500, nTasks: 2 },
+      tokens: {
+        inputTokens: Math.round(totalTokens * 0.6),
+        outputTokens: Math.round(totalTokens * 0.3),
+        cachedTokens: Math.round(totalTokens * 0.1),
+        cacheWriteTokens: 0,
+        totalTokens,
+        nTasks: 2,
+      },
       cost: { usd: 4.25, unavailable: false, stale: false },
       filesChanged: 7,
       tasksCompleted: 3,
@@ -140,7 +186,14 @@ function populatedTeamFixture() {
         agentName: "Alpha Agent",
         role: "executor",
         state: "running",
-        tokens: { inputTokens: 900, outputTokens: 450, cachedTokens: 150, cacheWriteTokens: 0, totalTokens: 1500, nTasks: 2 },
+        tokens: {
+          inputTokens: Math.round(totalTokens * 0.6),
+          outputTokens: Math.round(totalTokens * 0.3),
+          cachedTokens: Math.round(totalTokens * 0.1),
+          cacheWriteTokens: 0,
+          totalTokens,
+          nTasks: 2,
+        },
         cost: { usd: 4.25, unavailable: false, stale: false },
         filesChanged: 7,
         tasksCompleted: 3,
@@ -188,6 +241,18 @@ function activityFixture() {
 beforeEach(() => {
   apiMock.mockReset();
   backfillGithubSourceIssueClosedAtMock.mockReset();
+  fetchOrgTreeMock.mockReset();
+  fetchOrgTreeMock.mockResolvedValue([]);
+  fetchExecutorStatsMock.mockReset();
+  fetchExecutorStatsMock.mockResolvedValue({
+    globalPause: false,
+    enginePaused: false,
+    maxConcurrent: 2,
+    lastActivityAt: "2026-06-19T12:00:00.000Z",
+  });
+  toggleEnginePauseMock.mockReset();
+  appSettingsMock.globalPaused = false;
+  appSettingsMock.enginePaused = false;
 });
 
 afterEach(() => {
@@ -199,6 +264,22 @@ function expectRechartsWrapperWithin(testId: string, label: string): void {
   const chart = within(section).getByRole("img", { name: label });
   expect(chart.classList.contains("cc-recharts-chart") || chart.classList.contains("cc-recharts-empty")).toBe(true);
   expect(chart.outerHTML).not.toMatch(/NaN|Infinity/);
+}
+
+function expectBarFillsFinite(testId: string): void {
+  const section = screen.getByTestId(testId);
+  for (const fill of Array.from(section.querySelectorAll<HTMLElement>(".cc-bar-fill"))) {
+    expect(fill.style.width).toMatch(/^\d+(?:\.\d+)?%$/);
+    expect(fill.style.width).not.toMatch(/NaN|Infinity/);
+  }
+}
+
+function expectSparklineHeightsFinite(testId: string): void {
+  const section = screen.getByTestId(testId);
+  for (const bar of Array.from(section.querySelectorAll<HTMLElement>(".cc-sparkline-bar"))) {
+    expect(bar.style.height).toMatch(/^\d+(?:\.\d+)?%$/);
+    expect(bar.style.height).not.toMatch(/NaN|Infinity/);
+  }
 }
 
 function expectSvgLinePointsInsideViewBox(testId: string, label: string): void {
@@ -213,6 +294,14 @@ function expectSvgLinePointsInsideViewBox(testId: string, label: string): void {
     expect(cy).toBeGreaterThanOrEqual(r);
     expect(cy).toBeLessThanOrEqual(100 - r);
   }
+}
+
+function expectSvgLineMarkersUndistorted(testId: string, label: string): void {
+  const section = screen.getByTestId(testId);
+  const chart = within(section).getByRole("img", { name: label });
+  expect(chart.getAttribute("preserveAspectRatio")).toBe("xMidYMid meet");
+  expect(chart.getAttribute("preserveAspectRatio")).not.toBe("none");
+  expect(chart.querySelectorAll(".cc-line-chart-point").length).toBeGreaterThan(0);
 }
 
 describe("useAnalyticsArea", () => {
@@ -306,12 +395,39 @@ describe("ActivityArea", () => {
     expect(screen.getByRole("img", { name: "Agent runs / day" })).toBeTruthy();
     expect(screen.getByTestId("cc-activity-line-throughput")).toBeTruthy();
     expectRechartsWrapperWithin("cc-activity-line", "Activity trend");
+    expect(screen.getByRole("img", { name: "Activity trend" })).toHaveAttribute("data-scale-mode", "series");
     expectRechartsWrapperWithin("cc-activity-pie", "Agent run outcome share");
     expectSvgLinePointsInsideViewBox("cc-activity-line-messages", "Messages / day");
+    expectSvgLineMarkersUndistorted("cc-activity-line-messages", "Messages / day");
     expectSvgLinePointsInsideViewBox("cc-activity-line-agents", "Active agents / day");
+    expectSvgLineMarkersUndistorted("cc-activity-line-agents", "Active agents / day");
     expectSvgLinePointsInsideViewBox("cc-activity-line-nodes", "Active nodes / day");
+    expectSvgLineMarkersUndistorted("cc-activity-line-nodes", "Active nodes / day");
     expectSvgLinePointsInsideViewBox("cc-activity-line-throughput", "Throughput / day");
+    expectSvgLineMarkersUndistorted("cc-activity-line-throughput", "Throughput / day");
     expect(within(screen.getByTestId("cc-activity-agent-runs-sparkline")).getByRole("img", { name: "Agent runs / day" }).classList).toContain("cc-sparkline");
+    expectSparklineHeightsFinite("cc-activity-agent-runs-sparkline");
+  });
+
+  it("opts only the mixed-unit activity trend into per-series scaling", async () => {
+    apiMock.mockResolvedValue({
+      ...activityFixture(),
+      messages: 3_300,
+      activeAgents: 2,
+      agentRuns: { total: 9, active: 1, completed: 7, failed: 1 },
+      daily: [
+        { day: "2026-06-08", messages: 1_000, activeNodes: 20, activeAgents: 1, agentRuns: 2 },
+        { day: "2026-06-09", messages: 1_200, activeNodes: 22, activeAgents: 2, agentRuns: 4 },
+        { day: "2026-06-10", messages: 1_100, activeNodes: 21, activeAgents: 1, agentRuns: 3 },
+      ],
+    });
+    render(<ActivityArea range={range7d} />);
+
+    await screen.findByTestId("cc-area-activity");
+    expect(screen.getByRole("img", { name: "Activity trend" })).toHaveAttribute("data-scale-mode", "series");
+    expectSvgLinePointsInsideViewBox("cc-activity-line-agents", "Active agents / day");
+    expectSvgLinePointsInsideViewBox("cc-activity-line-throughput", "Throughput / day");
+    expectSparklineHeightsFinite("cc-activity-agent-runs-sparkline");
   });
 
   it("renders zero agent-run cards when counts are zero and other activity exists", async () => {
@@ -463,6 +579,14 @@ describe("TokensArea", () => {
     expect(screen.getByLabelText("2026-06-09: 900")).toBeTruthy();
     expect(screen.getByTestId("cc-tokens-row-gpt-4o")).toBeTruthy();
     expect(screen.getByTestId("cc-tokens-row-claude-sonnet")).toBeTruthy();
+  });
+
+  it("renders a large comma-grouped total unchanged in the total tokens card", async () => {
+    apiMock.mockResolvedValue(tokenFixture(1_234_567_890));
+    render(<TokensArea range={range7d} />);
+
+    await screen.findByTestId("cc-area-tokens");
+    expect(screen.getByTestId("cc-tokens-total").textContent).toContain("1,234,567,890");
   });
 
   it("changes the requested endpoint when granularity changes", async () => {
@@ -716,7 +840,7 @@ describe("ToolsArea", () => {
 });
 
 describe("ProductivityArea", () => {
-  it("renders unavailable LOC as the dash sentinel, never 0 and keeps chart geometry finite", async () => {
+  it("renders unavailable LOC and hours saved as dash sentinels, duration stats, and finite chart geometry", async () => {
     apiMock.mockResolvedValue({
       from: "2026-06-08",
       to: null,
@@ -725,14 +849,32 @@ describe("ProductivityArea", () => {
       commits: 4,
       pullRequests: 2,
       loc: { value: null, unavailable: true },
+      hoursSaved: { value: null, unavailable: true },
+      taskDuration: {
+        completedTasks: 3,
+        averageMs: 5_400_000,
+        medianMs: 3_600_000,
+        p90Ms: 7_200_000,
+        totalMs: 16_200_000,
+        unavailable: false,
+      },
     });
     render(<ProductivityArea range={range7d} />);
     await screen.findByTestId("cc-area-productivity");
     const loc = screen.getByTestId("cc-productivity-loc-unavailable");
     expect(loc.textContent).toBe("—");
     expect(loc.getAttribute("title")).toBeTruthy();
+    const hoursSaved = screen.getByTestId("cc-productivity-hours-saved-unavailable");
+    expect(hoursSaved.textContent).toBe("—");
+    expect(hoursSaved.getAttribute("title")).toBeTruthy();
+    expect(screen.getByTestId("cc-productivity-hours-saved").textContent).not.toContain("0");
     // The commits outcome counter still shows a real number.
     expect(screen.getByTestId("cc-productivity-commits").textContent).toContain("4");
+    expect(screen.getByTestId("cc-productivity-duration-completed").textContent).toContain("3");
+    expect(screen.getByTestId("cc-productivity-duration-avg").textContent).toContain("1h 30m");
+    expect(screen.getByTestId("cc-productivity-duration-median").textContent).toContain("1h");
+    expect(screen.getByTestId("cc-productivity-duration-p90").textContent).toContain("2h");
+    expect(screen.getByTestId("cc-productivity-duration-total").textContent).toContain("4h 30m");
     expect(screen.getByRole("list", { name: "Files by language" })).toBeTruthy();
     expect(screen.getByTestId("cc-productivity-pie")).toBeTruthy();
     expect(screen.getByRole("img", { name: "Language share" })).toBeTruthy();
@@ -748,11 +890,21 @@ describe("ProductivityArea", () => {
       commits: 0,
       pullRequests: 0,
       loc: { value: null, unavailable: true },
+      hoursSaved: { value: null, unavailable: true },
+      taskDuration: {
+        completedTasks: 0,
+        averageMs: null,
+        medianMs: null,
+        p90Ms: null,
+        totalMs: null,
+        unavailable: true,
+      },
     });
     const { unmount } = render(<ProductivityArea range={range7d} />);
     await screen.findByTestId("cc-area-productivity-empty");
     expect(screen.queryByRole("list", { name: "Files by language" })).toBeNull();
     expect(screen.queryByTestId("cc-productivity-pie")).toBeNull();
+    expect(screen.queryByTestId("cc-productivity-duration-avg")).toBeNull();
     unmount();
 
     apiMock.mockImplementationOnce(() => new Promise(() => undefined));
@@ -765,6 +917,62 @@ describe("ProductivityArea", () => {
     await screen.findByTestId("cc-area-productivity-error");
     expect(screen.getByTestId("cc-area-productivity-error").textContent).toContain("productivity failed");
     expect(screen.queryByTestId("cc-productivity-pie")).toBeNull();
+    expect(screen.queryByTestId("cc-productivity-duration-avg")).toBeNull();
+  });
+
+  it("renders unavailable task duration as dash sentinels, never zero", async () => {
+    apiMock.mockResolvedValue({
+      from: "2026-06-08",
+      to: null,
+      modifiedFiles: 1,
+      byLanguage: [{ language: "ts", count: 1 }],
+      commits: 0,
+      pullRequests: 0,
+      loc: { value: null, unavailable: true },
+      hoursSaved: { value: null, unavailable: true },
+      taskDuration: {
+        completedTasks: 0,
+        averageMs: null,
+        medianMs: null,
+        p90Ms: null,
+        totalMs: null,
+        unavailable: true,
+      },
+    });
+
+    render(<ProductivityArea range={range7d} />);
+    await screen.findByTestId("cc-area-productivity");
+
+    const avg = screen.getByTestId("cc-productivity-duration-avg-unavailable");
+    expect(avg.textContent).toBe("—");
+    expect(avg.getAttribute("title")).toBeTruthy();
+    expect(screen.getByTestId("cc-productivity-duration-median-unavailable").textContent).toBe("—");
+    expect(screen.getByTestId("cc-productivity-duration-p90-unavailable").textContent).toBe("—");
+    expect(screen.getByTestId("cc-productivity-duration-total-unavailable").textContent).toBe("—");
+    expect(screen.getByTestId("cc-productivity-duration-avg").textContent).not.toContain("0");
+  });
+
+  it("renders dash sentinels for contract-incomplete productivity payloads", async () => {
+    apiMock.mockResolvedValue({
+      from: "2026-06-08",
+      to: null,
+      modifiedFiles: 1,
+      byLanguage: [],
+      commits: 1,
+      pullRequests: 0,
+    });
+
+    render(<ProductivityArea range={range7d} />);
+
+    const area = await screen.findByTestId("cc-area-productivity");
+    expect(screen.getByTestId("cc-productivity-loc-unavailable").textContent).toBe("—");
+    expect(screen.getByTestId("cc-productivity-hours-saved-unavailable").textContent).toBe("—");
+    expect(screen.getByTestId("cc-productivity-duration-avg-unavailable").textContent).toBe("—");
+    expect(screen.getByTestId("cc-productivity-duration-median-unavailable").textContent).toBe("—");
+    expect(screen.getByTestId("cc-productivity-duration-p90-unavailable").textContent).toBe("—");
+    expect(screen.getByTestId("cc-productivity-duration-total-unavailable").textContent).toBe("—");
+    expect(area.textContent).not.toContain("NaN");
+    expect(area.textContent?.trim()).not.toBe("");
   });
 
   it("keeps the productivity pie safe for single-item and non-finite language data", async () => {
@@ -776,6 +984,15 @@ describe("ProductivityArea", () => {
       commits: 0,
       pullRequests: 0,
       loc: { value: null, unavailable: true },
+      hoursSaved: { value: null, unavailable: true },
+      taskDuration: {
+        completedTasks: 0,
+        averageMs: null,
+        medianMs: null,
+        p90Ms: null,
+        totalMs: null,
+        unavailable: true,
+      },
     });
     render(<ProductivityArea range={range7d} />);
 
@@ -787,6 +1004,70 @@ describe("ProductivityArea", () => {
 });
 
 describe("TeamArea", () => {
+  it("renders relocated org chart and heartbeat outside analytics gating", async () => {
+    apiMock.mockResolvedValueOnce(emptyTeamFixture());
+    fetchOrgTreeMock.mockResolvedValueOnce([
+      agentNode("agent-lead", "Lead Agent", [agentNode("agent-child", "Child Agent", [], "Child Title")]),
+    ]);
+
+    render(<TeamArea range={range7d} projectId="project-a" />);
+
+    const orgSection = await screen.findByTestId("cc-team-org-chart");
+    const heartbeatSection = screen.getByTestId("cc-team-heartbeat");
+    expect(screen.getByTestId("cc-area-team-empty")).toBeTruthy();
+    expect(within(orgSection).getByText("Lead Agent")).toBeTruthy();
+    expect(within(orgSection).getByText("Child Agent")).toBeTruthy();
+    expect(within(orgSection).queryByText("executor · Team Lead")).toBeNull();
+    expect(within(orgSection).queryByText("executor · Child Title")).toBeNull();
+    expect(orgSection.querySelector(".cc-team-org-card")).toBeTruthy();
+    expect(orgSection.querySelector(".org-chart-node-card")).toBeNull();
+    expect(within(heartbeatSection).getByRole("button", { name: /pause heartbeat/i })).toBeEnabled();
+    expect(fetchOrgTreeMock).toHaveBeenCalledWith("project-a");
+    expect(fetchExecutorStatsMock).toHaveBeenCalledWith("project-a");
+  });
+
+  it("keeps relocated team controls visible for loading, empty, error, and undefined-project states", async () => {
+    apiMock.mockImplementationOnce(() => new Promise(() => undefined));
+    fetchOrgTreeMock.mockResolvedValueOnce([]);
+    const loading = render(<TeamArea range={range7d} />);
+    expect(await screen.findByTestId("cc-team-org-chart")).toBeTruthy();
+    expect(screen.getByTestId("cc-team-heartbeat")).toBeTruthy();
+    expect(screen.getByText("No agents are reporting in yet.")).toBeTruthy();
+    expect(fetchOrgTreeMock).toHaveBeenCalledWith(undefined);
+    expect(fetchExecutorStatsMock).toHaveBeenCalledWith(undefined);
+    loading.unmount();
+
+    apiMock.mockResolvedValueOnce(emptyTeamFixture());
+    fetchOrgTreeMock.mockRejectedValueOnce(new Error("org failed"));
+    const empty = render(<TeamArea range={range7d} />);
+    expect(await screen.findByTestId("cc-area-team-empty")).toBeTruthy();
+    expect(within(screen.getByTestId("cc-team-org-chart")).getByRole("alert")).toHaveTextContent("org failed");
+    empty.unmount();
+
+    apiMock.mockRejectedValueOnce(new Error("team failed"));
+    fetchOrgTreeMock.mockResolvedValueOnce([agentNode("agent-one", "One Agent")]);
+    render(<TeamArea range={range7d} />);
+    expect(await screen.findByTestId("cc-area-team-error")).toBeTruthy();
+    expect(screen.getByTestId("cc-team-org-chart")).toBeTruthy();
+    expect(screen.getByTestId("cc-team-heartbeat")).toBeTruthy();
+  });
+
+  it("toggles heartbeat and disables it when the AI engine is stopped", async () => {
+    apiMock.mockResolvedValueOnce(emptyTeamFixture());
+    fetchExecutorStatsMock.mockResolvedValueOnce({ globalPause: false, enginePaused: false, maxConcurrent: 3 });
+    const running = render(<TeamArea range={range7d} projectId="project-a" />);
+    fireEvent.click(await screen.findByRole("button", { name: /pause heartbeat/i }));
+    expect(toggleEnginePauseMock).toHaveBeenCalledTimes(1);
+    running.unmount();
+
+    apiMock.mockResolvedValueOnce(emptyTeamFixture());
+    fetchExecutorStatsMock.mockResolvedValueOnce({ globalPause: true, enginePaused: true, maxConcurrent: 3 });
+    render(<TeamArea range={range7d} projectId="project-a" />);
+    const resume = await screen.findByRole("button", { name: /resume heartbeat/i });
+    expect(resume).toBeDisabled();
+    expect(screen.getByText("Start the AI engine before resuming the heartbeat.")).toBeTruthy();
+  });
+
   it("renders the per-agent pie for populated team analytics", async () => {
     apiMock.mockResolvedValue({
       ...populatedTeamFixture(),
@@ -813,6 +1094,17 @@ describe("TeamArea", () => {
     expect(within(screen.getByTestId("cc-team-tokens-chart")).getByRole("list", { name: "Tokens by agent" }).classList).toContain("cc-bar-chart");
     expect(within(screen.getByTestId("cc-team-completed-chart")).getByRole("list", { name: "Tasks done by agent" }).classList).toContain("cc-bar-chart");
     expect(within(screen.getByTestId("cc-team-spread-chart")).getByRole("img", { name: "Team spread" }).classList).toContain("cc-sparkline");
+    expectBarFillsFinite("cc-team-tokens-chart");
+    expectBarFillsFinite("cc-team-completed-chart");
+    expectSparklineHeightsFinite("cc-team-spread-chart");
+  });
+
+  it("renders a large comma-grouped total unchanged in the team total tokens stat", async () => {
+    apiMock.mockResolvedValue(populatedTeamFixture(1_234_567_890));
+    render(<TeamArea range={range7d} />);
+
+    await screen.findByTestId("cc-area-team");
+    expect(screen.getByTestId("cc-team-total-tokens").textContent).toContain("1,234,567,890");
   });
 
   it("keeps the team pie safe for single-item and non-finite data", async () => {
@@ -848,9 +1140,28 @@ describe("TeamArea", () => {
   });
 });
 
+function pluginActivationFixture(overrides: Partial<{ activations: number; unavailable: boolean }> = {}) {
+  const activations = overrides.activations ?? 0;
+  const unavailable = overrides.unavailable ?? true;
+  return {
+    from: "2026-06-08",
+    to: null,
+    activations,
+    byPlugin: unavailable ? [] : [{ pluginId: "fusion-plugin-example", count: activations }],
+    unavailable,
+  };
+}
+
+function mockEcosystemResponses(tokens: unknown, activations: unknown): void {
+  apiMock.mockImplementation((path: string) => {
+    if (path.startsWith("/command-center/plugin-activations")) return Promise.resolve(activations);
+    return Promise.resolve(tokens);
+  });
+}
+
 describe("EcosystemArea", () => {
   it("renders populated model pie and trend line without NaN", async () => {
-    apiMock.mockResolvedValueOnce(tokenFixture());
+    mockEcosystemResponses(tokenFixture(), pluginActivationFixture());
     render(<EcosystemArea range={range7d} />);
 
     await screen.findByTestId("cc-area-ecosystem");
@@ -859,7 +1170,38 @@ describe("EcosystemArea", () => {
     expect(screen.getByTestId("cc-ecosystem-line")).toBeTruthy();
     expect(screen.getByRole("img", { name: "Task share by model" })).toBeTruthy();
     expect(screen.getByRole("img", { name: "Ecosystem trend" })).toBeTruthy();
+    expect(screen.getByTestId("cc-ecosystem-plugins-unavailable").textContent).toBe("—");
     expect(screen.getByTestId("cc-area-ecosystem").textContent).not.toContain("NaN");
+  });
+
+  it("renders the real plugin activation count only when activation data exists", async () => {
+    mockEcosystemResponses(tokenFixture(), pluginActivationFixture({ activations: 12, unavailable: false }));
+    render(<EcosystemArea range={range7d} />);
+
+    await screen.findByTestId("cc-area-ecosystem");
+    expect(screen.getByTestId("cc-ecosystem-plugins-value").textContent).toBe("12");
+    expect(screen.queryByTestId("cc-ecosystem-plugins-unavailable")).toBeNull();
+  });
+
+  it("keeps the plugin sentinel for unavailable activation data and never renders 0", async () => {
+    mockEcosystemResponses(tokenFixture(), pluginActivationFixture({ activations: 0, unavailable: true }));
+    render(<EcosystemArea range={range7d} />);
+
+    await screen.findByTestId("cc-area-ecosystem");
+    expect(screen.getByTestId("cc-ecosystem-plugins-unavailable").textContent).toBe("—");
+    expect(screen.queryByTestId("cc-ecosystem-plugins-value")).toBeNull();
+  });
+
+  it("does not show the empty state when activation data exists without model data", async () => {
+    mockEcosystemResponses(
+      { ...tokenFixture(), groups: [], series: [], totals: { ...tokenFixture().totals, totalTokens: 0, nTasks: 0 } },
+      pluginActivationFixture({ activations: 1, unavailable: false }),
+    );
+    render(<EcosystemArea range={range7d} />);
+
+    await screen.findByTestId("cc-area-ecosystem");
+    expect(screen.queryByTestId("cc-area-ecosystem-empty")).toBeNull();
+    expect(screen.getByTestId("cc-ecosystem-plugins-value").textContent).toBe("1");
   });
 
   it("renders empty, loading, and error states without ecosystem chart shells", async () => {

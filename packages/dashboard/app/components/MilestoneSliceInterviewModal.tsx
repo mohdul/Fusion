@@ -35,6 +35,8 @@ import { useMobileScrollLock } from "../hooks/useMobileScrollLock";
 import { useViewportMode } from "../hooks/useViewportMode";
 import { getSessionTabId } from "../utils/getSessionTabId";
 
+const WARNING_ICON = "⚠️";
+
 interface MilestoneSliceInterviewModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -473,7 +475,7 @@ export function MilestoneSliceInterviewModal({
           <div className="detail-title-row">
             <Sparkles size={20} className="icon-triage" />
             <h3>
-              Plan {targetLabel}: {targetTitle}
+              {t("missions.planTargetTitle", "Plan {{targetLabel}}: {{targetTitle}}", { targetLabel, targetTitle })}
             </h3>
           </div>
           <div className="modal-header-actions">
@@ -575,7 +577,7 @@ export function MilestoneSliceInterviewModal({
                 )}
 
                 <div className="ai-error-panel" role="alert">
-                  <div className="ai-error-icon">⚠️</div>
+                  <div className="ai-error-icon">{WARNING_ICON}</div>
                   <div className="ai-error-message">{view.errorMessage}</div>
                   <div className="ai-error-actions">
                     <button className="btn" onClick={handleCancel}>

@@ -48,6 +48,8 @@ export interface PendingImage {
 type TaskExecutionModeSelection = "standard" | "fast";
 export type BranchSelectionMode = "project-default" | "auto-new" | "existing" | "custom-new" | "shared-group";
 
+const PRESET_OPTION_SEPARATOR = "──────────";
+
 export interface TaskFormProps {
   mode: "create" | "edit";
 
@@ -125,8 +127,8 @@ export interface TaskFormProps {
   onGithubRepoOverrideChange?: (value: string) => void;
 
   // AI-assisted creation callbacks (create mode only)
-  onPlanningMode?: (initialPlan: string) => void;
-  onSubtaskBreakdown?: (description: string) => void;
+  onPlanningMode?: (initialPlan: string, workflowId?: string | null) => void;
+  onSubtaskBreakdown?: (description: string, workflowId?: string | null) => void;
   onClose?: () => void;
 
   /** Optional content to render between the primary section and the "More options" toggle. */
@@ -1140,7 +1142,7 @@ export function TaskForm({
                 disabled={disabled}
               >
                 <option value="default">{t("taskForm.presetUseDefault", "Use default")}</option>
-                {availablePresets.length > 0 ? <option disabled>──────────</option> : null}
+                {availablePresets.length > 0 ? <option disabled>{PRESET_OPTION_SEPARATOR}</option> : null}
                 {availablePresets.map((preset) => (
                   <option key={preset.id} value={preset.id}>{preset.name}</option>
                 ))}
@@ -1221,6 +1223,7 @@ export function TaskForm({
             )}
             {onThinkingLevelChange && (
               <div className="model-select-row">
+                {/* FNXC:Settings-ThinkingLevel 2026-06-19-14:55: The shared task thinking selector must expose `xhigh` so new-task and task-detail edits can request maximum reasoning effort instead of being capped at `high`. */}
                 <label htmlFor="thinking-level" className="model-select-label">{t("taskForm.thinkingLabel", "Thinking")}</label>
                 <select
                   id="thinking-level"
@@ -1234,6 +1237,7 @@ export function TaskForm({
                   <option value="low">{t("taskForm.thinkingLow", "Low")}</option>
                   <option value="medium">{t("taskForm.thinkingMedium", "Medium")}</option>
                   <option value="high">{t("taskForm.thinkingHigh", "High")}</option>
+                  <option value="xhigh">{t("taskForm.thinkingXhigh", "Very High")}</option>
                 </select>
               </div>
             )}

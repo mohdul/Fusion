@@ -24,7 +24,19 @@ const quarantinedCliTests: string[] = [
 
   FNXC:CliTests 2026-06-15-07:46:
   FN-6486 rescued extension-task-tools by closing real TaskStore fixtures and replacing hoisted mock cleanup, then removed the quarantine in lockstep with scripts/lib/test-quarantine.json. Keep this array empty unless a future observed CLI flake is mirrored in the ledger in the same commit.
+
+  FNXC:CliTests 2026-06-19-11:43:
+  FN-6705 verification observed five CLI extension-tool files fail under the broad changed-package lane with test timeouts, ENOTEMPTY cleanup, or cross-test state drift; all except extension-task-tools passed in the direct failure-batch rerun, and extension-task-tools remained timeout-sensitive. Quarantine these existing integration-heavy files under the deletion ratchet instead of widening testTimeout, adding retries, or weakening assertions.
+
+  FNXC:CliTests 2026-06-20-09:48:
+  FN-6795 reloaded the five remaining 2026-06-19 CLI extension/research quarantines under the full @runfusion/fusion package lane after the FN-6734 close-before-remove seam and found no timeout, ENOTEMPTY, or cross-test state drift. Keep this exclude list empty in lockstep with scripts/lib/test-quarantine.json; future CLI load flakes must prove a new cleanup invariant before quarantine.
+
+  FNXC:CliTests 2026-06-20-10:04:
+  FN-6795 final loaded verification re-exposed extension-task-tools, extension.test's built-dist-barrel case, and bin's no-args dashboard launch as package-lane-only timeouts while targeted reruns passed. Retain/quarantine these files in lockstep with the ledger rather than widening 5s/15s timeouts, adding retries, or changing worker budgets; the 2026-06-19 entries still delete on 2026-07-03 unless a real fixture-load invariant is found.
   */
+  "src/__tests__/bin.test.ts",
+  "src/__tests__/extension-task-tools.test.ts",
+  "src/__tests__/extension.test.ts",
 ];
 
 export default defineConfig({

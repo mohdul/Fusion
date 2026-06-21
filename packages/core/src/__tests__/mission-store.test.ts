@@ -3780,7 +3780,7 @@ describe("MissionStore", () => {
   // ── Loop State & Validator Run Schema Tests ───────────────────────────
 
   describe("Loop State & Validator Run Schema (v31)", () => {
-    it("schema version is 101 after migration", () => {
+    it("schema version is current after migration", () => {
       expect(db.getSchemaVersion()).toBe(SCHEMA_VERSION);
     });
 

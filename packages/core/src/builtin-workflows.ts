@@ -1,4 +1,6 @@
 import { BUILTIN_CODING_WORKFLOW_IR } from "./builtin-coding-workflow-ir.js";
+import { BUILTIN_LEAD_GENERATION_WORKFLOW_IR } from "./builtin-lead-generation-workflow-ir.js";
+import { BUILTIN_MARKETING_WORKFLOW_IR } from "./builtin-marketing-workflow-ir.js";
 import { BUILTIN_PR_WORKFLOW_IR } from "./builtin-pr-workflow-ir.js";
 import { BUILTIN_STEPWISE_CODING_WORKFLOW_IR } from "./builtin-stepwise-coding-workflow-ir.js";
 import { BUILTIN_WORKFLOW_SETTINGS } from "./builtin-workflow-settings.js";
@@ -150,6 +152,29 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
       { id: "merge", kind: "prompt", config: builtinPromptConfig("merge", "Merge boundary") },
     ],
   }),
+  {
+    id: "builtin:marketing",
+    name: "Marketing (built-in)",
+    description: "Marketing content pipeline: ideate, brief, draft, editorial review, then publish via the standard lifecycle merge primitives.",
+    kind: "workflow",
+    ir: BUILTIN_MARKETING_WORKFLOW_IR,
+    layout: {
+      start: { x: 60, y: 160 },
+      brief: { x: 230, y: 160 },
+      draft: { x: 400, y: 160 },
+      editorial: { x: 570, y: 160 },
+      "merge-gate": { x: 740, y: 160 },
+      "branch-group-member-integration": { x: 910, y: 80 },
+      "branch-group-promotion": { x: 1080, y: 80 },
+      "merge-attempt": { x: 1250, y: 160 },
+      "merge-retry": { x: 1420, y: 80 },
+      "recovery-router": { x: 1420, y: 240 },
+      "merge-manual-hold": { x: 910, y: 240 },
+      end: { x: 1590, y: 160 },
+    },
+    createdAt: BUILTIN_TS,
+    updatedAt: BUILTIN_TS,
+  },
   linear({
     id: "builtin:compound-engineering",
     name: "Compound engineering (built-in)",
@@ -260,6 +285,30 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
     createdAt: BUILTIN_TS,
     updatedAt: BUILTIN_TS,
   },
+  /**
+   * FNXC:Workflows 2026-06-20-00:00:
+   * Fusion needs a built-in design lane for UI-heavy work. Gate changes on the frontend-ux-design review criteria before the standard review and merge so visual hierarchy, spacing, typography, token consistency, component reuse, responsive behavior, and fit with the design language are checked without custom workflow assembly.
+   */
+  linear({
+    id: "builtin:design",
+    name: "Design (built-in)",
+    description: "Implement, then run a design/UX review gate before the standard review and merge — for UI-heavy work.",
+    nodes: [
+      { id: "execute", kind: "prompt", config: builtinPromptConfig("execute", "Execute") },
+      {
+        id: "design-review",
+        kind: "gate",
+        config: {
+          name: "Design review",
+          gateMode: "gate",
+          prompt:
+            "You are a UX design reviewer. Review frontend/UI changes for visual polish and consistency with existing UI patterns and design tokens. Check visual hierarchy and information flow; spacing, typography, margins, padding, gaps, and type scale; color and token consistency, including CSS custom properties/design tokens and no hardcoded colors; reuse of existing components instead of one-off styling or duplication; responsive behavior across viewports; and fit with the product design language, including border radius, shadows, transitions, and icon style. Block merge on real visual-quality regressions such as layout breaks, broken responsive behavior, hardcoded color/token violations, inconsistent component patterns, or design-language mismatches. Do not block or nit when the diff has no frontend/UI impact or no real design issue exists.",
+        },
+      },
+      { id: "review", kind: "prompt", config: builtinPromptConfig("review", "Review") },
+      { id: "merge", kind: "prompt", config: builtinPromptConfig("merge", "Merge boundary") },
+    ],
+  }),
   // The PR workflow (U9) — the unified PR-entity lifecycle wired end to end as
   // first-class graph nodes/edges: pr-create → await-review (hold) → pr-respond
   // (bounded rework loop) → auto-merge gate → pr-merge → end, with the await
@@ -291,6 +340,25 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
       "await-rebase": { x: 740, y: 320 },
       "pr-merge": { x: 740, y: 160 },
       end: { x: 910, y: 160 },
+    },
+    createdAt: BUILTIN_TS,
+    updatedAt: BUILTIN_TS,
+  },
+  {
+    id: "builtin:lead-generation",
+    name: "Lead generation (built-in)",
+    description:
+      "A business pipeline for sourcing, qualifying, enriching, and contacting leads with custom lead fields and stage columns. Requires the workflow graph executor for custom board columns.",
+    kind: "workflow",
+    ir: BUILTIN_LEAD_GENERATION_WORKFLOW_IR,
+    layout: {
+      start: { x: 60, y: 160 },
+      "source-prospects": { x: 230, y: 160 },
+      "qualify-lead": { x: 400, y: 160 },
+      "qualification-gate": { x: 570, y: 160 },
+      "enrich-lead": { x: 740, y: 160 },
+      "draft-outreach": { x: 910, y: 160 },
+      end: { x: 1080, y: 160 },
     },
     createdAt: BUILTIN_TS,
     updatedAt: BUILTIN_TS,

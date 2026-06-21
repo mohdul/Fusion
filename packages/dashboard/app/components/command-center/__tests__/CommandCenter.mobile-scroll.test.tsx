@@ -9,6 +9,21 @@ import { CommandCenter } from "../CommandCenter";
 const apiMock = vi.fn();
 vi.mock("../../../api/legacy", () => ({
   api: (path: string, opts?: RequestInit) => apiMock(path, opts),
+  fetchOrgTree: vi.fn().mockResolvedValue([]),
+  fetchExecutorStats: vi.fn().mockResolvedValue({ globalPause: false, enginePaused: false, maxConcurrent: 2 }),
+  fetchSettings: vi.fn().mockResolvedValue({ maxConcurrent: 2, maxTriageConcurrent: 1, maxWorktrees: 5 }),
+  fetchConfig: vi.fn().mockResolvedValue({ maxConcurrent: 2, rootDir: "/" }),
+  updateSettings: vi.fn().mockResolvedValue({}),
+}));
+
+vi.mock("../../../hooks/useAppSettings", () => ({
+  useAppSettings: () => ({
+    globalPaused: false,
+    enginePaused: false,
+    toggleGlobalPause: vi.fn(),
+    toggleEnginePause: vi.fn(),
+    refresh: vi.fn().mockResolvedValue(undefined),
+  }),
 }));
 
 vi.mock("../../../api", () => ({
@@ -102,6 +117,15 @@ function populatedProductivityFixture() {
     commits: 2,
     pullRequests: 1,
     loc: { value: 42, unavailable: false },
+    hoursSaved: { value: 1, unavailable: false },
+    taskDuration: {
+      completedTasks: 2,
+      averageMs: 1_800_000,
+      medianMs: 1_800_000,
+      p90Ms: 2_400_000,
+      totalMs: 3_600_000,
+      unavailable: false,
+    },
     byLanguage: [{ language: "TypeScript", count: 6 }],
   };
 }
@@ -112,6 +136,15 @@ function emptyProductivityFixture() {
     commits: 0,
     pullRequests: 0,
     loc: { value: null, unavailable: true },
+    hoursSaved: { value: null, unavailable: true },
+    taskDuration: {
+      completedTasks: 0,
+      averageMs: null,
+      medianMs: null,
+      p90Ms: null,
+      totalMs: null,
+      unavailable: true,
+    },
     byLanguage: [],
   };
 }
@@ -305,7 +338,7 @@ function assertScrollOwnerContract(panel: HTMLElement) {
 function assertNoChartScrollSteal(panel: HTMLElement) {
   // FN-6680: jsdom does not compute real flex/grid layout, so this guards rule presence and scroll-owner structure only; the CSS-string regression plus Blink audit cover actual mobile pixel layout.
   const chartContainers = panel.querySelectorAll<HTMLElement>(
-    ".cc-bar-chart, .cc-bar-row, .cc-sparkline, .cc-line-chart, .cc-recharts-chart, .cc-recharts-empty, .cc-radial-gauge, .cc-funnel, .cc-token-series, .cc-token-series-plot, .cc-overview-chart-card, .cc-team-chart-panel, .cc-stat-card",
+    ".cc-bar-chart, .cc-bar-row, .cc-sparkline, .cc-line-chart, .cc-recharts-chart, .cc-recharts-empty, .cc-radial-gauge, .cc-funnel, .cc-token-series, .cc-token-series-plot, .cc-overview-chart-card, .cc-team-ops-card, .cc-team-chart-panel, .cc-stat-card",
   );
   expect(chartContainers.length).toBeGreaterThan(0);
   for (const container of chartContainers) {
@@ -338,6 +371,10 @@ describe("CommandCenter mobile scroll regression (FN-6595)", () => {
 
     const overviewPanel = screen.getByTestId("command-center-panel-overview");
     await screen.findByTestId("command-center-empty");
+    expect(screen.getByTestId("command-center-controls")).toBeTruthy();
+    expect(screen.getByTestId("cc-controls-concurrency")).toBeTruthy();
+    expect(screen.queryByTestId("cc-controls-org-chart")).toBeNull();
+    expect(screen.queryByTestId("cc-controls-heartbeat")).toBeNull();
     assertScrollOwnerContract(overviewPanel);
 
     fireEvent.click(screen.getByTestId("command-center-tab-tokens"));
@@ -348,6 +385,8 @@ describe("CommandCenter mobile scroll regression (FN-6595)", () => {
     fireEvent.click(screen.getByTestId("command-center-tab-team"));
     const teamPanel = screen.getByTestId("command-center-panel-team");
     expect(teamPanel).toBe(screen.getByRole("tabpanel"));
+    expect(screen.getByTestId("cc-team-org-chart")).toBeTruthy();
+    expect(screen.getByTestId("cc-team-heartbeat")).toBeTruthy();
     assertScrollOwnerContract(teamPanel);
 
     fireEvent.click(screen.getByTestId("command-center-tab-github"));

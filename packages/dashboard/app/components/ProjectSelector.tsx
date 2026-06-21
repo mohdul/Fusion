@@ -83,6 +83,11 @@ export function ProjectSelector({
   viewAllLabel,
 }: ProjectSelectorProps) {
   const { t } = useTranslation("app");
+  /*
+   * FNXC:ProjectSelector 2026-06-20-20:51:
+   * The trigger fallback must remain readable when translation fixtures omit the optional project-selector key; provide the English default at the component seam instead of leaking the i18n key into the header.
+   */
+  const projectsLabel = t("projectSelector.projects", "Projects");
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
@@ -394,7 +399,7 @@ export function ProjectSelector({
       >
         <Folder size={16} className="project-selector__trigger-icon" />
         <span className="project-selector__trigger-text">
-          {currentProject?.name || t("projectSelector.projects", "Projects")}
+          {currentProject?.name || projectsLabel}
         </span>
         <ChevronDown
           size={14}
@@ -407,7 +412,7 @@ export function ProjectSelector({
         <div
           className="project-selector__dropdown"
           role="listbox"
-          aria-label="Projects"
+          aria-label={projectsLabel}
           onKeyDown={handleDropdownKeyDown}
           data-testid="project-selector-dropdown"
         >

@@ -72,6 +72,8 @@ export function relativeTime(iso: string, t?: (key: string, defaultValue: string
   return tr("time.daysAgo", "{{n}}d ago", { n });
 }
 
+const WARNING_ICON = "⚠️";
+
 interface AgentDetailViewProps {
   agentId: string;
   projectId?: string;
@@ -633,7 +635,7 @@ export function AgentDetailView({ agentId, projectId, onClose, addToast, onChild
   if (isLoading) {
     if (inline) {
       return (
-        <div className="agent-detail-inline-loading" role="region" aria-label="Agent detail loading">
+        <div className="agent-detail-inline-loading" role="region" aria-label={t("agents.detailLoadingLabel", "Agent detail loading")}>
           <div className="agent-detail-loading">
             <Loader2 className="animate-spin" size={24} />
             <span>{t("agents.loading", "Loading agent...")}</span>
@@ -1186,7 +1188,7 @@ function DashboardTab({
     <div className="dashboard-tab dashboard-summary-layout">
       {budgetStatus?.isOverBudget && (
         <div className="budget-warning-banner" role="alert">
-          <span>⚠️</span>
+          <span>{WARNING_ICON}</span>
           <span><strong>{t("agents.budgetExhaustedTitle", "Budget Exhausted:")}</strong> {t("agents.budgetExhaustedBody", "This agent has exceeded its token budget and may operate with limited functionality.")}</span>
         </div>
       )}
@@ -2137,7 +2139,7 @@ function RunsTab({
   const renderCacheWindow = (label: string, window: AgentTokenUsageWindowSummary) => (
     <div className="run-context-item" key={label}>
       <span className="text-muted">{label}:</span>{" "}
-      <span>{(window.hitRatio * 100).toFixed(1)}% ({window.totalCachedTokens.toLocaleString()} / {window.totalCacheWriteTokens.toLocaleString()} / {window.totalInputTokens.toLocaleString()} / {window.nTasks.toLocaleString()})</span>
+      <span>{t("agents.cacheWindowSummary", "{{percent}}% ({{cached}} / {{written}} / {{input}} / {{tasks}})", { percent: (window.hitRatio * 100).toFixed(1), cached: window.totalCachedTokens.toLocaleString(), written: window.totalCacheWriteTokens.toLocaleString(), input: window.totalInputTokens.toLocaleString(), tasks: window.nTasks.toLocaleString() })}</span>
     </div>
   );
 
@@ -3107,7 +3109,7 @@ function InstructionsTab({
 
         <div className="config-fields">
           <div className="config-field">
-            <label htmlFor="instructions-text">Inline Instructions</label>
+            <label htmlFor="instructions-text">{t("agents.inlineInstructions", "Inline Instructions")}</label>
             <div className="agent-content-toolbar">
               <div className="agent-content-mode-toggle">
                 <button
@@ -3776,7 +3778,7 @@ function ConfigTab({
     skills: selectedSkills,
     model: modelValue || undefined,
     runtimeHint: runtimeMode === "runtime" ? selectedRuntimeId || undefined : undefined,
-    thinkingLevel: (formValues.thinkingLevel as "off" | "minimal" | "low" | "medium" | "high" | undefined) ?? undefined,
+    thinkingLevel: (formValues.thinkingLevel as "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined) ?? undefined,
     maxTurns: formValues.maxTurns ? Number(formValues.maxTurns) : undefined,
     heartbeatIntervalMs: heartbeatValues.heartbeatIntervalMs ? Number(heartbeatValues.heartbeatIntervalMs) * 1000 : undefined,
     heartbeatTimeoutMs: heartbeatValues.heartbeatTimeoutMs ? Number(heartbeatValues.heartbeatTimeoutMs) * 1000 : undefined,

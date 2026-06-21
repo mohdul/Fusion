@@ -11,7 +11,7 @@
 import { DatabaseSync } from "./sqlite-adapter.js";
 import { basename, isAbsolute, join } from "node:path";
 import { mkdirSync, existsSync, statSync, renameSync, rmSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { DEFAULT_PROJECT_SETTINGS } from "./types.js";
 import type { PluginOnSchemaInit } from "./plugin-types.js";
@@ -162,7 +162,7 @@ export function isFts5CorruptionError(error: unknown): boolean {
 
 // ── Schema Definition ────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 124;
+const SCHEMA_VERSION = 126;
 
 const TASKS_FTS_AUTOMERGE = 8;
 const TASKS_FTS_CRISISMERGE = 16;
@@ -287,6 +287,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   tokenUsageLastUsedAt TEXT,
   tokenUsageModelProvider TEXT,
   tokenUsageModelId TEXT,
+  tokenUsagePerModel TEXT,
   tokenBudgetSoftAlertedAt TEXT,
   tokenBudgetHardAlertedAt TEXT,
   tokenBudgetOverride TEXT,
@@ -1239,6 +1240,19 @@ CREATE INDEX IF NOT EXISTS idxUsageEventsAgentId ON usage_events(agentId);
 -- Command Center tool analytics (aggregateToolAnalytics in tool-analytics.ts) filters usage_events by 'kind' (e.g. 'tool_call', 'session_start') with optional 'ts' bounds on every tool/session count. The (kind, ts) composite index keeps that path from scanning unrelated event kinds as telemetry grows. Added in the same unreleased PR (#1683) that introduces usage_events, so it ships inside migration 118 rather than a new version bump; mirrored there so fresh-init and migrated DBs converge.
 CREATE INDEX IF NOT EXISTS idxUsageEventsKindTs ON usage_events(kind, ts);
 
+-- Project-scoped plugin/extension activation events for Command Center Ecosystem analytics.
+-- FNXC:CommandCenterEcosystem 2026-06-19-00:00:
+-- Plugin activations are a real project-scoped event source for the Ecosystem plugin-activations metric. If this table has no in-range rows, the dashboard must keep the honest unavailable sentinel and must not render 0 as a fabricated metric.
+CREATE TABLE IF NOT EXISTS plugin_activations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pluginId TEXT NOT NULL,
+  source TEXT NOT NULL,
+  pluginVersion TEXT,
+  activatedAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idxPluginActivationsActivatedAt ON plugin_activations(activatedAt);
+CREATE INDEX IF NOT EXISTS idxPluginActivationsPluginId ON plugin_activations(pluginId);
+
 -- Persistent, incrementally-refreshed knowledge index (U14). One row per
 -- knowledge page (currently one page per completed task; PR-history pages
 -- share the same shape). Downstream agents query it through the dashboard's
@@ -1676,6 +1690,104 @@ export function quickCheckSqliteFile(dbPath: string): { ok: boolean; verified: b
   return { ok: false, verified: true, errors: stdout.split("\n").slice(0, 5) };
 }
 
+/**
+ * Run `PRAGMA integrity_check(limit)` against a SQLite file via the `sqlite3`
+ * CLI in a child process, so the full page-walk (several seconds on a large DB)
+ * runs OFF the main event loop instead of freezing it the way the in-process
+ * `Database.integrityCheck()` does.
+ *
+ * The CLI connection is opened `-readonly` so it can never checkpoint or write
+ * the live WAL out from under the in-process connection. This relies on the
+ * caller's process holding the DB open (so the `-shm` exists) — which is exactly
+ * the case for the background check scheduled at init. `verified=false` means the
+ * check could not be run out-of-process (sqlite3 CLI absent, or the file could
+ * not be opened read-only) and the caller should fall back to the in-process
+ * `integrityCheck()`. Matches the non-blocking-on-failure contract of
+ * `quickCheckSqliteFile`.
+ *
+ * FNXC:Database 2026-06-20-14:30:
+ * The spawn is bounded by an AbortSignal timeout so a disk-stalled / kernel-hung
+ * sqlite3 child can never leave the promise unsettled — an unsettled promise
+ * would strand the background scheduler's shared entry and pin every
+ * participant's `integrityCheckPending` true forever. AbortSignal.timeout's
+ * internal timer is unref'd, so it never keeps the process alive on shutdown.
+ */
+const INTEGRITY_CHECK_TIMEOUT_MS = 5 * 60 * 1000;
+
+export function integrityCheckSqliteFileAsync(
+  dbPath: string,
+  limit = 100,
+): Promise<{ ok: boolean; verified: boolean; errors?: string[] }> {
+  return new Promise((resolve) => {
+    if (!existsSync(dbPath)) {
+      resolve({ ok: false, verified: true, errors: ["file does not exist"] });
+      return;
+    }
+
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn("sqlite3", ["-readonly", dbPath, `PRAGMA integrity_check(${limit});`], {
+        stdio: ["ignore", "pipe", "pipe"],
+        // Bound wall-clock time: on timeout the signal aborts, the child is
+        // killed, and the 'error' handler resolves verified:false so the caller
+        // falls back to the in-process check. Without this a hung child never
+        // settles the promise. (Note: spawn() reports ENOENT via the 'error'
+        // event, not a synchronous throw — the try/catch only guards synchronous
+        // option-validation errors, e.g. an already-aborted signal.)
+        signal: AbortSignal.timeout(INTEGRITY_CHECK_TIMEOUT_MS),
+      });
+    } catch {
+      resolve({ ok: true, verified: false });
+      return;
+    }
+
+    let stdout = "";
+    let settled = false;
+    const finish = (result: { ok: boolean; verified: boolean; errors?: string[] }) => {
+      if (!settled) {
+        settled = true;
+        resolve(result);
+      }
+    };
+
+    child.stdout?.setEncoding("utf-8");
+    child.stdout?.on("data", (chunk: string) => {
+      stdout += chunk;
+      // integrity_check(limit) bounds the row count, but guard against a
+      // pathological file so a runaway child can't exhaust memory.
+      if (stdout.length > 16 * 1024 * 1024) {
+        child.kill();
+      }
+    });
+    // Drain stderr so the pipe never fills and stalls the child.
+    child.stderr?.resume();
+
+    child.on("error", () => finish({ ok: true, verified: false }));
+    child.on("close", (code) => {
+      if (code !== 0) {
+        // integrity_check itself exits 0 and prints any problems to stdout, so a
+        // non-zero exit almost always means the DB could not be opened
+        // (locked / read-only -shm unavailable) rather than corruption. Report
+        // "could not verify" so the caller falls back to the in-process check
+        // instead of misreporting healthy data as corrupt.
+        finish({ ok: true, verified: false });
+        return;
+      }
+      const text = stdout.trim();
+      if (text.toLowerCase() === "ok") {
+        finish({ ok: true, verified: true });
+        return;
+      }
+      const errors = text
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && line.toLowerCase() !== "ok")
+        .slice(0, limit);
+      finish({ ok: errors.length === 0, verified: true, errors: errors.length ? errors : undefined });
+    });
+  });
+}
+
 // ── Database Class ───────────────────────────────────────────────────
 
 type SharedIntegrityCheckState = {
@@ -1981,6 +2093,42 @@ export class Database {
   }
 
   /**
+   * Resolve the background integrity-check result, preferring the off-event-loop
+   * `sqlite3` CLI (`integrityCheckSqliteFileAsync`) and falling back to the
+   * in-process `integrityCheck()` page-walk only when the CLI cannot run it.
+   *
+   * Kept as a single instance method so the background scheduler has one
+   * testable seam (and so the offload/fallback policy lives in one place).
+   * In-memory DBs have no on-disk file to hand the CLI, so they use the
+   * in-process check directly.
+   *
+   * FNXC:Database 2026-06-20-14:30:
+   * The in-process `integrityCheck()` calls `this.db.prepare(...)`, which throws
+   * on a closed `DatabaseSync`. Because the offload `await` spans seconds, the
+   * instance can be closed mid-flight; guard `this.closed` before every
+   * in-process call so a close during the await degrades to a benign {ok:true}
+   * instead of throwing out of the background scheduler (which would strand
+   * every other participant's `integrityCheckPending`).
+   */
+  private async runBackgroundIntegrityCheck(): Promise<{ ok: true } | { ok: false; errors: string[] }> {
+    if (this.closed) {
+      return { ok: true };
+    }
+    if (this.inMemory) {
+      return this.integrityCheck();
+    }
+    const offloaded = await integrityCheckSqliteFileAsync(this.dbPath);
+    if (offloaded.verified) {
+      return offloaded.ok ? { ok: true } : { ok: false, errors: offloaded.errors ?? [] };
+    }
+    // Re-check after the await: the connection may have closed while the CLI ran.
+    if (this.closed) {
+      return { ok: true };
+    }
+    return this.integrityCheck();
+  }
+
+  /**
    * Synchronously re-run `integrityCheck()` and update the cached corruption
    * state (`corruptionDetected`, `integrityCheckErrors`, `integrityCheckLastRunAt`).
    *
@@ -2145,16 +2293,46 @@ export class Database {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Database vacuum maintenance failed during VACUUM (dbPath=${this.dbPath}): ${message}`);
       }
-
-      const afterBytes = existsSync(this.dbPath) ? statSync(this.dbPath).size : 0;
-      return {
-        beforeBytes,
-        afterBytes,
-        durationMs: Date.now() - startedAt,
-      };
     } finally {
-      this.db.exec("PRAGMA locking_mode=NORMAL");
+      // FNXC:Database 2026-06-20-12:30:
+      // Switching locking_mode back to NORMAL does NOT drop the EXCLUSIVE file
+      // lock immediately — in WAL mode SQLite keeps holding it until the
+      // connection performs an operation that re-establishes the shared WAL
+      // index. Until then every OTHER process is locked out of reads
+      // (SQLITE_BUSY), so a vacuum's read-contention blast radius would extend
+      // well past the vacuum itself, until some unrelated write happens to run.
+      // A plain SELECT is NOT enough (it keeps running in exclusive mode); a
+      // checkpoint or write is what forces the downgrade. Run a PASSIVE
+      // checkpoint here — it releases the lock, is non-blocking, and keeps the
+      // (already tiny, post-vacuum) WAL trimmed.
+      //
+      // Guard the locking_mode reset independently: if it threw, it would both
+      // mask the original VACUUM/checkpoint error AND skip the lock-releasing
+      // checkpoint below, leaving the EXCLUSIVE lock held — the exact failure
+      // this method exists to prevent. Best-effort by design.
+      try {
+        this.db.exec("PRAGMA locking_mode=NORMAL");
+      } catch (error) {
+        console.warn("[fusion:db] vacuum: failed to reset locking_mode=NORMAL", error);
+      }
+      try {
+        this.db.exec("PRAGMA wal_checkpoint(PASSIVE)");
+      } catch (error) {
+        // Lock release is best-effort (the next write drops it anyway), but log
+        // it: a swallowed failure here means other processes stay locked out.
+        console.warn("[fusion:db] vacuum: passive checkpoint failed; EXCLUSIVE lock may linger until the next write", error);
+      }
     }
+
+    // Sample the file size AFTER the lock-release checkpoint above so afterBytes
+    // reflects the final on-disk size (the passive checkpoint can fold a WAL
+    // page back into the main db file).
+    const afterBytes = existsSync(this.dbPath) ? statSync(this.dbPath).size : 0;
+    return {
+      beforeBytes,
+      afterBytes,
+      durationMs: Date.now() - startedAt,
+    };
   }
 
   /**
@@ -4978,12 +5156,42 @@ export class Database {
       });
     }
 
-    // Migration 124: behavioral verification — classify contract assertions so the
+    // Migration 124: project-scoped plugin activation events for Command Center Ecosystem analytics.
+    // Mirrors the SCHEMA_SQL definition above so fresh-init and migrated DBs converge.
+    // FNXC:CommandCenterEcosystem 2026-06-19-00:00:
+    // Activation rows are the only source for the Ecosystem plugin-activations metric; no rows means unavailable, never a fabricated zero.
+    if (version < 124) {
+      this.applyMigration(124, () => {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS plugin_activations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pluginId TEXT NOT NULL,
+            source TEXT NOT NULL,
+            pluginVersion TEXT,
+            activatedAt TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idxPluginActivationsActivatedAt ON plugin_activations(activatedAt);
+          CREATE INDEX IF NOT EXISTS idxPluginActivationsPluginId ON plugin_activations(pluginId);
+        `);
+      });
+    }
+
+    // Migration 125: Per-model token buckets for Command Center analytics.
+    // Mirrors the SCHEMA_SQL definition above so fresh-init and migrated DBs converge.
+    // FNXC:TokenAnalytics 2026-06-19-15:39:
+    // Multi-model task lifecycles must preserve each producing model's token totals; the nullable JSON column keeps legacy rows compatible until new executor writes populate buckets.
+    if (version < 125) {
+      this.applyMigration(125, () => {
+        this.addColumnIfMissing("tasks", "tokenUsagePerModel", "TEXT");
+      });
+    }
+
+    // Migration 126: behavioral verification — classify contract assertions so the
     // validator can scope the default-to-fail / verification posture to
     // behavioral/bug assertions. Existing rows default to 'static' to
     // preserve legacy read-only judging (no sudden mass-fail).
-    if (version < 124) {
-      this.applyMigration(124, () => {
+    if (version < 126) {
+      this.applyMigration(126, () => {
         if (this.hasTable("mission_contract_assertions")) {
           this.addColumnIfMissing("mission_contract_assertions", "type", "TEXT NOT NULL DEFAULT 'static'");
         }
@@ -5216,30 +5424,54 @@ export class Database {
       shared.timer = null;
       shared.running = true;
 
-      const participants = [...shared.subscribers].filter((instance) => !instance.closed);
-      const primary = participants[0];
-      const startedAt = new Date().toISOString();
+      // FNXC:Database 2026-06-20-13:30:
+      // Offload the integrity-check page-walk to the sqlite3 CLI in a child
+      // process so it no longer blocks the event loop for several seconds. The
+      // in-process check (primary.integrityCheck()) remains the fallback for
+      // environments without the sqlite3 CLI. Wrapped in an async IIFE because
+      // setTimeout callbacks can't be async; errors must be swallowed here so an
+      // unhandled rejection can't crash the process from a background timer.
+      void (async () => {
+        const primary = [...shared.subscribers].find((instance) => !instance.closed);
+        const startedAt = new Date().toISOString();
 
-      let integrity: ReturnType<Database["integrityCheck"]> = { ok: true };
-      if (primary) {
-        integrity = primary.integrityCheck();
-      }
+        let integrity: ReturnType<Database["integrityCheck"]> = { ok: true };
+        try {
+          if (primary) {
+            integrity = await primary.runBackgroundIntegrityCheck();
+          }
+        } finally {
+          // FNXC:Database 2026-06-20-14:30:
+          // Clear pending state UNCONDITIONALLY and over the CURRENT subscriber
+          // set (re-read after the await), not a pre-await snapshot. Two bugs this
+          // closes: (1) if the check throws, a pre-`finally` loop would be skipped
+          // and every participant would be stuck integrityCheckPending=true
+          // forever; (2) a Database that subscribed during the seconds-long await
+          // window was absent from any pre-await snapshot and would never be
+          // cleared. Both now resolve because we fan out here regardless of
+          // outcome and iterate live subscribers.
+          for (const participant of shared.subscribers) {
+            if (participant.closed) continue;
+            participant.integrityCheckPending = false;
+            participant.integrityCheckLastRunAt = startedAt;
+            participant.corruptionDetected = !integrity.ok;
+            participant.integrityCheckErrors = integrity.ok ? [] : [...integrity.errors];
+          }
+        }
 
-      for (const participant of participants) {
-        participant.integrityCheckPending = false;
-        participant.integrityCheckLastRunAt = startedAt;
-        participant.corruptionDetected = !integrity.ok;
-        participant.integrityCheckErrors = integrity.ok ? [] : [...integrity.errors];
-      }
-
-      if (!integrity.ok) {
-        const errorSummary = integrity.errors.slice(0, 3).join(" | ");
-        console.error(
-          `[fusion:db] Background integrity check detected corruption for ${this.dbPath}: ${errorSummary}`,
-        );
-      }
-
-      Database.sharedIntegrityChecks.delete(this.dbPath);
+        if (!integrity.ok) {
+          const errorSummary = integrity.errors.slice(0, 3).join(" | ");
+          console.error(
+            `[fusion:db] Background integrity check detected corruption for ${this.dbPath}: ${errorSummary}`,
+          );
+        }
+      })()
+        .catch((error) => {
+          console.warn(`[fusion:db] Background integrity check failed for ${this.dbPath}`, error);
+        })
+        .finally(() => {
+          Database.sharedIntegrityChecks.delete(this.dbPath);
+        });
     }, 60_000);
 
     Database.sharedIntegrityChecks.set(this.dbPath, shared);

@@ -274,16 +274,34 @@ Quarantine the cleanup-flaky file under the deletion ratchet rather than changin
 FNXC:DashboardTestQuarantine 2026-06-19-05:20:
 FN-6697 workspace verification observed the QuickEntryBox post-submit focus restoration test fail only in the broad dashboard app backfill shard, then pass on targeted rerun.
 Quarantine the focus-timing flake under the deletion ratchet instead of changing unrelated terminal shortcut behavior or appeasing the test.
+
+FNXC:DashboardTestQuarantine 2026-06-19-08:17:
+FN-6726 workspace verification observed the WorkflowNodeEditor duplicate-merge-seam template conflict test fail only in the broad components-b shard, then pass on targeted rerun.
+Quarantine the concurrency-sensitive workflow editor file under the deletion ratchet instead of changing unrelated template insertion behavior or appeasing the test.
+
+FNXC:DashboardTestQuarantine 2026-06-19-18:12:
+FN-6744 rescued WorkflowNodeEditor before the 2026-07-03 deletion deadline by deriving duplicate-fragment seam conflicts from the active workflow IR plus React Flow nodes.
+Keep it out of this exclude list so desktop and mobile template guards continue proving duplicate merge seams surface an inline alert with no insertion under components-b shard load.
+
+FNXC:DashboardTestQuarantine 2026-06-19-15:40:
+FN-6742 rescued session-cross-tab before the 2026-07-03 deletion ratchet by reproducing ENOTEMPTY in dashboard-api-quality-backfill and fixing the test-owned route/close-callback teardown seam.
+Keep it out of this exclude list so loaded API shards keep exercising cross-tab locking, beacon release, stale-lock expiry, SSE summaries, and stale-session cleanup.
+
+FNXC:DashboardTestQuarantine 2026-06-19-16:50:
+FN-6743 rescued QuickEntryBox's third quarantine cycle by replacing the ref-gated post-submit focus effect with a resolved-submit focus trigger and broadening desktop/mobile submit coverage.
+Keep QuickEntryBox out of this exclude list so the dashboard app lanes exercise Enter, Save, duplicate-confirmed creation, mobile non-focus, and failure-preserves-draft focus invariants.
 */
-const quarantinedDashboardTests: string[] = [
-  "src/__tests__/session-cross-tab.test.ts",
-  "app/components/__tests__/QuickEntryBox.test.tsx",
-];
+const quarantinedDashboardTests: string[] = [];
 
 const qualityApiTests = [
   // Critical HTTP/server behavior: auth, task/project/settings mutation,
   // git/GitHub, agents, nodes, chat/files, realtime, and isolation guards.
-  "src/__tests__/{api-error,auth-middleware,auth-middleware-integration,chat-attachment-routes,chat-manager,chat-routes,file-service,github,github-webhooks,initialize,planning-flow-diagnostics-guardrail,pr-routes-auto-merge,pr-routes.contract,project-routes,project-store-resolver,register-git-github.pr-options-preflight-metadata,register-git-github.pr-resolve-conflicts,remote-access-routes,remote-auth,routes-agent-budget,routes-agent-keys,routes-agent-permissions,routes-agent-ratings,routes-agent-runs,routes-agent-soul-memory,routes-agents,routes-automation,routes-branch-groups,routes-git,routes-github,routes-merge-advance-push-origin,routes-nodes,routes-nodes-sync-contract,routes-planning,routes-plugin-registry,routes-secrets-sync,routes-settings,routes-task-commit-associations,routes-tasks,routes-tasks-deterministic-dedup,routes-tasks-duplicate-check,routes-tasks-explicit-duplicate-marker,server,server-static-assets,server-webhook,server.events,setup-routes,sse,sse-buffer,test-isolation-guard,update-check-route,websocket,recover-branch-binding-route}.test.ts",
+  /*
+  FNXC:DashboardTests 2026-06-19-22:14:
+  FN-6753 observed routes-auth timing out only under the broad API backfill shard, while five loaded local shard runs did not expose a concrete probe-spy or teardown root cause.
+  Keep this auth-critical suite in the curated API shard so its assertions remain active without running inside the contended broad backfill glob.
+  */
+  "src/__tests__/{api-error,auth-middleware,auth-middleware-integration,chat-attachment-routes,chat-manager,chat-routes,file-service,github,github-webhooks,initialize,planning-flow-diagnostics-guardrail,pr-routes-auto-merge,pr-routes.contract,project-routes,project-store-resolver,register-git-github.pr-options-preflight-metadata,register-git-github.pr-resolve-conflicts,remote-access-routes,remote-auth,routes-agent-budget,routes-agent-keys,routes-agent-permissions,routes-agent-ratings,routes-agent-runs,routes-agent-soul-memory,routes-agents,routes-auth,routes-automation,routes-branch-groups,routes-git,routes-github,routes-merge-advance-push-origin,routes-nodes,routes-nodes-sync-contract,routes-planning,routes-plugin-registry,routes-secrets-sync,routes-settings,routes-task-commit-associations,routes-tasks,routes-tasks-deterministic-dedup,routes-tasks-duplicate-check,routes-tasks-explicit-duplicate-marker,server,server-static-assets,server-webhook,server.events,setup-routes,sse,sse-buffer,test-isolation-guard,update-check-route,websocket,recover-branch-binding-route}.test.ts",
   "src/__tests__/dashboard-test-config-guard.test.ts",
   "src/routes/__tests__/{custom-provider-routes,custom-providers,register-docker-node-routes,register-diagnostics-routes,stash-recovery-routes}.test.ts",
   "scripts/__tests__/{run-quality-tests,run-vitest-with-heap}.test.ts",

@@ -18,6 +18,48 @@ function heightOf(el: HTMLElement): string {
   return el.style.height;
 }
 
+const chartCssPath = resolve(__dirname, "../charts/charts.css");
+const chartCss = readFileSync(chartCssPath, "utf8");
+const chartPaletteTokens = [
+  "--accent",
+  "--todo",
+  "--in-progress",
+  "--in-review",
+  "--triage",
+  "--color-success",
+  "--color-warning",
+  "--color-error",
+];
+
+function expectPaletteTokenRule(selector: string, token: string): void {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  expect(chartCss).toMatch(new RegExp(`${escapedSelector}\\s*\\{[^}]*background:\\s*var\\(${token}\\)`, "s"));
+}
+
+describe("chart primitive palette CSS", () => {
+  it("cycles Bar fills through the canonical palette and wraps after eight rows", () => {
+    chartPaletteTokens.forEach((token, index) => {
+      const nth = index === chartPaletteTokens.length - 1 ? "8n" : `8n + ${index + 1}`;
+      expectPaletteTokenRule(`.cc-bar-row:nth-child(${nth}) .cc-bar-fill`, token);
+    });
+  });
+
+  it("cycles StackedBar segments and legend swatches through the canonical palette", () => {
+    chartPaletteTokens.forEach((token, index) => {
+      const nth = index === chartPaletteTokens.length - 1 ? "8n" : `8n + ${index + 1}`;
+      expectPaletteTokenRule(`.cc-stacked-segment:nth-child(${nth}),\n.cc-stacked-legend-item:nth-child(${nth}) .cc-stacked-swatch`, token);
+    });
+  });
+
+  it("cycles Sparkline and Funnel fills through the canonical palette", () => {
+    chartPaletteTokens.forEach((token, index) => {
+      const nth = index === chartPaletteTokens.length - 1 ? "8n" : `8n + ${index + 1}`;
+      expectPaletteTokenRule(`.cc-sparkline-bar:nth-child(${nth})`, token);
+      expectPaletteTokenRule(`.cc-funnel-stage:nth-child(${nth}) .cc-funnel-fill`, token);
+    });
+  });
+});
+
 describe("Bar", () => {
   it("renders a fill per datum and an accessible label", () => {
     render(
@@ -58,6 +100,20 @@ describe("Bar", () => {
     const el = screen.getByLabelText("nan: 0");
     expect(widthOf(el)).toBe("0%");
   });
+
+  it("renders empty, single, and more-than-palette datasets without NaN geometry", () => {
+    const { rerender } = render(<Bar ariaLabel="empty bars" data={[]} />);
+    expect(screen.getByRole("list", { name: "empty bars" }).querySelectorAll(".cc-bar-fill")).toHaveLength(0);
+
+    rerender(<Bar ariaLabel="single bar" data={[{ label: "single", value: 1 }]} />);
+    expect(widthOf(screen.getByLabelText("single: 1"))).toBe("100%");
+
+    const many = Array.from({ length: 9 }, (_, index) => ({ label: `item-${index + 1}`, value: index === 8 ? 0 : index + 1 }));
+    rerender(<Bar ariaLabel="many bars" data={many} />);
+    expect(screen.getByRole("list", { name: "many bars" }).querySelectorAll(".cc-bar-fill")).toHaveLength(9);
+    expect(widthOf(screen.getByLabelText("item-9: 0"))).toBe("0%");
+    expect(screen.getByRole("list", { name: "many bars" }).innerHTML).not.toMatch(/NaN|Infinity/);
+  });
 });
 
 describe("StackedBar", () => {
@@ -81,6 +137,20 @@ describe("StackedBar", () => {
     expect(widthOf(screen.getByLabelText("a: 0"))).toBe("0%");
     expect(widthOf(screen.getByLabelText("b: 0"))).toBe("0%");
   });
+
+  it("renders empty, single, and more-than-palette segment sets without NaN geometry", () => {
+    const { rerender } = render(<StackedBar ariaLabel="empty stack" segments={[]} />);
+    expect(screen.getByRole("img", { name: "empty stack" }).querySelectorAll(".cc-stacked-segment")).toHaveLength(0);
+
+    rerender(<StackedBar ariaLabel="single stack" segments={[{ label: "single", value: 3 }]} />);
+    expect(widthOf(screen.getByLabelText("single: 3"))).toBe("100%");
+
+    const many = Array.from({ length: 9 }, (_, index) => ({ label: `segment-${index + 1}`, value: index === 8 ? 0 : 1 }));
+    rerender(<StackedBar ariaLabel="many stack" segments={many} />);
+    expect(screen.getByRole("img", { name: "many stack" }).querySelectorAll(".cc-stacked-segment")).toHaveLength(9);
+    expect(widthOf(screen.getByLabelText("segment-9: 0"))).toBe("0%");
+    expect(screen.getByRole("img", { name: "many stack" }).innerHTML).not.toMatch(/NaN|Infinity/);
+  });
 });
 
 describe("Sparkline", () => {
@@ -99,6 +169,20 @@ describe("Sparkline", () => {
     const bars = screen.getByRole("img", { name: "empty" }).querySelectorAll<HTMLElement>(".cc-sparkline-bar");
     expect(heightOf(bars[0])).toBe("0%");
     expect(heightOf(bars[1])).toBe("0%");
+  });
+
+  it("renders empty, single, and more-than-palette value sets without NaN geometry", () => {
+    const { rerender } = render(<Sparkline ariaLabel="empty spark" values={[]} />);
+    expect(screen.getByRole("img", { name: "empty spark" }).querySelectorAll(".cc-sparkline-bar")).toHaveLength(0);
+
+    rerender(<Sparkline ariaLabel="single spark" values={[4]} />);
+    expect(heightOf(screen.getByRole("img", { name: "single spark" }).querySelector<HTMLElement>(".cc-sparkline-bar")!)).toBe("100%");
+
+    rerender(<Sparkline ariaLabel="many spark" values={[1, 2, 3, 4, 5, 6, 7, 8, 0]} />);
+    const bars = screen.getByRole("img", { name: "many spark" }).querySelectorAll<HTMLElement>(".cc-sparkline-bar");
+    expect(bars).toHaveLength(9);
+    expect(heightOf(bars[8])).toBe("0%");
+    expect(screen.getByRole("img", { name: "many spark" }).innerHTML).not.toMatch(/NaN|Infinity/);
   });
 });
 
@@ -161,6 +245,12 @@ function expectLineChartPointsInsideViewBox(chart: Element): void {
   }
 }
 
+function expectLineChartMarkersDistortionProof(chart: Element): void {
+  expect(chart.getAttribute("preserveAspectRatio")).toBe("xMidYMid meet");
+  expect(chart.getAttribute("preserveAspectRatio")).not.toBe("none");
+  expect(chart.querySelectorAll(".cc-line-chart-point").length).toBeGreaterThan(0);
+}
+
 describe("LineChart", () => {
   it("renders a populated finite SVG line with an accessible label", () => {
     render(<LineChart ariaLabel="activity trend" series={[{ label: "messages", values: [2, 4, 1] }]} />);
@@ -173,6 +263,22 @@ describe("LineChart", () => {
     expect(points).not.toBe("");
     expect(points).not.toMatch(/NaN|Infinity/);
     expectLineChartPointsInsideViewBox(chart);
+    expectLineChartMarkersDistortionProof(chart);
+  });
+
+  it("uses uniform SVG scaling so marker circles cannot stretch into ovals", () => {
+    render(<LineChart ariaLabel="mobile activity trend" series={[{ label: "agents", values: [1, 3, 2] }]} />);
+
+    const chart = screen.getByRole("img", { name: "mobile activity trend" });
+    expectLineChartMarkersDistortionProof(chart);
+  });
+
+  it("keeps mobile sizing non-square while SVG geometry remains uniformly scaled", () => {
+    expect(chartCss).toMatch(/@media \(max-width: 768px\)\s*\{[^@]*\.cc-line-chart\s*\{[^}]*aspect-ratio:\s*auto;/s);
+
+    render(<LineChart ariaLabel="narrow activity trend" series={[{ label: "nodes", values: [1, 2, 1] }]} />);
+
+    expectLineChartMarkersDistortionProof(screen.getByRole("img", { name: "narrow activity trend" }));
   });
 
   it("renders all-zero values as valid baseline geometry without NaN or edge clipping", () => {
@@ -202,6 +308,14 @@ describe("LineChart", () => {
     const points = chart.querySelector(".cc-line-chart-path")?.getAttribute("points") ?? "";
     expect(points).not.toBe("0,100 100,0");
     expect(points).not.toMatch(/NaN|Infinity/);
+    expectLineChartPointsInsideViewBox(chart);
+  });
+
+  it("coerces non-finite and negative values without leaking invalid SVG geometry", () => {
+    render(<LineChart ariaLabel="invalid trend" series={[{ label: "invalid", values: [Number.NaN, Number.POSITIVE_INFINITY, -2, 4] }]} />);
+
+    const chart = screen.getByRole("img", { name: "invalid trend" });
+    expect(chart.outerHTML).not.toMatch(/NaN|Infinity/);
     expectLineChartPointsInsideViewBox(chart);
   });
 
@@ -260,6 +374,20 @@ describe("Funnel", () => {
     expect(screen.getByText("—")).toBeTruthy();
     expect(widthOf(screen.getByLabelText("a: 0"))).toBe("0%");
   });
+
+  it("renders empty, single, and more-than-palette stages without NaN geometry", () => {
+    const { rerender } = render(<Funnel ariaLabel="empty funnel" stages={[]} />);
+    expect(screen.getByLabelText("empty funnel").querySelectorAll(".cc-funnel-fill")).toHaveLength(0);
+
+    rerender(<Funnel ariaLabel="single funnel" stages={[{ label: "single", value: 2 }]} />);
+    expect(widthOf(screen.getByLabelText("single: 2"))).toBe("100%");
+
+    const many = Array.from({ length: 9 }, (_, index) => ({ label: `stage-${index + 1}`, value: index === 8 ? 0 : index + 1 }));
+    rerender(<Funnel ariaLabel="many funnel" stages={many} />);
+    expect(screen.getByLabelText("many funnel").querySelectorAll(".cc-funnel-fill")).toHaveLength(9);
+    expect(widthOf(screen.getByLabelText("stage-9: 0"))).toBe("0%");
+    expect(screen.getByLabelText("many funnel").innerHTML).not.toMatch(/NaN|Infinity/);
+  });
 });
 
 /**
@@ -268,11 +396,8 @@ describe("Funnel", () => {
  * duration+easing pair (which silently resolves to animation: none).
  */
 describe("chart CSS animation tokens", () => {
-  const cssPath = resolve(__dirname, "../charts/charts.css");
-  const css = readFileSync(cssPath, "utf8");
-
   it("uses a --duration-* token in the loader animation, not --transition-*", () => {
-    const animationLines = css.split("\n").filter((line) => /animation\s*:/.test(line) && !/animation\s*:\s*none/.test(line));
+    const animationLines = chartCss.split("\n").filter((line) => /animation\s*:/.test(line) && !/animation\s*:\s*none/.test(line));
     expect(animationLines.length).toBeGreaterThan(0);
     for (const line of animationLines) {
       expect(line).not.toMatch(/var\(--transition-/);

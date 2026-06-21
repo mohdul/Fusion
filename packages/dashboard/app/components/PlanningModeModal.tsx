@@ -57,6 +57,8 @@ import { useAutosizeTextarea } from "../hooks/useAutosizeTextarea";
 import { useToast } from "../hooks/useToast";
 import { getSessionTabId } from "../utils/getSessionTabId";
 
+const WARNING_ICON = "⚠️";
+
 interface PlanningModeModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -65,6 +67,8 @@ interface PlanningModeModalProps {
   tasks: Task[];
   initialPlan?: string;
   projectId?: string;
+  /** Active workflow lane selected when Planning Mode was opened. */
+  workflowId?: string | null;
   /** When set, reconnect to a persisted background session instead of starting fresh */
   resumeSessionId?: string;
 }
@@ -189,7 +193,7 @@ function parseModelSelection(value: string): { provider?: string; modelId?: stri
   };
 }
 
-export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreated, tasks, initialPlan: initialPlanProp, projectId, resumeSessionId }: PlanningModeModalProps) {
+export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreated, tasks, initialPlan: initialPlanProp, projectId, workflowId, resumeSessionId }: PlanningModeModalProps) {
   const { t } = useTranslation("app");
   const [initialPlan, setInitialPlan] = useState("");
   const [view, setView] = useState<ViewState>({ type: "initial" });
@@ -1629,6 +1633,11 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
           ...(branchMode === "existing" || branchMode === "custom-new" ? { branchName: branchName.trim() } : {}),
           ...(baseBranch.trim() ? { baseBranch: baseBranch.trim() } : {}),
         },
+        /*
+        FNXC:WorkflowSelection 2026-06-20-16:48:
+        Planning Mode saves must carry the workflow lane that opened the modal so created tasks do not land on the main board before appearing on the selected sub-board.
+        */
+        ...(workflowId !== undefined ? { workflowId } : {}),
       });
       onTaskCreated(task);
       // Single-task creation should preserve completed planning history, so
@@ -1646,7 +1655,7 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
     } finally {
       setIsCreatingTask(false);
     }
-  }, [baseBranch, branchMode, branchName, broadcastCompleted, editedSummary, view, projectId, onTaskCreated, handleClose]);
+  }, [baseBranch, branchMode, branchName, broadcastCompleted, editedSummary, view, projectId, workflowId, onTaskCreated, handleClose]);
 
   const handleStartBreakdown = useCallback(async () => {
     if (view.type !== "summary") return;
@@ -1700,6 +1709,11 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
             ...(branchMode === "existing" || branchMode === "custom-new" ? { branchName: branchName.trim() } : {}),
             ...(baseBranch.trim() ? { baseBranch: baseBranch.trim() } : {}),
           },
+          /*
+          FNXC:WorkflowSelection 2026-06-20-16:48:
+          Planning breakdown saves create several tasks, and every child must inherit the modal's workflow lane selection.
+          */
+          ...(workflowId !== undefined ? { workflowId } : {}),
         },
       );
       onTasksCreated(result.tasks);
@@ -1732,7 +1746,7 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
     } finally {
       setIsCreatingFromBreakdown(false);
     }
-  }, [baseBranch, branchMode, branchName, broadcastCompleted, handleClose, view, onTasksCreated, projectId]);
+  }, [baseBranch, branchMode, branchName, broadcastCompleted, handleClose, view, onTasksCreated, projectId, workflowId]);
 
   const handleBack = useCallback(async () => {
     if (view.type !== "question" || responseHistory.length === 0) {
@@ -2106,7 +2120,7 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
                   className="ai-error-panel"
                   role="alert"
                 >
-                  <div className="ai-error-icon">⚠️</div>
+                  <div className="ai-error-icon">{WARNING_ICON}</div>
                   <div className="ai-error-message">{view.errorMessage}</div>
                   <div className="ai-error-actions">
                     <button className="btn btn-primary" onClick={() => void handleRetryFromError()} disabled={isRetrying}>

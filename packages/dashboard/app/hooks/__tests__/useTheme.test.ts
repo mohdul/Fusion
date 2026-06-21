@@ -491,6 +491,107 @@ describe("useTheme", () => {
     document.head.removeChild(style);
   });
 
+  it("applies factory-mono design tokens without glow effects", () => {
+    localStorageMock[COLOR_THEME_STORAGE_KEY] = "factory-mono";
+
+    renderHook(() => useTheme());
+
+    const style = document.createElement("style");
+    const baseCss = readFileSync(resolve(PACKAGE_ROOT, "app/styles.css"), "utf8");
+    const themeDataCss = readFileSync(resolve(PACKAGE_ROOT, "app/public/theme-data.css"), "utf8");
+    style.textContent = baseCss + "\n" + themeDataCss;
+    document.head.appendChild(style);
+    document.documentElement.setAttribute("data-color-theme", "factory-mono");
+
+    expect(document.documentElement.getAttribute("data-color-theme")).toBe("factory-mono");
+
+    const factoryMonoBlock = themeDataCss.match(/\[data-color-theme="factory-mono"\] \{(?<body>[\s\S]*?)\n\}/)?.groups?.body;
+    expect(factoryMonoBlock).toBeDefined();
+    expect(factoryMonoBlock).toContain("--shadow-glow: none;");
+    expect(factoryMonoBlock).toContain("--glow-success: none;");
+    expect(factoryMonoBlock).toContain("--glow-warning: none;");
+    expect(factoryMonoBlock).toContain("--glow-danger: none;");
+    expect(factoryMonoBlock).toContain("--cta-glow: none;");
+    expect(factoryMonoBlock).not.toMatch(/--(?:shadow-glow|glow-success|glow-warning|glow-danger|cta-glow):\s*0 0/);
+    expect(factoryMonoBlock).toContain("--accent: #ef4444;");
+    expect(factoryMonoBlock).toContain("--cta-border: #ef4444;");
+
+    document.head.removeChild(style);
+  });
+
+  it("applies shadcn design tokens with neutralized glow effects", () => {
+    const style = document.createElement("style");
+    const themeDataCss = readFileSync(resolve(PACKAGE_ROOT, "app/public/theme-data.css"), "utf8");
+    const shadcnBlock = themeDataCss.match(/\[data-color-theme="shadcn"\] \{(?<body>[\s\S]*?)\n\}/)?.groups?.body;
+    expect(shadcnBlock).toBeDefined();
+    style.textContent = `:root[data-color-theme="shadcn"] { --accent: #f97316; --shadow-glow: none; --cta-glow: none; }`;
+
+    localStorageMock[COLOR_THEME_STORAGE_KEY] = "shadcn";
+
+    renderHook(() => useTheme());
+    document.head.appendChild(style);
+
+    expect(document.documentElement.getAttribute("data-color-theme")).toBe("shadcn");
+
+    expect(shadcnBlock).toContain("--btn-border-width: 1px;");
+    expect(shadcnBlock).toContain("--accent: #f97316;");
+    expect(shadcnBlock).toContain("--font-primary: \"Geist\"");
+    expect(shadcnBlock).toContain("--shadow-glow: none;");
+    expect(shadcnBlock).toContain("--glow-success: none;");
+    expect(shadcnBlock).toContain("--glow-warning: none;");
+    expect(shadcnBlock).toContain("--glow-danger: none;");
+    expect(shadcnBlock).toContain("--cta-glow: none;");
+    expect(shadcnBlock).not.toMatch(/--(?:shadow-glow|glow-success|glow-warning|glow-danger|cta-glow):\s*0 0/);
+
+    const resolvedStyle = getComputedStyle(document.documentElement);
+    expect(resolvedStyle.getPropertyValue("--accent").trim()).toBe("#f97316");
+    expect(resolvedStyle.getPropertyValue("--shadow-glow").trim()).toBe("none");
+    expect(resolvedStyle.getPropertyValue("--cta-glow").trim()).toBe("none");
+
+    document.head.removeChild(style);
+  });
+
+  it("applies representative shadcn color-family design tokens with neutralized glow effects", () => {
+    const style = document.createElement("style");
+    const baseCss = readFileSync(resolve(PACKAGE_ROOT, "app/styles.css"), "utf8");
+    const themeDataCss = readFileSync(resolve(PACKAGE_ROOT, "app/public/theme-data.css"), "utf8");
+    const shadcnVariants = [
+      { id: "shadcn-blue", accent: "#3b82f6" },
+      { id: "shadcn-mono", accent: "#ef4444" },
+      { id: "shadcn-black", accent: "#fafafa" },
+    ] as const;
+    style.textContent = `${baseCss}\n${themeDataCss}`;
+    document.head.appendChild(style);
+
+    for (const variant of shadcnVariants) {
+      const block = themeDataCss.match(
+        new RegExp(`\\[data-color-theme="${variant.id}"\\] \\{(?<body>[\\s\\S]*?)\\n\\}`),
+      )?.groups?.body;
+      expect(block).toBeDefined();
+
+      localStorageMock[COLOR_THEME_STORAGE_KEY] = variant.id;
+      renderHook(() => useTheme());
+
+      expect(document.documentElement.getAttribute("data-color-theme")).toBe(variant.id);
+      expect(block).toContain("--btn-border-width: 1px;");
+      expect(block).toContain(`--accent: ${variant.accent};`);
+      expect(block).toContain("--shadow-glow: none;");
+      expect(block).toContain("--cta-glow: none;");
+      expect(block).not.toMatch(/--(?:shadow-glow|glow-success|glow-warning|glow-danger|cta-glow):\s*0 0/);
+    }
+
+    const blueBlock = themeDataCss.match(/\[data-color-theme="shadcn-blue"\] \{(?<body>[\s\S]*?)\n\}/)?.groups
+      ?.body;
+    const blackBlock = themeDataCss.match(/\[data-color-theme="shadcn-black"\] \{(?<body>[\s\S]*?)\n\}/)
+      ?.groups?.body;
+    expect(blueBlock).toContain("--todo: #60a5fa;");
+    expect(blackBlock).toContain("--todo: #d4d4d8;");
+    expect(blackBlock).toContain("--in-progress: #a1a1aa;");
+    expect(blackBlock).not.toContain("--todo: #60a5fa;");
+
+    document.head.removeChild(style);
+  });
+
   it("supports all valid theme modes", () => {
     const { result } = renderHook(() => useTheme());
 

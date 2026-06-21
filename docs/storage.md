@@ -15,6 +15,14 @@
 - Archived-task flows (`archiveTask`, archived cleanup/migration) still hard-delete from the active `tasks` table after copying to cold storage (`archive.db`).
 - ID reservation is unchanged: soft-deleted IDs remain reserved. `distributed-task-id` and `task-id-integrity` intentionally scan all task rows (including soft-deleted rows), and must not filter on `deletedAt`.
 
+### Orphaned task-dir reconciliation (FN-6783)
+
+- Disk-backed `TaskStore` instances reconcile `.fusion/tasks/{ID}/task.json` directories against the SQLite `tasks` index on store open and during `SelfHealingManager` Batch 1 maintenance (`reconcile-orphaned-task-dirs`). This closes the visibility gap where a heartbeat-created task could exist on disk but be absent from `getTask`/`listTasks` and the dashboard board.
+- The reconcile is non-destructive: when an ID already exists anywhere the create path would reserve it (active task row, soft-deleted row, archived table/archive DB, or tombstone), the scan skips the directory and never overwrites or resurrects that ID. Only a valid live `task.json` with no DB record anywhere is re-imported.
+- Recovered rows preserve the on-disk task metadata, including `column`, `status`, dependencies, steps, and log, after the same defensive disk normalization used by task JSON fallback reads. Malformed or unparseable `task.json` files are skipped with a warning instead of failing store open or maintenance.
+- Recovery is visible: each inserted orphan emits a store warning, a `task:reconcile-orphaned-task-dir` run-audit event, and a `task:created` lifecycle event so live boards can render the recovered card.
+- On-disk retention matters for scan safety. `deleteTask()` leaves `.fusion/tasks/{ID}/task.json` and `agent-log.jsonl` on disk for forensics while marking the row `deletedAt`; the reconcile must skip those soft-deleted IDs. `archiveTask(id)` with the default cleanup removes the task directory, but `archiveTask(id, false)` and legacy archives can leave a `task.json` behind, so archived IDs are also guarded and skipped.
+
 ### Agent log storage + soft-delete visibility (FN-5143 / FN-5911)
 
 - Agent logs are no longer stored in SQLite. Each task now appends newline-delimited JSON records to `<rootDir>/.fusion/tasks/{ID}/agent-log.jsonl`.
@@ -392,11 +400,15 @@ The `tasks.sourceIssueClosedAt` column (migration 122) backs `TaskSourceIssue.cl
 
 The `tasks.tokenUsage*` columns store cumulative per-task token usage for analytics. `tokenUsageModelProvider` and `tokenUsageModelId` are analytics-only snapshots of the actually-used runtime model recorded when usage is accumulated; they let Command Center group and price resolved-via-settings usage by provider/model without writing the task-level `modelProvider` / `modelId` own-model override fields that control future model resolution. Cost attribution reads the snapshot first and falls back to the legacy own-model columns for pre-snapshot rows.
 
-The `task_commit_associations.additions` and `task_commit_associations.deletions` columns (migration 123) store nullable merge-time git shortstat counts for the associated commit. Command Center Productivity uses `SUM(additions + deletions)` as the Lines changed source when at least one in-range association has non-null stats. `NULL` means stats were unknown or unavailable for that association, not zero; ranges with no non-null stats keep the unavailable `—` sentinel instead of reporting `0`.
+The nullable `tasks.tokenUsagePerModel` JSON column (migration 125) stores the per-task, per-runtime-model breakdown behind those cumulative totals. Each bucket records provider/model, token counts, and first/last use timestamps. Command Center model/provider analytics expand these buckets so multi-model tasks appear under every model they actually used; task-level totals, cost, time series, node grouping, and agent grouping still read the top-level aggregate so grand `nTasks` is not double-counted. Empty, missing, or malformed per-model JSON falls back to the legacy single-snapshot grouping path.
+
+The `task_commit_associations.additions` and `task_commit_associations.deletions` columns (migration 123) store nullable merge-time git shortstat counts for the associated commit. Command Center Productivity uses `SUM(additions + deletions)` as the Lines changed source when at least one in-range association has non-null stats, then derives estimated `hoursSaved` as `round(loc / HUMAN_LINES_PER_HOUR, 1)`. `NULL` means stats were unknown or unavailable for that association, not zero; ranges with no non-null stats keep the unavailable `—` sentinel for both LOC and hours saved instead of reporting `0`.
+
+The `tasks.cumulativeActiveMs` and `tasks.executionCompletedAt` columns are the Command Center Productivity task-duration source. Duration analytics select `column = 'done'` tasks completed in the requested range (`executionCompletedAt`) and include only positive `cumulativeActiveMs` values, then compute completed count, average, median, p90, and total active execution time. Missing, zero, or historical untracked duration values remain unavailable (`—`) rather than being serialized or rendered as `0`.
 | `config` | Single-row project configuration (`nextId`, settings payload, workflow step counters). |
 | `workflow_steps` | Workflow step definitions (`prompt`/`script`) with phase, template metadata, and model overrides. |
 | `activityLog` | Per-project activity/event log with timestamp/type/task indexes. |
-| `task_commit_associations` | Commit-to-task-lineage associations for canonical and legacy landed-commit attribution. Includes nullable `additions`/`deletions` diff-stat columns captured at merge time for Command Center Productivity LOC; `NULL` means stats unknown, not zero. |
+| `task_commit_associations` | Commit-to-task-lineage associations for canonical and legacy landed-commit attribution. Includes nullable `additions`/`deletions` diff-stat columns captured at merge time for Command Center Productivity LOC and derived estimated `hoursSaved`; `NULL` means stats unknown, not zero. |
 | `archivedTasks` | Archived task snapshots (compact JSON payload + archive timestamp). |
 | `automations` | Scheduled automation definitions, run state, and run history. |
 | `agents` | Agent registry/state/task assignment metadata. |

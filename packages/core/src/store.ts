@@ -1,9 +1,9 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, writeFile, rename, unlink } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { existsSync, watch, type FSWatcher } from "node:fs";
-import type { Task, TaskDetail, TaskCreateInput, TaskAttachment, AgentLogEntry, BoardConfig, Column, ColumnId, CheckoutClaimPrecondition, MergeResult, Settings, GlobalSettings, ProjectSettings, ActivityLogEntry, ActivityEventType, TaskDocument, TaskDocumentRevision, TaskDocumentCreateInput, TaskDocumentWithTask, InboxTask, TaskLogEntry, RunMutationContext, RunAuditEvent, RunAuditEventInput, RunAuditEventFilter, ArchivedTaskEntry, ArchiveAgentLogMode, TaskPriority, SourceType, WorkflowStepTemplate, Agent, AutostashOrphanRecord, TaskCommitAssociation, TaskCommitAssociationMatchSource, TaskCommitAssociationConfidence, GithubIssueAction, MergeQueueEntry, MergeQueueEnqueueOptions, MergeQueueAcquireOptions, MergeQueueReleaseOutcome, HandoffToReviewOptions, GoalCitation, GoalCitationFilter, GoalCitationInput, GoalCitationSurface, BranchGroup, BranchGroupCreateInput, BranchGroupUpdate, TaskBranchAssignmentMode, MergeRequestRecord, MergeRequestState, MergeRequestWorkflowProjectionOptions, CompletionHandoffMarker, WorkflowWorkItem, WorkflowWorkItemDueFilter, WorkflowWorkItemKind, WorkflowWorkItemState, WorkflowWorkItemTransitionPatch, WorkflowWorkItemUpsertInput, PrEntity, PrEntityCreateInput, PrEntityUpdate, PrEntityState, PrThreadState, PrThreadOutcome, PrConflictState, PrChecksRollup, PrReviewDecision } from "./types.js";
+import { existsSync, watch, type Dirent, type FSWatcher } from "node:fs";
+import type { Task, TaskDetail, TaskCreateInput, TaskAttachment, AgentLogEntry, BoardConfig, Column, ColumnId, CheckoutClaimPrecondition, MergeResult, Settings, GlobalSettings, ProjectSettings, ActivityLogEntry, ActivityEventType, TaskDocument, TaskDocumentRevision, TaskDocumentCreateInput, TaskDocumentWithTask, InboxTask, TaskLogEntry, RunMutationContext, RunAuditEvent, RunAuditEventInput, RunAuditEventFilter, ArchivedTaskEntry, ArchiveAgentLogMode, TaskPriority, SourceType, WorkflowStepTemplate, Agent, AutostashOrphanRecord, TaskCommitAssociation, TaskCommitAssociationMatchSource, TaskCommitAssociationConfidence, GithubIssueAction, MergeQueueEntry, MergeQueueEnqueueOptions, MergeQueueAcquireOptions, MergeQueueReleaseOutcome, HandoffToReviewOptions, GoalCitation, GoalCitationFilter, GoalCitationInput, GoalCitationSurface, BranchGroup, BranchGroupCreateInput, BranchGroupUpdate, TaskBranchAssignmentMode, MergeRequestRecord, MergeRequestState, MergeRequestWorkflowProjectionOptions, CompletionHandoffMarker, WorkflowWorkItem, WorkflowWorkItemDueFilter, WorkflowWorkItemKind, WorkflowWorkItemState, WorkflowWorkItemTransitionPatch, WorkflowWorkItemUpsertInput, PrEntity, PrEntityCreateInput, PrEntityUpdate, PrEntityState, PrThreadState, PrThreadOutcome, PrConflictState, PrChecksRollup, PrReviewDecision, PluginActivation, PluginActivationInput } from "./types.js";
 import { createActivityLogSnapshot, createRunAuditSnapshot, createTaskMetadataSnapshot, toTaskMetadataRecord, validateSnapshotEnvelope, type ActivityLogSnapshot, type RunAuditSnapshot, type TaskMetadataSnapshot } from "./shared-mesh-state.js";
 import { VALID_TRANSITIONS, COLUMNS, DEFAULT_SETTINGS, isColumn, isGlobalOnlySettingsKey, WORKFLOW_STEP_TEMPLATES, validateDocumentKey } from "./types.js";
 import { DEFAULT_PROJECT_SETTINGS } from "./settings-schema.js";
@@ -235,6 +235,7 @@ interface TaskRow {
   tokenUsageLastUsedAt: string | null;
   tokenUsageModelProvider: string | null;
   tokenUsageModelId: string | null;
+  tokenUsagePerModel: string | null;
   tokenBudgetSoftAlertedAt: string | null;
   tokenBudgetHardAlertedAt: string | null;
   tokenBudgetOverride: string | null;
@@ -386,6 +387,7 @@ const TASK_COLUMN_DESCRIPTORS: TaskColumnDescriptor[] = [
   defineTaskColumn("tokenUsageLastUsedAt", (task) => task.tokenUsage?.lastUsedAt ?? null),
   defineTaskColumn("tokenUsageModelProvider", (task) => task.tokenUsage?.modelProvider ?? null),
   defineTaskColumn("tokenUsageModelId", (task) => task.tokenUsage?.modelId ?? null),
+  defineTaskColumn("tokenUsagePerModel", (task) => toJsonNullable(task.tokenUsage?.perModel)),
   defineTaskColumn("tokenBudgetSoftAlertedAt", (task) => task.tokenBudgetSoftAlertedAt ?? null),
   defineTaskColumn("tokenBudgetHardAlertedAt", (task) => task.tokenBudgetHardAlertedAt ?? null),
   defineTaskColumn("tokenBudgetOverride", (task) => toJsonNullable(task.tokenBudgetOverride)),
@@ -715,6 +717,12 @@ let taskActivityLogEntryLimit = DEFAULT_TASK_ACTIVITY_LOG_ENTRY_LIMIT;
 let taskActivityLogOutcomeLimit = DEFAULT_TASK_ACTIVITY_LOG_OUTCOME_LIMIT;
 const ARCHIVE_AGENT_LOG_SNAPSHOT_LIMIT = 25;
 const ARCHIVE_AGENT_LOG_SNIPPET_LIMIT = 160;
+// reconcileOrphanedTaskDirs only recovers task dirs whose task.json was modified within
+// this window. Bounds the sweep to genuinely-recent orphans (heartbeat races, rows lost
+// to a recent DB corruption) and prevents silent resurrection of ancient deleted-task
+// dirs that merely lingered on disk (legacy hard-deletes left no tombstone). 7 days is
+// generous enough to cover an engine that was offline for a while.
+const RECONCILE_ORPHAN_TASK_DIR_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const storeLog = createLogger("task-store");
 const coreLog = createLogger("core");
 
@@ -1520,6 +1528,23 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   private debounceMs = 150;
   /** Per-task promise chain for serializing writes */
   private taskLocks: Map<string, Promise<void>> = new Map();
+  private closing = false;
+  private deferredTaskCreatedWork = new Set<Promise<void>>();
+  /**
+   * FNXC:CoreTests 2026-06-20-05:17:
+   * Core loaded-suite teardown may remove a per-test project root while createTask's deferred title summarization or task-created hook is still writing task.json. Track only the post-summarization write/hook phase so close() can quiesce active filesystem mutations without hanging on intentionally stalled summarizer prompts.
+   */
+  private trackDeferredTaskCreatedWork(work: () => Promise<void>): Promise<void> {
+    if (this.closing) return Promise.resolve();
+    const promise = (async () => {
+      if (this.closing) return;
+      await work();
+    })();
+    this.deferredTaskCreatedWork.add(promise);
+    return promise.finally(() => {
+      this.deferredTaskCreatedWork.delete(promise);
+    });
+  }
   /**
    * Cross-task lock for worktree path allocation. Serializes the
    * read-tasks → pick-name → write-task sequence so two concurrent
@@ -1531,6 +1556,8 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   private configLock: Promise<void> = Promise.resolve();
   /** Startup/open guard for distributed_task_id_state reconciliation. */
   private taskIdStateReconciled = false;
+  /** Set when startup auto-recovery rebuilt a corrupt fusion.db; lets the orphan reconcile bypass its recency window so rows dropped by `.recover` are recovered even with old task.json mtimes. */
+  private dbWasCorruptionRecovered = false;
   /** Cached startup/refresh integrity report for allocator-related task ID anomalies. */
   private taskIdIntegrityReport: TaskIdIntegrityReport = {
     status: "ok",
@@ -1772,6 +1799,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   }
 
   async init(): Promise<void> {
+    this.closing = false;
     await mkdir(this.tasksDir, { recursive: true });
 
     // U4: register the default-workflow trait hook implementations into the
@@ -1791,6 +1819,10 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         try {
           const recovery = Database.recoverIfCorrupt(this.fusionDir);
           if (recovery.status === "recovered") {
+            // A `.recover` rebuild can drop task rows whose task.json survived on disk. Let the
+            // orphan reconcile below bypass its recency window so those rows are recovered even
+            // when their (possibly old) task.json mtime would otherwise fail the gate.
+            this.dbWasCorruptionRecovered = true;
             storeLog.warn("Recovered corrupt fusion.db on startup", {
               phase: "init:db-autorecover",
               corruptBackupPath: recovery.corruptBackupPath,
@@ -1863,6 +1895,14 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     await this.importLegacyAgentLogsOnce();
     this.taskIdStateReconciled = false;
     this.reconcileDistributedTaskIdStateOnOpen();
+    try {
+      await this.reconcileOrphanedTaskDirs({ ignoreRecencyWindow: this.dbWasCorruptionRecovered });
+    } catch (err) {
+      storeLog.warn("Orphaned task-dir reconcile failed during init (non-fatal)", {
+        phase: "init:orphaned-task-dir-reconcile",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     // Write config.json for backward compatibility if it doesn't exist
     if (!existsSync(this.configPath)) {
@@ -2024,6 +2064,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
           lastUsedAt: row.tokenUsageLastUsedAt,
           modelProvider: row.tokenUsageModelProvider ?? undefined,
           modelId: row.tokenUsageModelId ?? undefined,
+          perModel: fromJson<import("./types.js").TaskTokenUsagePerModel[]>(row.tokenUsagePerModel) ?? undefined,
         };
       })(),
       attachments: (() => { const a = fromJson<TaskAttachment[]>(row.attachments); return a && a.length > 0 ? a : undefined; })(),
@@ -2490,7 +2531,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       "planningModelProvider", "planningModelId",
       "mergeRetries", "workflowStepRetries", "stuckKillCount", "resumeLimboCount", "graphResumeRetryCount", "resumeLimboTipSha", "resumeLimboStepSignature", "postReviewFixCount", "recoveryRetryCount", "taskDoneRetryCount", "worktreeSessionRetryCount", "completionHandoffLimboRecoveryCount", "verificationFailureCount", "mergeConflictBounceCount", "mergeAuditBounceCount", "mergeTransientRetryCount", "branchConflictRecoveryCount", "reviewerContextRetryCount", "reviewerFallbackRetryCount", "nextRecoveryAt",
       "error", "summary", "thinkingLevel", "executionMode",
-      "tokenUsageInputTokens", "tokenUsageOutputTokens", "tokenUsageCachedTokens", "tokenUsageCacheWriteTokens", "tokenUsageTotalTokens", "tokenUsageFirstUsedAt", "tokenUsageLastUsedAt", "tokenUsageModelProvider", "tokenUsageModelId", "tokenBudgetSoftAlertedAt", "tokenBudgetHardAlertedAt", "tokenBudgetOverride",
+      "tokenUsageInputTokens", "tokenUsageOutputTokens", "tokenUsageCachedTokens", "tokenUsageCacheWriteTokens", "tokenUsageTotalTokens", "tokenUsageFirstUsedAt", "tokenUsageLastUsedAt", "tokenUsageModelProvider", "tokenUsageModelId", "tokenUsagePerModel", "tokenBudgetSoftAlertedAt", "tokenBudgetHardAlertedAt", "tokenBudgetOverride",
       "createdAt", "updatedAt", "columnMovedAt", "firstExecutionAt", "cumulativeActiveMs", "executionStartedAt", "executionCompletedAt",
       "dependencies", "steps", "customFields", "comments", "review", "reviewState", "workflowStepResults", "steeringComments",
       "attachments", "prInfo", "prInfos", "issueInfo", "githubTracking", "sourceIssueProvider", "sourceIssueRepository", "sourceIssueExternalIssueId", "sourceIssueNumber", "sourceIssueUrl", "sourceIssueClosedAt", "mergeDetails",
@@ -2539,7 +2580,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       "planningModelProvider", "planningModelId",
       "mergeRetries", "workflowStepRetries", "stuckKillCount", "resumeLimboCount", "graphResumeRetryCount", "resumeLimboTipSha", "resumeLimboStepSignature", "postReviewFixCount", "recoveryRetryCount", "taskDoneRetryCount", "worktreeSessionRetryCount", "completionHandoffLimboRecoveryCount", "verificationFailureCount", "mergeConflictBounceCount", "mergeAuditBounceCount", "mergeTransientRetryCount", "branchConflictRecoveryCount", "reviewerContextRetryCount", "reviewerFallbackRetryCount", "nextRecoveryAt",
       "error", "summary", "thinkingLevel", "executionMode",
-      "tokenUsageInputTokens", "tokenUsageOutputTokens", "tokenUsageCachedTokens", "tokenUsageCacheWriteTokens", "tokenUsageTotalTokens", "tokenUsageFirstUsedAt", "tokenUsageLastUsedAt", "tokenUsageModelProvider", "tokenUsageModelId", "tokenBudgetSoftAlertedAt", "tokenBudgetHardAlertedAt", "tokenBudgetOverride",
+      "tokenUsageInputTokens", "tokenUsageOutputTokens", "tokenUsageCachedTokens", "tokenUsageCacheWriteTokens", "tokenUsageTotalTokens", "tokenUsageFirstUsedAt", "tokenUsageLastUsedAt", "tokenUsageModelProvider", "tokenUsageModelId", "tokenUsagePerModel", "tokenBudgetSoftAlertedAt", "tokenBudgetHardAlertedAt", "tokenBudgetOverride",
       "createdAt", "updatedAt", "columnMovedAt", "firstExecutionAt", "cumulativeActiveMs", "executionStartedAt", "executionCompletedAt",
       "dependencies", "steps", "customFields", "attachments", "steeringComments",
       "comments", "review", "reviewState", "workflowStepResults", "prInfo", "prInfos", "issueInfo", "githubTracking", "sourceIssueProvider", "sourceIssueRepository", "sourceIssueExternalIssueId", "sourceIssueNumber", "sourceIssueUrl", "sourceIssueClosedAt", "mergeDetails",
@@ -3172,6 +3213,211 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
    * Read a task from SQLite by ID (extracted from dir path for backward compat).
    * Falls back to file-based reading only when no DB row exists at all.
    */
+  private normalizeTaskFromDisk(task: Task): Task {
+    if (!Array.isArray(task.log)) task.log = [];
+    if (!Array.isArray(task.dependencies)) task.dependencies = [];
+    if (!Array.isArray(task.steps)) task.steps = [];
+    task.priority = normalizeTaskPriority(task.priority);
+    return task;
+  }
+
+  private getMalformedTaskMetadataReason(task: Partial<Task>, expectedId: string): string | undefined {
+    if (task.id !== expectedId) {
+      return `task.json id ${typeof task.id === "string" ? task.id : "<missing>"} does not match directory ${expectedId}`;
+    }
+    if (typeof task.description !== "string") {
+      return "task.json description must be a string";
+    }
+    if (typeof task.column !== "string") {
+      return "task.json column must be a string";
+    }
+    if (typeof task.createdAt !== "string" || Number.isNaN(Date.parse(task.createdAt))) {
+      return "task.json createdAt must be a valid ISO timestamp string";
+    }
+    if (typeof task.updatedAt !== "string" || Number.isNaN(Date.parse(task.updatedAt))) {
+      return "task.json updatedAt must be a valid ISO timestamp string";
+    }
+    return undefined;
+  }
+
+  /*
+   * FNXC:TaskStoreConsistency 2026-06-20-00:00:
+   * Heartbeat-created tasks persisted on disk but missing from the SQLite index were invisible to fn_task_list/fn_task_show (FN-6783/FN-6784). Reconcile re-imports orphaned task.json rows non-destructively and uses the same exists-anywhere guard as create-time ID allocation so soft-deleted, archived, and tombstoned IDs are never resurrected.
+   */
+  async reconcileOrphanedTaskDirs(
+    opts: { ignoreRecencyWindow?: boolean } = {},
+  ): Promise<{ recovered: string[]; skipped: Array<{ id: string; reason: string }> }> {
+    const result: { recovered: string[]; skipped: Array<{ id: string; reason: string }> } = {
+      recovered: [],
+      skipped: [],
+    };
+
+    if (this.inMemoryDb || !existsSync(this.tasksDir)) {
+      return result;
+    }
+
+    // The recency window stops legacy hard-deleted dirs (no tombstone) from being silently
+    // resurrected onto a populated board. But the sweep's other job is recovering rows lost to
+    // DB corruption or a restore-from-old-backup — where the surviving task.json files keep
+    // their original (often >7-day-old) mtimes and the DB is empty. Detect that case: when the
+    // live task table is empty, bypass the recency gate so corruption recovery isn't defeated by
+    // the same guard added to stop resurrection. Callers may also force the bypass explicitly.
+    let dbHasLiveTasks = true;
+    try {
+      const row = this.db
+        .prepare('SELECT EXISTS(SELECT 1 FROM tasks WHERE deletedAt IS NULL LIMIT 1) AS present')
+        .get() as { present?: number } | undefined;
+      dbHasLiveTasks = (row?.present ?? 0) === 1;
+    } catch {
+      // If the count probe fails, keep the gate on (conservative — don't mass-resurrect).
+      dbHasLiveTasks = true;
+    }
+    const applyRecencyWindow = !opts.ignoreRecencyWindow && dbHasLiveTasks;
+
+    let entries: Dirent[];
+    try {
+      entries = await readdir(this.tasksDir, { withFileTypes: true });
+    } catch (error) {
+      storeLog.warn("Skipping orphaned task-dir reconcile because tasksDir is unreadable", {
+        phase: "reconcileOrphanedTaskDirs:scan",
+        tasksDir: this.tasksDir,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return result;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const id = entry.name;
+      const taskDir = join(this.tasksDir, id);
+      const taskJsonPath = join(taskDir, "task.json");
+      if (!existsSync(taskJsonPath)) {
+        result.skipped.push({ id, reason: "missing-task-json" });
+        continue;
+      }
+
+      // FN: recency gate. This sweep exists to recover task dirs that "appear after
+      // store init" — heartbeat-created dirs that race startup, or rows lost to a
+      // recent DB corruption while their task.json survived on disk. It must NOT
+      // resurrect *ancient* deleted-task dirs that merely lingered on disk: modern
+      // deletes leave a soft-delete tombstone (taskIdExistsAnywhere catches those),
+      // but legacy hard-deletes left no tombstone, so a months-old task.json with no
+      // DB row would otherwise be silently re-imported onto the live board (the
+      // "all task IDs reset / starting over" failure). Only reconcile dirs whose
+      // task.json was modified within the recency window; older orphans are left for
+      // explicit recovery (unarchive/restore) or directory cleanup. Skipped entirely when
+      // the DB is empty / a caller forces recovery (corruption/restore path — see above).
+      if (applyRecencyWindow) {
+        try {
+          const { mtimeMs } = await stat(taskJsonPath);
+          const ageMs = Date.now() - mtimeMs;
+          if (ageMs > RECONCILE_ORPHAN_TASK_DIR_MAX_AGE_MS) {
+            result.skipped.push({ id, reason: "stale-orphan-dir-beyond-recency-window" });
+            storeLog.warn("Skipping stale orphaned task-dir reconcile (beyond recency window)", {
+              phase: "reconcileOrphanedTaskDirs:recency",
+              taskId: id,
+              taskJsonPath,
+              ageMs,
+              maxAgeMs: RECONCILE_ORPHAN_TASK_DIR_MAX_AGE_MS,
+            });
+            continue;
+          }
+        } catch (error) {
+          result.skipped.push({ id, reason: `stat-failed: ${error instanceof Error ? error.message : String(error)}` });
+          continue;
+        }
+      }
+
+      let task: Task;
+      try {
+        const raw = await readFile(taskJsonPath, "utf-8");
+        task = this.normalizeTaskFromDisk(JSON.parse(raw) as Task);
+      } catch (error) {
+        const reason = `malformed-task-json: ${error instanceof Error ? error.message : String(error)}`;
+        result.skipped.push({ id, reason });
+        storeLog.warn("Skipping malformed task.json during orphaned task-dir reconcile", {
+          phase: "reconcileOrphanedTaskDirs:parse",
+          taskId: id,
+          taskJsonPath,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        continue;
+      }
+
+      const malformedReason = this.getMalformedTaskMetadataReason(task, id);
+      if (malformedReason) {
+        result.skipped.push({ id, reason: `malformed-task-metadata: ${malformedReason}` });
+        storeLog.warn("Skipping malformed task metadata during orphaned task-dir reconcile", {
+          phase: "reconcileOrphanedTaskDirs:validate",
+          taskId: id,
+          taskJsonPath,
+          reason: malformedReason,
+        });
+        continue;
+      }
+
+      let recovered = false;
+      let skipReason: string | undefined;
+      try {
+        this.db.transactionImmediate(() => {
+          if (this.taskIdExistsAnywhere(id)) {
+            skipReason = "id-exists-anywhere";
+            return;
+          }
+          try {
+            this.insertTaskWithFtsRecovery(task, "reconcileOrphanedTaskDirs");
+            this.insertRunAuditEventRow({
+              taskId: id,
+              domain: "database",
+              mutationType: "task:reconcile-orphaned-task-dir",
+              target: id,
+              metadata: {
+                id,
+                column: task.column,
+                status: task.status ?? null,
+                taskJsonPath,
+              },
+            });
+            recovered = true;
+          } catch (error) {
+            if (this.isTaskIdConflictError(error) || /Task ID already exists/i.test(error instanceof Error ? error.message : String(error))) {
+              skipReason = "id-conflict-during-insert";
+              return;
+            }
+            throw error;
+          }
+        });
+      } catch (error) {
+        const reason = `insert-failed: ${error instanceof Error ? error.message : String(error)}`;
+        result.skipped.push({ id, reason });
+        storeLog.warn("Skipping orphaned task-dir reconcile insert after non-fatal error", {
+          phase: "reconcileOrphanedTaskDirs:insert",
+          taskId: id,
+          taskJsonPath,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        continue;
+      }
+
+      if (recovered) {
+        result.recovered.push(id);
+        if (this.isWatching) this.taskCache.set(id, { ...task });
+        storeLog.warn("Recovered orphaned task.json into SQLite task index", {
+          phase: "reconcileOrphanedTaskDirs:recovered",
+          taskId: id,
+          column: task.column,
+          status: task.status,
+          taskJsonPath,
+        });
+        this.emitTaskLifecycleEventSafely("task:created", [task]);
+      } else {
+        result.skipped.push({ id, reason: skipReason ?? "not-recovered" });
+      }
+    }
+
+    return result;
+  }
+
   private async readTaskJson(dir: string): Promise<Task> {
     const id = this.getTaskIdFromDir(dir);
 
@@ -3187,12 +3433,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
     const filePath = join(dir, "task.json");
     const raw = await readFile(filePath, "utf-8");
     try {
-      const fileTask = JSON.parse(raw) as Task;
-      if (!Array.isArray(fileTask.log)) fileTask.log = [];
-      if (!Array.isArray(fileTask.dependencies)) fileTask.dependencies = [];
-      if (!Array.isArray(fileTask.steps)) fileTask.steps = [];
-      fileTask.priority = normalizeTaskPriority(fileTask.priority);
-      return fileTask;
+      return this.normalizeTaskFromDisk(JSON.parse(raw) as Task);
     } catch (err) {
       throw new Error(
         `Failed to parse task.json at ${filePath}: ${(err as Error).message}`,
@@ -4240,14 +4481,17 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
           const generatedTitle = await onSummarize!(input.description);
           const sanitizedTitle = sanitizeTitle(generatedTitle);
           if (sanitizedTitle) {
-            const currentTask = this.readTaskFromDb(id);
-            if (currentTask && !currentTask.title) {
-              // FN-5077: normalizeTitleForTaskId may return null for dangling fragments; only persist usable titles.
-              const normalizedTitle = normalizeTitleForTaskId(sanitizedTitle, id);
-              if (normalizedTitle.title) {
-                await this.updateTask(id, { title: normalizedTitle.title });
+            await this.trackDeferredTaskCreatedWork(async () => {
+              if (this.closing) return;
+              const currentTask = this.readTaskFromDb(id);
+              if (currentTask && !currentTask.title) {
+                // FN-5077: normalizeTitleForTaskId may return null for dangling fragments; only persist usable titles.
+                const normalizedTitle = normalizeTitleForTaskId(sanitizedTitle, id);
+                if (normalizedTitle.title && !this.closing) {
+                  await this.updateTask(id, { title: normalizedTitle.title });
+                }
               }
-            }
+            });
           }
         } catch (err) {
           const autoEnabled = resolvedSettings?.autoSummarizeTitles === true;
@@ -4263,22 +4507,26 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
           );
         }
 
-        let latestTask = task;
-        try {
-          const refreshed = this.readTaskFromDb(id);
-          if (refreshed) latestTask = refreshed;
-        } catch {
-          // Best-effort refresh; fall back to original task snapshot.
-        }
+        await this.trackDeferredTaskCreatedWork(async () => {
+          if (this.closing) return;
+          let latestTask = task;
+          try {
+            const refreshed = this.readTaskFromDb(id);
+            if (refreshed) latestTask = refreshed;
+          } catch {
+            // Best-effort refresh; fall back to original task snapshot.
+          }
 
-        try {
-          await this.invokeTaskCreatedHook(latestTask);
-        } catch (err) {
-          storeLog.warn("Deferred task-created hook failed", {
-            taskId: id,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+          if (this.closing) return;
+          try {
+            await this.invokeTaskCreatedHook(latestTask);
+          } catch (err) {
+            storeLog.warn("Deferred task-created hook failed", {
+              taskId: id,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        });
       }).catch((err) => {
         const autoEnabled = resolvedSettings?.autoSummarizeTitles === true;
         storeLog.error("Unexpected title summarization promise-chain failure", {
@@ -9518,6 +9766,28 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
   getCompletionHandoffAcceptedMarker(taskId: string): CompletionHandoffMarker | null {
     const row = this.db.prepare("SELECT * FROM completion_handoff_markers WHERE taskId = ?").get(taskId) as CompletionHandoffMarkerRow | undefined;
     return row ? this.rowToCompletionHandoffMarker(row) : null;
+  }
+
+  /**
+   * Persist a project-scoped plugin/extension activation event for Command Center analytics.
+   *
+   * FNXC:CommandCenterEcosystem 2026-06-19-00:00:
+   * Plugin activations must be recorded as real project DB events before the Ecosystem card can show a count; null pluginVersion preserves unknown version as missing data rather than an empty-string metric.
+   */
+  recordPluginActivation(input: PluginActivationInput): PluginActivation {
+    const activatedAt = input.activatedAt ?? new Date().toISOString();
+    const result = this.db.prepare(`
+      INSERT INTO plugin_activations (pluginId, source, pluginVersion, activatedAt)
+      VALUES (?, ?, ?, ?)
+    `).run(input.pluginId, input.source, input.pluginVersion ?? null, activatedAt);
+
+    return {
+      id: Number(result.lastInsertRowid),
+      pluginId: input.pluginId,
+      source: input.source,
+      pluginVersion: input.pluginVersion ?? null,
+      activatedAt,
+    };
   }
 
   /**
@@ -15490,7 +15760,11 @@ ${stepsSection}`;
    * Close the database connection and clean up resources.
    * Call this when the store is no longer needed (e.g., short-lived per-request stores).
    */
-  close(): void {
+  async close(): Promise<void> {
+    this.closing = true;
+    if (this.deferredTaskCreatedWork.size > 0) {
+      await Promise.allSettled([...this.deferredTaskCreatedWork]);
+    }
     this.stopWatching();
     // Flush any remaining buffered agent log entries before closing.
     // Wrap in try-catch because entries for already-deleted tasks will fail FK check.

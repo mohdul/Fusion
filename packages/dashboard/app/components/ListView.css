@@ -39,23 +39,6 @@
   min-width: 0;
 }
 
-.list-workflow-selector {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-  min-width: 0;
-  color: var(--text-muted);
-  font-size: calc(var(--space-sm) + var(--space-xs) * 0.75);
-}
-
-.list-workflow-select {
-  min-width: 160px;
-  max-width: 240px;
-  min-height: 30px;
-  font-size: 12px;
-  border-radius: var(--radius-sm);
-}
-
 .list-sidebar-controls__actions .list-new-task-action {
   margin-left: auto;
 }
@@ -532,8 +515,11 @@
   opacity: 0.55;
 }
 
+/*
+FNXC:ListView 2026-06-20-03:25:
+FN-6774 removes the saturated stuck-task edge stripe from list rows. Keep the subtle triage background and stuck status badge so stuck rows stay distinguishable without changing the neutral row border.
+*/
 .list-row.stuck {
-  border-left: 3px solid var(--triage);
   background: color-mix(in srgb, var(--triage) 8%, transparent);
 }
 
@@ -1151,5 +1137,58 @@ FN-6529 requires list-view agent-active tasks to use a simple static highlight i
   /* List column dropdown items: touch target on mobile */
   .list-column-dropdown-item {
     min-height: 36px;
+  }
+}
+
+/*
+FNXC:BoardWorkflows 2026-06-20-09:12:
+ListView needs a neutral workflow-loading shell under the same flag-aware gate as Board, avoiding a first-paint fallback to legacy list columns while workflow metadata revalidates.
+*/
+.list-view--workflow-skeleton {
+  gap: var(--space-lg);
+}
+
+.list-workflow-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.list-workflow-skeleton__row {
+  block-size: var(--space-xl);
+  inline-size: 100%;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--border) 70%, var(--surface));
+  animation: list-workflow-skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.list-workflow-skeleton__row--header {
+  inline-size: 60%;
+}
+
+.list-workflow-skeleton__row--short {
+  inline-size: 78%;
+}
+
+@keyframes list-workflow-skeleton-pulse {
+  0%, 100% {
+    opacity: 0.55;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 768px) {
+  .list-view--workflow-skeleton {
+    gap: var(--space-md);
+  }
+
+  .list-workflow-skeleton {
+    padding: var(--space-md);
   }
 }

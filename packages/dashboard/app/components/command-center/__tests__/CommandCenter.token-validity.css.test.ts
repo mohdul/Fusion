@@ -94,6 +94,38 @@ function collectAccentMixPercentages(ruleBlock: string): number[] {
   return percentages;
 }
 
+function expectRuleContainsDeclaration(ruleBlock: string, property: string, valuePattern: RegExp): void {
+  const declarationPattern = new RegExp(`(^|\\n)\\s*${property}\\s*:\\s*${valuePattern.source}\\s*;`);
+  expect(ruleBlock, `Expected ${property}: ${valuePattern.source} in rule block`).toMatch(declarationPattern);
+}
+
+/*
+FNXC:CommandCenterStyling 2026-06-19-00:00:
+FN-6726 guarded Command Center stat and live-metric value containment at the emitted CSS-rule level because jsdom cannot measure min-content overflow from large comma-grouped token totals.
+
+FNXC:CommandCenterStyling 2026-06-19-22:18:
+FN-6784 changes the containment contract from wrapping to single-line numbers with container-query font shrink. This raw CSS assertion must fail if overflow-wrap:anywhere returns or if the card/metric containers stop exposing inline-size query units.
+*/
+describe("Command Center stat value no-wrap shrink containment (FN-6784)", () => {
+  const css = readFileSync(join(COMMAND_CENTER_DIR, "CommandCenter.css"), "utf8");
+
+  it("keeps stat and live metric values single-line with container-query font clamps", () => {
+    const containers = [".cc-stat-card", ".cc-live-metric"];
+    for (const selector of containers) {
+      const block = extractRuleBlock(css, selector);
+      expectRuleContainsDeclaration(block, "container-type", /inline-size/);
+    }
+
+    for (const selector of [".cc-stat-value", ".cc-live-metric-value"]) {
+      const block = extractRuleBlock(css, selector);
+      expectRuleContainsDeclaration(block, "min-width", /0/);
+      expectRuleContainsDeclaration(block, "white-space", /nowrap/);
+      expectRuleContainsDeclaration(block, "font-size", /clamp\([^;]*cqi[^;]*\)/);
+      expect(block, `${selector} must not restore digit-group wrapping`).not.toMatch(/(^|\n)\s*overflow-wrap\s*:\s*(anywhere|break-word)\s*;/);
+    }
+  });
+});
+
 /*
 FNXC:CommandCenterStyling 2026-06-19-19:05:
 FN-6700 keeps the Command Center main overview cards subdued by guarding the decorative accent color-mix percentages on both card bases and their animated overlays while also proving the --surface-1 layer remains in place.
