@@ -53,6 +53,11 @@ const STEERING_BLOCKED_STATUSES = new Set([
   "needs-replan",
 ]);
 const REVIEW_STEERABLE_STATUSES = new Set(["reviewing", "merging", "merging-fix", "fixing"]);
+// The scheduler's waiting/blocked marker for a not-yet-dispatched task
+// (self-healing.ts documents `status: "queued"` as the blocked marker). A queued
+// in-progress row has no agent executing yet, so it stays assignment-gated rather
+// than counting as an implied active session.
+const SCHEDULER_WAITING_STATUS = "queued";
 const BOTTOM_FOLLOW_THRESHOLD = 48;
 const TOP_LOAD_THRESHOLD = 48;
 
@@ -185,7 +190,7 @@ function isActiveAgentSession(task: Task | TaskDetail, opts: { sessionLive?: boo
   //   has a reviewer/merger running. A null-status in-review row is awaiting
   //   human review, not actively worked, so it stays assignment-gated and idle.
   const executionImpliesActiveAgent =
-    (task.column === "in-progress" && statusAllowsProgressSteering && task.status !== "queued")
+    (task.column === "in-progress" && statusAllowsProgressSteering && task.status !== SCHEDULER_WAITING_STATUS)
     || (task.column === "in-review" && task.status != null && REVIEW_STEERABLE_STATUSES.has(task.status));
   return columnAllowsSteering
     && (hasAssignedAgent || executionImpliesActiveAgent);

@@ -6701,9 +6701,9 @@ export class TaskExecutor {
             const todoBenign = `Workflow graph run ended during ${pauseProvenance} with task re-queued to todo — benign, cleared for normal scheduling`;
             executorLog.log(`${task.id}: ${todoBenign}`);
             await this.store.logEntry(task.id, todoBenign, undefined, this.getRunContextFor(task.id));
-            // FNXC:WorkflowLifecycle 2026-06-20: reconcile a stale persisted
-            // failure with the benign reclassification. A pause-abort parked
-            // `status:"failed"` on an earlier non-todo observation stays
+            // FNXC:WorkflowLifecycle 2026-06-20-19:58: reconcile a stale
+            // persisted failure with the benign reclassification. A pause-abort
+            // parked `status:"failed"` on an earlier non-todo observation stays
             // dispatchable (scheduler.ts filters column+paused, NOT status) and
             // re-enters this branch in `todo`; `recoverPausedAbortFailures` that
             // would clear it is suppressed during global/engine pause
@@ -6711,9 +6711,18 @@ export class TaskExecutor {
             // log: the board shows it failed AND the deferred failure
             // notification fires (notification-service fire-time check sees
             // status === "failed"). Clear status/error here so the row matches
-            // the log and the pending notification is suppressed at dispatch.
+            // the log, then emit an `Auto-recovered:`-prefixed entry so
+            // NotificationService.maybeSuppressTransientFailedNotification
+            // PROACTIVELY cancels the pending failure timer on the task:updated
+            // event (recoveredStatus path) — rather than relying only on the
+            // fire-time re-check, which is race-contingent when
+            // failureNotificationDelayMs is near 0. The prefix is the documented
+            // contract for self-healing recovery logs (see self-healing.ts /
+            // project-engine.ts). Scoped to the actual-clear path so the common
+            // no-failure benign re-queue is not mislabeled as a recovery.
             if (live.status != null || live.error != null) {
               await this.store.updateTask(task.id, { status: null, error: null }, this.getRunContextFor(task.id));
+              await this.store.logEntry(task.id, "Auto-recovered: cleared stale pause-abort failure on todo re-queue — failure notification suppressed", undefined, this.getRunContextFor(task.id));
             }
             await this.persistTokenUsage(task.id);
             return;

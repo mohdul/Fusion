@@ -1976,6 +1976,9 @@ describe("TaskChatTab", () => {
     ["in-progress task without an assigned or checked-out agent", makeTask({ column: "in-progress", status: "queued", assignedAgentId: undefined, checkedOutBy: undefined })],
     ["paused in-progress task", makeTask({ column: "in-progress", status: "queued", paused: true })],
     ["user-paused in-progress task", makeTask({ column: "in-progress", status: "queued", userPaused: true })],
+    // Paused early-return must win over the ephemeral executionImpliesActiveAgent path:
+    // a paused/unassigned in-progress task in an otherwise-active status stays idle.
+    ["paused unassigned in-progress task in an active status", makeTask({ column: "in-progress", status: "planning", paused: true, assignedAgentId: undefined, checkedOutBy: undefined })],
     ["paused in-review task", makeTask({ column: "in-review", status: "reviewing", paused: true })],
     ["user-paused in-review task", makeTask({ column: "in-review", status: "reviewing", userPaused: true })],
   ])("keeps the composer sendable with idle guidance for %s", (_label, task) => {
