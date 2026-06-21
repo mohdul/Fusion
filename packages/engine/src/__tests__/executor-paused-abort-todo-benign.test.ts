@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "./executor-test-helpers.js";
 import { TaskExecutor } from "../executor.js";
 import { createMockStore, resetExecutorMocks } from "./executor-test-helpers.js";
@@ -31,7 +31,12 @@ function makeTask(overrides: Partial<TaskDetail> = {}): TaskDetail {
   } as TaskDetail;
 }
 
-function makeHarness(taskOverrides: Partial<TaskDetail> = {}) {
+type AbortProvenance = "hard-cancel" | "global-pause" | "merge-seam" | "completion-finalize";
+
+function makeHarness(
+  taskOverrides: Partial<TaskDetail> = {},
+  provenance: AbortProvenance = "hard-cancel",
+) {
   const store = createMockStore();
   const task = makeTask(taskOverrides);
   store.getTask.mockResolvedValue(task);
@@ -43,7 +48,7 @@ function makeHarness(taskOverrides: Partial<TaskDetail> = {}) {
     maxAutoMergeRetries: 3,
   });
   const executor = new TaskExecutor(store, "/tmp/test", {});
-  (executor as any).markPausedAborted(task.id, "hard-cancel");
+  (executor as any).markPausedAborted(task.id, provenance);
   return { store, task, executor };
 }
 
@@ -56,6 +61,13 @@ async function invokeGraphFailure(executor: TaskExecutor, task: TaskDetail) {
   });
 }
 
+// Flush the unref'd setTimeout that schedules the in-place retry plus the async
+// re-fetch + execute() chain inside it. Fake timers keep this deterministic
+// (no real wall-clock wait) per the repo's no-slow-tests rule (FN-5048).
+async function flushScheduledRetry() {
+  await vi.advanceTimersByTimeAsync(10);
+}
+
 function logText(store: ReturnType<typeof createMockStore>): string {
   return store.logEntry.mock.calls.map((call: unknown[]) => call[1]).join("\n");
 }
@@ -63,50 +75,97 @@ function logText(store: ReturnType<typeof createMockStore>): string {
 describe("pause-abort benign requeue-to-todo (FN-6782)", () => {
   beforeEach(() => {
     resetExecutorMocks();
+    vi.useFakeTimers();
   });
 
-  it("does NOT park a todo-column pause-abort as failed (no retry storm)", async () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("auto-continues the agent session for an engine-internal abort instead of re-queueing to todo", async () => {
+    // An "engine abort during pause/resume" (pausedAborted hard-cancel, no user/
+    // global pause) is engine-internal churn, not an operator action — the
+    // executor must retry the agent session in place rather than bouncing the
+    // task through todo (and must not fire a failure notification).
     const { store, task, executor } = makeHarness({ column: "todo" });
     (executor as any).activeWorktrees.set(task.id, task.worktree);
+    const executeSpy = vi
+      .spyOn(executor as any, "execute")
+      .mockResolvedValue(undefined);
 
     await invokeGraphFailure(executor, task);
 
-    // FNXC:WorkflowLifecycle a todo pause-abort must NOT write status:"failed" — that was the storm trigger.
+    // It must NOT park status:"failed" — that was the storm trigger.
     const parkedFailed = store.updateTask.mock.calls.some(
       (call: unknown[]) => (call[1] as { status?: string } | undefined)?.status === "failed",
     );
     expect(parkedFailed).toBe(false);
-    // FNXC:WorkflowLifecycle the benign-clear log must surface for observability.
-    expect(logText(store)).toContain("benign, cleared for normal scheduling");
-    // FNXC:WorkflowLifecycle the pausedAborted marker must be cleared so the next dispatch starts clean.
-    expect((executor as any).pausedAborted.has(task.id)).toBe(false);
-    // FNXC:WorkflowLifecycle the leaked worktree slot must be released to avoid board-wide concurrency blockage.
-    expect((executor as any).activeWorktrees.has(task.id)).toBe(false);
-    // FNXC:WorkflowLifecycle 2026-06-20-19:58 a clean todo row (no stale status/error)
-    // must NOT trigger the reconciliation write — the `live.status != null ||
-    // live.error != null` guard skips it so the common benign re-queue stays a no-op.
-    const clearedClean = store.updateTask.mock.calls.some(
+    // It auto-continues instead of logging the benign re-queue line.
+    expect(logText(store)).toContain("auto-continuing the agent session (1/2)");
+    expect(logText(store)).not.toContain("benign, cleared for normal scheduling");
+    // The bounded retry budget is incremented and any stale failure cleared.
+    const bumpedRetry = store.updateTask.mock.calls.some(
       (call: unknown[]) => {
-        const patch = call[1] as { status?: unknown; error?: unknown } | undefined;
-        return patch?.status === null && patch?.error === null;
+        const patch = call[1] as { graphResumeRetryCount?: number; status?: unknown } | undefined;
+        return patch?.graphResumeRetryCount === 1 && patch?.status === null;
       },
     );
-    expect(clearedClean).toBe(false);
+    expect(bumpedRetry).toBe(true);
+    // An `Auto-recovered:`-prefixed log suppresses the failure notification.
+    expect(logText(store)).toContain("Auto-recovered: engine-internal pause/resume abort");
+    // The pause-abort marker is cleared and the worktree slot released.
+    expect((executor as any).pausedAborted.has(task.id)).toBe(false);
+    expect((executor as any).activeWorktrees.has(task.id)).toBe(false);
+    // The agent session is re-executed in place after the backoff window.
+    await flushScheduledRetry();
+    expect(executeSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("clears a stale failed status when reclassifying a todo pause-abort as benign (no lingering failure notification)", async () => {
-    // FNXC:WorkflowLifecycle 2026-06-20-19:58 a pause-abort parked status:"failed"
-    // on an earlier non-todo observation stays dispatchable (scheduler filters
-    // column+paused, not status) and re-enters this branch in todo. The benign
-    // reclassification must reconcile the row to status:null/error:null —
-    // otherwise the persisted failure survives, the board shows it failed, and
-    // the deferred failure notification fires despite the benign log.
+  it.each([
+    { label: "paused", patch: { paused: true } },
+    { label: "user-paused", patch: { userPaused: true } },
+    { label: "moved out of todo", patch: { column: "in-progress" } },
+    { label: "deleted", patch: { deletedAt: "2026-06-21T00:00:00.000Z" } },
+  ])(
+    "fire-time guard: aborts the auto-continue when the task became $label during the backoff window",
+    async ({ patch }) => {
+      // The auto-continue re-fetches the task just before re-executing and must
+      // bail if the operator paused/moved/deleted it during the backoff window —
+      // the direct execute() bypasses the scheduler's pause filter, so without
+      // this guard it would resume work the user just parked. The initial
+      // `live` snapshot is a clean todo (so the auto-continue branch is entered
+      // and a retry scheduled); the task then changes state before the timer
+      // fires, and the fire-time re-fetch must abort the dispatch.
+      const { store, task, executor } = makeHarness({ column: "todo" });
+      (executor as any).activeWorktrees.set(task.id, task.worktree);
+      const executeSpy = vi.spyOn(executor as any, "execute").mockResolvedValue(undefined);
+
+      await invokeGraphFailure(executor, task);
+      // The auto-continue branch was entered and a retry scheduled...
+      expect(logText(store)).toContain("auto-continuing the agent session");
+
+      // ...but the task changed state before the scheduled retry fires; the
+      // fire-time re-fetch returns the mutated snapshot.
+      store.getTask.mockResolvedValue({ ...task, ...patch } as typeof task);
+      await flushScheduledRetry();
+
+      expect(executeSpy).not.toHaveBeenCalled();
+    },
+  );
+
+  it("clears a stale failed status when auto-continuing an engine-internal abort (no lingering failure notification)", async () => {
+    // A pause-abort parked status:"failed" on an earlier non-todo observation
+    // stays dispatchable (scheduler filters column+paused, not status) and
+    // re-enters this branch in todo. Auto-continue must reconcile the row to
+    // status:null/error:null — otherwise the persisted failure survives, the
+    // board shows it failed, and the deferred failure notification fires.
     const { store, task, executor } = makeHarness({
       column: "todo",
       status: "failed",
       error: "Workflow graph failure surfaced after paused engine abort during pause/resume",
     });
     (executor as any).activeWorktrees.set(task.id, task.worktree);
+    const executeSpy = vi.spyOn(executor as any, "execute").mockResolvedValue(undefined);
 
     await invokeGraphFailure(executor, task);
 
@@ -121,12 +180,87 @@ describe("pause-abort benign requeue-to-todo (FN-6782)", () => {
       (call: unknown[]) => (call[1] as { status?: string } | undefined)?.status === "failed",
     );
     expect(reParkedFailed).toBe(false);
+    expect(logText(store)).toContain("auto-continuing the agent session");
+    expect(logText(store)).toContain("Auto-recovered: engine-internal pause/resume abort");
+    await flushScheduledRetry();
+    expect(executeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { label: "explicit user pause", overrides: { column: "todo", userPaused: true }, provenance: "hard-cancel" as const },
+    { label: "global pause", overrides: { column: "todo" }, provenance: "global-pause" as const },
+  ])(
+    "does NOT auto-resume a $label that landed in todo",
+    async ({ overrides, provenance }) => {
+      // The auto-continue is scoped strictly to the engine-internal abort
+      // provenance. A genuine operator pause (userPaused) or a global engine
+      // pause that ended up in todo must stay parked-benign and wait for
+      // explicit resume — auto-resuming it would override the operator's intent.
+      const { store, task, executor } = makeHarness(overrides, provenance);
+      (executor as any).activeWorktrees.set(task.id, task.worktree);
+      const executeSpy = vi.spyOn(executor as any, "execute").mockResolvedValue(undefined);
+
+      await invokeGraphFailure(executor, task);
+
+      expect(logText(store)).toContain("benign, cleared for normal scheduling");
+      expect(logText(store)).not.toContain("auto-continuing the agent session");
+      await flushScheduledRetry();
+      expect(executeSpy).not.toHaveBeenCalled();
+    },
+  );
+
+  it("falls back to a benign todo re-queue once internal retries are exhausted", async () => {
+    // After MAX_TRANSIENT_GRAPH_RESUME_RETRIES (2) internal retries, a still-
+    // wedged engine-internal abort must stop auto-continuing and fall through to
+    // the benign re-queue (no failure notification, no retry storm).
+    const { store, task, executor } = makeHarness({
+      column: "todo",
+      graphResumeRetryCount: 2,
+    });
+    (executor as any).activeWorktrees.set(task.id, task.worktree);
+    const executeSpy = vi
+      .spyOn(executor as any, "execute")
+      .mockResolvedValue(undefined);
+
+    await invokeGraphFailure(executor, task);
+
     expect(logText(store)).toContain("benign, cleared for normal scheduling");
-    // FNXC:WorkflowLifecycle 2026-06-20-19:58 the clear path must emit an
-    // `Auto-recovered:`-prefixed log so NotificationService proactively cancels
-    // the pending failure timer (recoveredStatus path), not just suppress it at
-    // fire time. Prefix is the documented self-healing recovery contract.
-    expect(logText(store)).toContain("Auto-recovered: cleared stale pause-abort failure on todo re-queue");
+    expect(logText(store)).not.toContain("auto-continuing the agent session");
+    const parkedFailed = store.updateTask.mock.calls.some(
+      (call: unknown[]) => (call[1] as { status?: string } | undefined)?.status === "failed",
+    );
+    expect(parkedFailed).toBe(false);
+    await flushScheduledRetry();
+    expect(executeSpy).not.toHaveBeenCalled();
+  });
+
+  it("clears a stale failed status on the retries-exhausted benign fallback", async () => {
+    // The retries-exhausted fallback shares the benign re-queue's stale-failure
+    // reconciliation: a row carrying status:"failed" from an earlier non-todo
+    // observation must be cleared and emit the `Auto-recovered:` log so the
+    // deferred failure notification is suppressed even when auto-continue is
+    // exhausted.
+    const { store, task, executor } = makeHarness({
+      column: "todo",
+      graphResumeRetryCount: 2,
+      status: "failed",
+      error: "Workflow graph failure surfaced after paused engine abort during pause/resume",
+    });
+    (executor as any).activeWorktrees.set(task.id, task.worktree);
+
+    await invokeGraphFailure(executor, task);
+
+    expect(logText(store)).toContain("benign, cleared for normal scheduling");
+    expect(logText(store)).toContain(
+      "Auto-recovered: cleared stale pause-abort failure on todo re-queue",
+    );
+    const clearedFailure = store.updateTask.mock.calls.some(
+      (call: unknown[]) => {
+        const patch = call[1] as { status?: unknown; error?: unknown } | undefined;
+        return patch?.status === null && patch?.error === null;
+      },
+    );
+    expect(clearedFailure).toBe(true);
   });
 
   it("STILL parks a non-todo (in-review) pause-abort as operator-action failed", async () => {
