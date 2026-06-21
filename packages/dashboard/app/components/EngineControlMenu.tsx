@@ -35,9 +35,9 @@ const DEFAULT_CONCURRENCY_VALUES: ConcurrencyValues = {
 };
 
 const CONCURRENCY_SLIDER_LIMITS: Record<keyof ConcurrencyValues, { min: number; max: number }> = {
-  maxConcurrent: { min: 1, max: 10 },
-  maxTriageConcurrent: { min: 1, max: 10 },
-  maxWorktrees: { min: 1, max: 20 },
+  maxConcurrent: { min: 1, max: 50 },
+  maxTriageConcurrent: { min: 1, max: 50 },
+  maxWorktrees: { min: 1, max: 50 },
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -58,6 +58,9 @@ Engine stop/start, triage pause/resume, and live scheduler concurrency/worktree 
 
 FNXC:EngineControls 2026-06-21-00:00:
 FN-6862 requires the footer popover chrome to stay opaque across themes. Its CSS must use a defined solid surface token (`var(--card)`) because `--surface-elevated` is not in the dashboard token vocabulary and makes the menu transparent when unresolved.
+
+FNXC:EngineControls 2026-06-21-00:00:
+FN-6863 raises the footer concurrency sliders' base drag ceiling to 50 for max tasks, triage, and worktrees. Keep getConcurrencySliderMax value-aware so already-persisted settings above 50 expand the slider instead of hiding or clamping the truthful readout.
 */
 export const EngineControlMenu = forwardRef<EngineControlMenuHandle, EngineControlMenuProps>(function EngineControlMenu({ projectId }, ref) {
   const { t } = useTranslation("app");
