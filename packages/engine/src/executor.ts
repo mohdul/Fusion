@@ -6681,7 +6681,7 @@ export class TaskExecutor {
         // to gate the auto-continue branch so the gate cannot silently drift if
         // the human-readable provenance label is ever revised.
         const isEngineInternalAbort =
-          pausedAborted && !live.userPaused && abortProvenance !== "global-pause";
+          pausedAborted && !live.paused && !live.userPaused && abortProvenance !== "global-pause";
         if (live.column !== "in-progress") {
           // FN-6782: a pause/resume abort that has left the task back in `todo`
           // is benign — the work is simply re-queued for a fresh dispatch, not
