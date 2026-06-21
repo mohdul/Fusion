@@ -55,6 +55,9 @@ function getErrorMessage(error: unknown, fallback: string) {
 /*
 FNXC:EngineControls 2026-06-21-00:00:
 Engine stop/start, triage pause/resume, and live scheduler concurrency/worktree sliders moved from the Header split button into the footer status bar. Operators open this popover from the footer trigger or running-status text, and the sliders reuse the existing /api/settings debounce flow so no backend route is added for live scheduler tuning.
+
+FNXC:EngineControls 2026-06-21-00:00:
+FN-6862 requires the footer popover chrome to stay opaque across themes. Its CSS must use a defined solid surface token (`var(--card)`) because `--surface-elevated` is not in the dashboard token vocabulary and makes the menu transparent when unresolved.
 */
 export const EngineControlMenu = forwardRef<EngineControlMenuHandle, EngineControlMenuProps>(function EngineControlMenu({ projectId }, ref) {
   const { t } = useTranslation("app");
