@@ -6675,6 +6675,13 @@ export class TaskExecutor {
             : pausedAborted
               ? "engine abort during pause/resume"
               : "task pause";
+        // Typed discriminant for the engine-internal abort case (mirrors the
+        // `pauseProvenance === "engine abort during pause/resume"` arm above):
+        // a hard-cancel teardown that is NOT a user pause or global pause. Used
+        // to gate the auto-continue branch so the gate cannot silently drift if
+        // the human-readable provenance label is ever revised.
+        const isEngineInternalAbort =
+          pausedAborted && !live.userPaused && abortProvenance !== "global-pause";
         if (live.column !== "in-progress") {
           // FN-6782: a pause/resume abort that has left the task back in `todo`
           // is benign — the work is simply re-queued for a fresh dispatch, not
@@ -6698,6 +6705,84 @@ export class TaskExecutor {
             // Safe here: handleGraphFailure is terminal for this run (no seam
             // re-entry), and the next dispatch re-acquires a fresh worktree.
             this.activeWorktrees.delete(task.id);
+            // FNXC:WorkflowLifecycle 2026-06-20-22:42: FN-6782 follow-up — an
+            // "engine abort during pause/resume" is NOT an operator action: the
+            // engine tore down in-flight work (hard-cancel via
+            // abortInFlightTaskWork) while the workflow graph run was ending and
+            // the task got re-queued to todo. Bouncing it back through todo for
+            // a fresh scheduler dispatch is observable churn and used to fire a
+            // spurious failure notification. Instead, continue the agent session
+            // automatically by re-executing in place, bounded by the same
+            // graphResumeRetryCount budget + backoff as the transient-resume
+            // path (and reset to 0 on the next clean graph completion, executor
+            // ~4242) so a genuinely wedged task still falls through to the benign
+            // re-queue after MAX retries rather than looping with no backoff.
+            // Scoped strictly to the engine-internal abort provenance: an
+            // explicit user pause / global pause / task pause that landed in todo
+            // must still wait for an explicit resume (the benign re-queue below).
+            // The graphResumeRetryCount budget is deliberately SHARED with the
+            // transient-resume-after-restart path (executor ~6850): both are
+            // "the graph run ended transiently, re-run it" recoveries, and a
+            // single combined cap is the belt-and-suspenders guard the
+            // executor-retry-storm tests assert against. The count is reset to 0
+            // only on a clean graph completion (~4242) — NOT on the benign
+            // fallback below, so a still-wedged task that exhausts the budget
+            // stops auto-continuing instead of looping (resetting here would
+            // reintroduce a slower storm).
+            if (isEngineInternalAbort) {
+              const priorRetries = live.graphResumeRetryCount ?? 0;
+              if (priorRetries < MAX_TRANSIENT_GRAPH_RESUME_RETRIES) {
+                const nextRetries = priorRetries + 1;
+                const retryMessage = `Workflow graph run ended during ${pauseProvenance} — auto-continuing the agent session (${nextRetries}/${MAX_TRANSIENT_GRAPH_RESUME_RETRIES}) instead of re-queueing to todo`;
+                executorLog.log(`${task.id}: ${retryMessage}`);
+                await this.store.logEntry(task.id, retryMessage, undefined, this.getRunContextFor(task.id));
+                // Emit the Auto-recovered marker BEFORE clearing status so the
+                // status-clearing updateTask's task:updated event already carries
+                // the recovery log — NotificationService.maybeSuppressTransientFailedNotification
+                // (recoveredStatus path) then proactively cancels any pending
+                // failure timer rather than relying on the race-contingent
+                // fire-time re-check.
+                await this.store.logEntry(task.id, "Auto-recovered: engine-internal pause/resume abort — retrying agent session, failure notification suppressed", undefined, this.getRunContextFor(task.id));
+                await this.store.updateTask(task.id, { graphResumeRetryCount: nextRetries, status: null, error: null }, this.getRunContextFor(task.id));
+                await this.persistTokenUsage(task.id);
+                const scheduleRetry = () => {
+                  // Re-fetch at fire time: the snapshot is up to
+                  // TRANSIENT_GRAPH_RESUME_RETRY_BACKOFF_MS stale, and the direct
+                  // execute() bypasses the scheduler's pause filter (we cleared
+                  // pausedAborted at the top of this branch). If a user paused,
+                  // moved, or deleted the task during the backoff window, abort
+                  // the auto-continue and leave it to normal scheduling so we
+                  // never resume work the user just parked.
+                  void (async () => {
+                    try {
+                      const resumeTask = await this.store.getTask(task.id);
+                      if (
+                        resumeTask.deletedAt
+                        || resumeTask.paused
+                        || resumeTask.userPaused
+                        || resumeTask.column !== "todo"
+                      ) {
+                        executorLog.log(
+                          `${task.id}: skipping pause-abort auto-continue — task is now ${resumeTask.deletedAt ? "deleted" : resumeTask.paused || resumeTask.userPaused ? "paused" : `in '${resumeTask.column}'`} at retry fire time`,
+                        );
+                        return;
+                      }
+                      await this.execute(resumeTask);
+                    } catch (err) {
+                      executorLog.error(`Failed pause-abort internal retry for ${task.id}:`, err);
+                    }
+                  })();
+                };
+                if (TRANSIENT_GRAPH_RESUME_RETRY_BACKOFF_MS > 0) {
+                  const handle = setTimeout(scheduleRetry, TRANSIENT_GRAPH_RESUME_RETRY_BACKOFF_MS);
+                  handle.unref?.();
+                } else {
+                  setTimeout(scheduleRetry, 0).unref?.();
+                }
+                return;
+              }
+              executorLog.warn(`${task.id}: engine abort during pause/resume exhausted ${MAX_TRANSIENT_GRAPH_RESUME_RETRIES} internal retries — falling back to benign todo re-queue`);
+            }
             const todoBenign = `Workflow graph run ended during ${pauseProvenance} with task re-queued to todo — benign, cleared for normal scheduling`;
             executorLog.log(`${task.id}: ${todoBenign}`);
             await this.store.logEntry(task.id, todoBenign, undefined, this.getRunContextFor(task.id));
