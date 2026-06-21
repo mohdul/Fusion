@@ -85,6 +85,12 @@ export default function StashConflictModal({
   const [error, setError] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
 
+  /**
+   * FNXC:StashConflictModalI18n 2026-06-20-23:22:
+   * FN-6822 requires the copy-reference accessible name to use the same inline English default for both the rendered button and the initial-focus selector so backend-less i18next does not expose raw keys or break focus targeting.
+   */
+  const copyReferenceLabel = t("stash.copyReference", "Copy stash reference");
+
   useEffect(() => {
     if (open) {
       setRemainingConflicts(autostashOutcome === "failed" ? [] : conflictedFiles);
@@ -103,7 +109,7 @@ export default function StashConflictModal({
     const modalElement = modalRef.current;
     if (modalElement) {
       const focusable = getFocusableElements(modalElement);
-      const preferred = focusable.find((element) => element.getAttribute("aria-label") === t("stash.copyReference")) ?? focusable[0];
+      const preferred = focusable.find((element) => element.getAttribute("aria-label") === copyReferenceLabel) ?? focusable[0];
       if (preferred) {
         preferred.focus();
       } else {
@@ -156,7 +162,7 @@ export default function StashConflictModal({
       }
       previousFocusRef.current = null;
     };
-  }, [open, onClose]);
+  }, [copyReferenceLabel, open, onClose]);
 
   const stashDescriptor = useMemo(() => `Stash ref: ${shortSha(stashSha)} (${stashLabel})`, [stashLabel, stashSha]);
 
@@ -241,7 +247,7 @@ export default function StashConflictModal({
         ) : null}
         <div className="stash-conflict-modal__stash-row">
           <span>{stashDescriptor}</span>
-          <button type="button" className="btn btn-sm btn-icon" onClick={copyRef} aria-label={t("stash.copyReference")}>
+          <button type="button" className="btn btn-sm btn-icon" onClick={copyRef} aria-label={copyReferenceLabel}>
             <Copy aria-hidden="true" />
           </button>
         </div>

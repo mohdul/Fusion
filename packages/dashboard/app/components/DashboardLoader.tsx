@@ -75,12 +75,20 @@ export function DashboardLoader({ stage }: DashboardLoaderProps) {
     return versionUpdated;
   });
 
+  /**
+   * FNXC:DashboardI18n 2026-06-20-23:20:
+   * FN-6822 requires the loader status region accessible name to carry inline English defaults so backend-less test i18next and pre-catalog first paint render the localized label instead of the raw key.
+   */
+  const statusLabel = isVersionUpdate
+    ? t("dashboard.updatingMessage", "Updating Fusion dashboard")
+    : t("dashboard.loadingMessage", "Loading Fusion dashboard");
+
   return (
     <div
       className="dashboard-loader"
       role="status"
       aria-live="polite"
-      aria-label={isVersionUpdate ? t("dashboard.updatingMessage") : t("dashboard.loadingMessage")}
+      aria-label={statusLabel}
       data-stage={stage}
       data-version-update={isVersionUpdate ? "true" : undefined}
     >
