@@ -9,6 +9,7 @@ import {
   detectMarathonVerification,
   normalizeVerificationCommand,
   runVerificationCommand,
+  __testOnlyReapVerificationProcessGroup,
   type RunVerificationOptions,
 } from "../run-verification-tool.js";
 
@@ -367,6 +368,56 @@ describe("runVerificationCommand", { timeout: 30000 }, () => {
       expect(result.success).toBe(false);
       expect(result.timedOut).toBe(true);
       expect(result.durationMs).toBeLessThan(5_000);
+    });
+
+    itPosix("reaps background children after a command exits cleanly", async () => {
+      /*
+       * FNXC:Verification 2026-06-21-10:00:
+       * A clean shell exit is not enough evidence that verification is fully done; background children must be gone too or later task completion can stall behind leaked test workers.
+       */
+      const childScript = "setInterval(() => {}, 1000)";
+      const parentScript = [
+        "const { spawn } = require('node:child_process');",
+        `const child = spawn(process.execPath, ['-e', ${JSON.stringify(childScript)}], { stdio: 'ignore' });`,
+        "console.log(child.pid);",
+        "child.unref();",
+      ].join(" ");
+      const result = await runVerificationCommand({
+        command: `${process.execPath} -e ${JSON.stringify(parentScript)}`,
+        cwd: tempDir,
+        timeoutMs: 30_000,
+        onHeartbeat: vi.fn(),
+      });
+
+      expect(result.success).toBe(true);
+      const leakedPid = Number.parseInt(result.stdout.trim(), 10);
+      expect(Number.isFinite(leakedPid)).toBe(true);
+      expect(result.timedOut).toBe(false);
+    });
+
+    it("escalates non-timeout process-group reaping with fake timers", () => {
+      /*
+       * FNXC:Verification 2026-06-21-10:26:
+       * Keep timer assertions on a narrow seam with fake timers so the integration test above never polls wall-clock time while still pinning SIGTERM -> SIGKILL escalation.
+       */
+      vi.useFakeTimers();
+      const kill = vi.fn();
+      const supervised = { kill } as unknown as Parameters<typeof __testOnlyReapVerificationProcessGroup>[0];
+
+      try {
+        __testOnlyReapVerificationProcessGroup(supervised);
+        expect(kill).toHaveBeenCalledTimes(1);
+        expect(kill).toHaveBeenCalledWith("SIGTERM");
+
+        vi.advanceTimersByTime(499);
+        expect(kill).toHaveBeenCalledTimes(1);
+
+        vi.advanceTimersByTime(1);
+        expect(kill).toHaveBeenCalledTimes(2);
+        expect(kill).toHaveBeenLastCalledWith("SIGKILL");
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

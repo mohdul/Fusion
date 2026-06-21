@@ -1,12 +1,15 @@
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, beforeAll, afterAll } from "vitest";
 import * as extractor from "../goal-citation-extractor.js";
 import { getAgentLogFilePath, readAgentLogEntries } from "../agent-log-file-store.js";
-import { createTaskStoreTestHarness } from "./store-test-helpers.js";
+import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 
 describe("goal citations store integration", () => {
-  const harness = createTaskStoreTestHarness();
+  const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
 
   beforeEach(async () => {
     await harness.beforeEach();

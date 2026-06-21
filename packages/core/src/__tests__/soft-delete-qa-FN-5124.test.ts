@@ -1,10 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, beforeAll, afterAll } from "vitest";
 
 import { TaskDeletedError } from "../store.js";
-import { createTaskStoreTestHarness } from "./store-test-helpers.js";
+import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 
 describe("soft-delete QA boundary audit (FN-5124)", () => {
-  const harness = createTaskStoreTestHarness();
+  const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
 
   beforeEach(async () => {
     await harness.beforeEach();

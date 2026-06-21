@@ -1,9 +1,9 @@
 // @vitest-environment node
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
 
 import type { WorkflowIr } from "../workflow-ir-types.js";
-import { createTaskStoreTestHarness } from "./store-test-helpers.js";
+import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 
 function browserDemoLifecycleIr(): WorkflowIr {
   return {
@@ -33,7 +33,10 @@ function browserDemoLifecycleIr(): WorkflowIr {
 }
 
 describe("browser demo lifecycle workflow", () => {
-  const harness = createTaskStoreTestHarness();
+  const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
   let store: ReturnType<typeof harness.store>;
 
   beforeEach(async () => {

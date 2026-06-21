@@ -366,6 +366,56 @@ test("decideExecutionPlan: expands changed packages with reverse dependents", ()
   assert.deepEqual(plan.packages, ["@fusion/core", "@fusion/engine", "@fusion/dashboard"]);
 });
 
+// FNXC:TestInfrastructure 2026-06-21-10:42: a foundational-package edit must NOT
+// reverse-expand into a whole-workspace vitest sweep. Cap to the directly changed
+// package and delegate reverse-dependent coverage to the merge-gate suite.
+test("decideExecutionPlan: foundational-package edit reverse-blast is capped to direct packages", () => {
+  // 10-package workspace where @fusion/core is depended on by 8 others (>=60%).
+  const dependents = ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"];
+  const reverseDependencyMap = new Map([
+    ["@fusion/core", dependents],
+    ...dependents.map((d) => [d, []]),
+    ["@fusion/standalone", []],
+  ]);
+  const plan = decideExecutionPlan({
+    forceFullSuite: false,
+    comparisonBase: "abc123",
+    changedFiles: ["packages/core/src/store.ts"],
+    packageNameByDir: basePackageMap,
+    reverseDependencyMap,
+  });
+
+  assert.equal(plan.mode, "changed");
+  assert.equal(plan.reason, "reverse-dependent-blast-capped");
+  assert.deepEqual(plan.packages, ["@fusion/core"]);
+});
+
+// A leaf-ish change with only a couple of dependents in a large workspace must
+// still expand normally — the cap is for foundational blast, not any expansion.
+test("decideExecutionPlan: narrow reverse-dependent expansion is NOT capped", () => {
+  const reverseDependencyMap = new Map([
+    ["@fusion/engine", ["@fusion/dashboard"]],
+    ["@fusion/dashboard", []],
+    ["@fusion/core", []],
+    ["p1", []],
+    ["p2", []],
+    ["p3", []],
+    ["p4", []],
+    ["p5", []],
+  ]);
+  const plan = decideExecutionPlan({
+    forceFullSuite: false,
+    comparisonBase: "abc123",
+    changedFiles: ["packages/engine/src/index.ts"],
+    packageNameByDir: basePackageMap,
+    reverseDependencyMap,
+  });
+
+  assert.equal(plan.mode, "changed");
+  assert.equal(plan.reason, undefined);
+  assert.deepEqual(plan.packages, ["@fusion/engine", "@fusion/dashboard"]);
+});
+
 test("decideExecutionPlan: no affected package resolved → gate", () => {
   const plan = decideExecutionPlan({
     forceFullSuite: false,

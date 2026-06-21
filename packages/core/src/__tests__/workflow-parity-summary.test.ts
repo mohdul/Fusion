@@ -1,12 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
 import {
   WORKFLOW_PARITY_OBSERVED_MUTATION,
   WORKFLOW_PARITY_DRIFT_MUTATION,
 } from "../workflow-parity.js";
-import { createTaskStoreTestHarness } from "./store-test-helpers.js";
+import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 
 describe("getWorkflowParitySummary (CU-U5)", () => {
-  const harness = createTaskStoreTestHarness();
+  const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
   let store: ReturnType<typeof harness.store>;
 
   beforeEach(async () => {

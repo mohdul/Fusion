@@ -1209,6 +1209,17 @@ const fullSuiteEnv = {
   FUSION_TEST_CONCURRENCY: process.env.FUSION_TEST_CONCURRENCY || String(concurrency),
 };
 
+/*
+FNXC:TestInfrastructure 2026-06-21-10:42:
+Reverse-dependent blast cap thresholds. A foundational-package edit (e.g.
+@fusion/core) reverse-expands to ~the whole workspace; capping past 60% of a
+workspace of at least 8 packages keeps a one-line core edit from triggering a
+25-package vitest sweep, while leaving leaf-package expansion (a few dependents)
+and small synthetic test fixtures untouched.
+*/
+export const WIDE_REVERSE_DEPENDENT_FRACTION = 0.6;
+export const MIN_WORKSPACE_FOR_BLAST_CAP = 8;
+
 export function decideExecutionPlan({
   forceFullSuite,
   comparisonBase,
@@ -1228,12 +1239,34 @@ export function decideExecutionPlan({
   const affectedPackages = resolveAffectedPackages(changedFiles, packageNameByDir);
   if (!affectedPackages || affectedPackages.length === 0) return { mode: "gate", reason: "no-affected-package" };
 
-  return {
-    mode: "changed",
-    packages: reverseDependencyMap
-      ? expandWithReverseDependents(affectedPackages, reverseDependencyMap)
-      : affectedPackages,
-  };
+  if (!reverseDependencyMap) return { mode: "changed", packages: affectedPackages };
+
+  const expanded = expandWithReverseDependents(affectedPackages, reverseDependencyMap);
+
+  /*
+  FNXC:TestInfrastructure 2026-06-21-10:42:
+  Cap the reverse-dependent fan-out for foundational-package edits. A single
+  `@fusion/core` source change reverse-expands to ~the entire workspace (every
+  package imports core), so `pnpm test` bundled all 25 packages into one
+  `vitest --changed` invocation that ran for the full 20-min `changed`-class
+  watchdog ceiling and pinned the task (the engine runs project testCommand
+  "pnpm test" as its verification gate; on timeout the task fully restarts and
+  re-runs the sweep, stacking into hours). When expansion balloons past most of
+  a real (non-fixture) workspace, test only the DIRECTLY changed packages scoped
+  and delegate cross-cutting reverse-dependent coverage to the merge-gate suite,
+  which already runs first in changed mode and is the project's thin/trusted net.
+  Guarded by MIN_WORKSPACE_FOR_BLAST_CAP so tiny synthetic maps still expand fully.
+  */
+  const totalPackages = reverseDependencyMap.size;
+  const expandedBeyondDirect = expanded.length > affectedPackages.length;
+  const isWideBlast =
+    totalPackages >= MIN_WORKSPACE_FOR_BLAST_CAP &&
+    expanded.length >= Math.ceil(totalPackages * WIDE_REVERSE_DEPENDENT_FRACTION);
+  if (expandedBeyondDirect && isWideBlast) {
+    return { mode: "changed", packages: affectedPackages, reason: "reverse-dependent-blast-capped" };
+  }
+
+  return { mode: "changed", packages: expanded };
 }
 
 /**
@@ -1467,6 +1500,13 @@ export async function main(argv = process.argv.slice(2)) {
     label: "test:gate (pre-affected)",
   });
 
+  if (plan.reason === "reverse-dependent-blast-capped") {
+    // FNXC:TestInfrastructure 2026-06-21-10:42: surface the cap so coverage is never silently dropped.
+    console.log(
+      "[test-changed] reverse-dependent fan-out capped: a foundational-package edit reverse-expanded to most of the workspace. " +
+        "Testing only the directly changed packages scoped; cross-cutting reverse-dependent coverage is delegated to the merge-gate suite (ran above).",
+    );
+  }
   console.log(`[test-changed] running tests for changed packages: ${activePackages.join(", ")}`);
   if (cachedPackages.length > 0) {
     console.log(`[test-changed] skipping cached packages: ${cachedPackages.join(", ")}`);

@@ -1,14 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
 
 import { isBuiltinWorkflowId } from "../builtin-workflows.js";
-import { createTaskStoreTestHarness } from "./store-test-helpers.js";
+import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 
 /**
  * U2 / R5 / KTD-3 — lazy idempotent migration of legacy user-authored workflow
  * steps into the dual fragment + combined-workflow representation.
  */
 describe("TaskStore.migrateLegacyWorkflowSteps (U2/R5)", () => {
-  const harness = createTaskStoreTestHarness();
+  const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
   let store: ReturnType<typeof harness.store>;
 
   beforeEach(async () => {

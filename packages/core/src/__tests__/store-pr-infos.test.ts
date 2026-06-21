@@ -1,9 +1,12 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
 import type { PrInfo } from "../types.js";
-import { createTaskStoreTestHarness } from "./store-test-helpers.js";
+import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 
 describe("TaskStore prInfos", () => {
-  const harness = createTaskStoreTestHarness();
+  const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
   let store: ReturnType<typeof harness.store>;
 
   const pr = (number: number, patch: Partial<PrInfo> = {}): PrInfo => ({

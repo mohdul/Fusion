@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 
 import { appendFile, readFile, writeFile, mkdir, rm, readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
@@ -10,13 +10,22 @@ import { DependencyCycleError, TaskStore, TaskHasDependentsError } from "../stor
 import { setCreateFnAgent } from "../ai-engine-loader.js";
 import { setTaskCreatedHook } from "../task-creation-hooks.js";
 import { buildResearchDocumentKey, type Task } from "../types.js";
-import { createTaskStoreTestHarness, makeTmpDir } from "./store-test-helpers.js";
+import { createSharedTaskStoreTestHarness, makeTmpDir } from "./store-test-helpers.js";
 
 describe("TaskStore", () => {
-  const harness = createTaskStoreTestHarness();
+  // FNXC:TestInfrastructure 2026-06-21-11:30:
+  // Use the shared in-memory harness (build store once, truncate+reset between
+  // tests) instead of per-test recreate. Per-test mkdtemp + new TaskStore +
+  // recursive rm dominated this 51-test file's wall-clock; the shared harness
+  // amortizes setup while preserving isolation via full table truncation +
+  // filesystem reset. Part of the FN-5048 "do not add slow tests" cleanup.
+  const harness = createSharedTaskStoreTestHarness();
   let rootDir: string;
   let globalDir: string;
   let store: TaskStore;
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
 
   beforeEach(async () => {
     await harness.beforeEach();

@@ -1,10 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, beforeAll, afterAll } from "vitest";
 import {
   detectSelfDefeatingDependency,
   SELF_DEFEATING_OPERATION_VERBS,
   SelfDefeatingDependencyError,
 } from "../store.js";
-import { createTaskStoreTestHarness } from "./store-test-helpers.js";
+import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 
 describe("self-defeating dependency detection", () => {
   it.each(SELF_DEFEATING_OPERATION_VERBS)("matches verb %s", (verb) => {
@@ -50,7 +50,10 @@ describe("self-defeating dependency detection", () => {
 });
 
 describe("TaskStore create-time self-defeating dep guard", () => {
-  const harness = createTaskStoreTestHarness();
+  const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
 
   beforeEach(async () => {
     await harness.beforeEach();

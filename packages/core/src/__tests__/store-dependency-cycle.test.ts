@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, beforeAll, afterAll } from "vitest";
 import {
   DependencyCycleError,
   detectDependencyCycle,
 } from "../store.js";
-import { createTaskStoreTestHarness } from "./store-test-helpers.js";
+import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 
 describe("detectDependencyCycle", () => {
   const lookup = (graph: Record<string, string[]>) => (taskId: string) => graph[taskId];
@@ -45,7 +45,10 @@ describe("detectDependencyCycle", () => {
 });
 
 describe("TaskStore dependency cycle guard", () => {
-  const harness = createTaskStoreTestHarness();
+  const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
 
   beforeEach(async () => {
     await harness.beforeEach();

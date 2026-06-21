@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, beforeAll, afterAll } from "vitest";
 
 const { summarizeTitleMock } = vi.hoisted(() => ({
   summarizeTitleMock: vi.fn(),
@@ -13,10 +13,13 @@ vi.mock("../ai-summarize.js", async (importOriginal) => {
 });
 
 import { setTaskCreatedHook } from "../task-creation-hooks.js";
-import { createTaskStoreTestHarness } from "./store-test-helpers.js";
+import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 
 describe("task creation hook", () => {
-  const harness = createTaskStoreTestHarness();
+  const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
 
   beforeEach(async () => {
     setTaskCreatedHook(undefined);

@@ -14,8 +14,8 @@
 //   - concurrent move-vs-delete under the task lock ends moved-then-re-homed or
 //     re-homed, never lost/undefined.
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { createTaskStoreTestHarness } from "./store-test-helpers.js";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
+import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 import type { WorkflowIr } from "../workflow-ir-types.js";
 import {
   OccupiedColumnsError,
@@ -51,7 +51,10 @@ function customIr(name: string, cols: string[], entryId: string): WorkflowIr {
 }
 
 describe("workflow reconciliation (U5)", () => {
-  const harness = createTaskStoreTestHarness();
+  const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
   let store: ReturnType<typeof harness.store>;
 
   beforeEach(async () => {

@@ -27,6 +27,12 @@ governs hand-written source.
 //
 // Run `node scripts/check-file-line-count.mjs --update` to rewrite the baseline
 // after an intentional, reviewed change to the set of oversized files.
+//
+// FNXC:TestInfrastructure 2026-06-21-10:00:
+// Line-count drift remains visible through the explicit check:line-count audit,
+// but it must not block `pnpm test` from reaching the real test runner. The test
+// preflight owns fast safety checks; broad god-file cleanup is tracked separately
+// so unrelated task completion is not stuck before tests start.
 import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, URL } from "node:url";

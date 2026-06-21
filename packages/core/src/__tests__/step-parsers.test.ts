@@ -1,8 +1,8 @@
-import { describe, it, expect, afterEach, beforeEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, beforeAll, afterAll } from "vitest";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { createTaskStoreTestHarness } from "./store-test-helpers.js";
+import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 import {
   StepParserRegistry,
   StepParserRegistrationError,
@@ -266,7 +266,10 @@ describe("step-parsers registry (U12, KTD-12)", () => {
   });
 
   describe("parseStepsFromPrompt-through-registry parity (KTD-12)", () => {
-    const harness = createTaskStoreTestHarness();
+    const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
 
     beforeEach(async () => {
       await harness.beforeEach();

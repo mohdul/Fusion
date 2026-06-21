@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi, beforeAll, afterAll } from "vitest";
 
 import { appendFile, readFile, writeFile, mkdir, rm, readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
@@ -9,10 +9,13 @@ import { CentralDatabase } from "../central-db.js";
 import { TaskStore, TaskHasDependentsError } from "../store.js";
 import { allowsAutoMergeProcessing, resolveEffectiveAutoMerge } from "../task-merge.js";
 import { buildResearchDocumentKey, type Task } from "../types.js";
-import { createTaskStoreTestHarness, makeTmpDir } from "./store-test-helpers.js";
+import { createSharedTaskStoreTestHarness, makeTmpDir } from "./store-test-helpers.js";
 
 describe("TaskStore", () => {
-  const harness = createTaskStoreTestHarness();
+  const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
   let rootDir: string;
   let globalDir: string;
   let store: TaskStore;

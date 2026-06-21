@@ -1,12 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi, beforeAll, afterAll } from "vitest";
 
 import { setCreateFnAgent } from "../ai-engine-loader.js";
 import { TaskStore } from "../store.js";
 import { setTaskCreatedHook } from "../task-creation-hooks.js";
-import { createTaskStoreTestHarness } from "./store-test-helpers.js";
+import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 
 describe("TaskStore createTask title summarization deferred hook", () => {
-  const harness = createTaskStoreTestHarness();
+  const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
   let store: TaskStore;
 
   beforeEach(async () => {

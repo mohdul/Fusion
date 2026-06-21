@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
 
 import {
   validateSettingValuePatch,
@@ -8,7 +8,7 @@ import {
 } from "../workflow-settings.js";
 import type { WorkflowSettingDefinition, WorkflowIrV2 } from "../workflow-ir-types.js";
 import { BUILTIN_WORKFLOW_SETTINGS } from "../builtin-workflow-settings.js";
-import { createTaskStoreTestHarness } from "./store-test-helpers.js";
+import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 
 const BUILTIN_CODING = "builtin:coding";
 const PROJECT = "proj-1";
@@ -174,7 +174,10 @@ describe("findOrphanedSettingValues", () => {
 // ───────────────────────────────────────────────────────────────────────────
 
 describe("TaskStore.updateWorkflowSettingValues", () => {
-  const harness = createTaskStoreTestHarness();
+  const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
   beforeEach(harness.beforeEach);
   afterEach(harness.afterEach);
 

@@ -1,8 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { createTaskStoreTestHarness } from "./store-test-helpers.js";
+import { describe, it, expect, beforeEach, afterEach, vi, beforeAll, afterAll } from "vitest";
+import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 
 describe("TaskStore execution timing semantics", () => {
-  const harness = createTaskStoreTestHarness();
+  const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
   let store = harness.store();
 
   beforeEach(async () => {

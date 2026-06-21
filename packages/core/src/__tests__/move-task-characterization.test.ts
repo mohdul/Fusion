@@ -16,11 +16,11 @@
 // BOTH flag states (workflowColumns OFF and ON) — see the `flagStates` loop.
 // Any divergence between the two flag states is a U4 parity FAILURE.
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
 import { allowsAutoMergeProcessing, resolveEffectiveAutoMerge } from "../task-merge.js";
 import { VALID_TRANSITIONS } from "../types.js";
 import type { Column, Task } from "../types.js";
-import { createTaskStoreTestHarness } from "./store-test-helpers.js";
+import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 
 const ALL_COLUMNS: Column[] = ["triage", "todo", "in-progress", "in-review", "done", "archived"];
 const MOVE_SOURCES = ["user", "engine", "scheduler"] as const;
@@ -35,7 +35,10 @@ const flagStates: Array<{ label: string; workflowColumns: boolean }> = [
 
 for (const flag of flagStates) {
   describe(`moveTaskInternal characterization — ${flag.label}`, () => {
-    const harness = createTaskStoreTestHarness();
+    const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
     let store: ReturnType<typeof harness.store>;
 
     beforeEach(async () => {

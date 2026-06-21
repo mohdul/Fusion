@@ -1,9 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { createTaskStoreTestHarness } from "./store-test-helpers.js";
+import { describe, it, expect, beforeEach, afterEach, vi, beforeAll, afterAll } from "vitest";
+import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 
 describe("TaskStore", () => {
   // FN-5048: watcher polling tests run faster with per-test harness than shared FTS-rebuild resets.
-  const harness = createTaskStoreTestHarness();
+  const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
 
   beforeEach(harness.beforeEach);
   afterEach(harness.afterEach);

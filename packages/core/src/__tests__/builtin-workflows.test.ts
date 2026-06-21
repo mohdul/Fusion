@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
 
 import {
   BUILTIN_WORKFLOWS,
@@ -13,7 +13,7 @@ import { BUILTIN_WORKFLOW_SETTINGS } from "../builtin-workflow-settings.js";
 import { resolveColumnFlags } from "../trait-registry.js";
 import { compileWorkflowToSteps } from "../workflow-compiler.js";
 import { DEFAULT_WORKFLOW_COLUMN_IDS, parseWorkflowIr, serializeWorkflowIr } from "../workflow-ir.js";
-import { createTaskStoreTestHarness } from "./store-test-helpers.js";
+import { createSharedTaskStoreTestHarness } from "./store-test-helpers.js";
 
 const EXECUTE_NODE_MAX_RETRIES = 2;
 
@@ -414,7 +414,10 @@ describe("built-in workflows", () => {
   });
 
   describe("store integration", () => {
-    const harness = createTaskStoreTestHarness();
+    const harness = createSharedTaskStoreTestHarness();
+
+  beforeAll(harness.beforeAll);
+  afterAll(harness.afterAll);
     let store: ReturnType<typeof harness.store>;
     beforeEach(async () => {
       await harness.beforeEach();
