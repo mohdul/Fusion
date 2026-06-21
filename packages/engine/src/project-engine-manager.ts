@@ -51,6 +51,15 @@ export class ProjectEngineManager {
   private engines = new Map<string, ProjectEngine>();
   private starting = new Map<string, Promise<ProjectEngine>>();
   private singletonLocks = new Map<string, EngineSingletonLock>();
+  /**
+   * Projects whose engine is owned by ANOTHER fusion process on this machine.
+   * Populated when `acquireEngineSingleton` rejects with
+   * {@link EngineAlreadyRunningError} — that error is positive proof an engine
+   * is live for the project, just not owned by us. We keep retrying to start
+   * (so we take over if the other process dies), but the dashboard must report
+   * the engine as available rather than showing an "engine not running" banner.
+   */
+  private externalEngines = new Set<string>();
   private stopped = false;
 
   /**
@@ -108,6 +117,21 @@ export class ProjectEngineManager {
   /** Get all running engines. */
   getAllEngines(): ReadonlyMap<string, ProjectEngine> {
     return this.engines;
+  }
+
+  /**
+   * Whether an engine is running for any project on this machine — including
+   * engines owned by another fusion process (detected via the singleton lock).
+   * Drives the dashboard's "engine available" health so a UI-only launch
+   * alongside an already-running engine does not show a false banner.
+   */
+  hasRunningEngine(): boolean {
+    return this.engines.size > 0 || this.externalEngines.size > 0;
+  }
+
+  /** Project ids whose engine is owned by another fusion process on this machine. */
+  getExternalEngineIds(): ReadonlySet<string> {
+    return this.externalEngines;
   }
 
   /** Get the TaskStore for a project from its engine. */
@@ -262,6 +286,7 @@ export class ProjectEngineManager {
     await Promise.all(stops);
     this.engines.clear();
     this.starting.clear();
+    this.externalEngines.clear();
 
     // Release all singleton locks so another fusion process can take over.
     const releases = Array.from(this.singletonLocks.values()).map((lock) =>
@@ -427,9 +452,16 @@ export class ProjectEngineManager {
       },
     ).catch((err) => {
       if (err instanceof EngineAlreadyRunningError) {
-        runtimeLog.warn(
-          `Refusing to start engine for ${projectId}: ${err.message}`,
-        );
+        // An engine IS running for this project — another fusion process owns
+        // it. Record it so the dashboard reports the engine as available, and
+        // log only on the first detection to avoid spamming every 30s
+        // reconciliation tick while the other process stays alive.
+        if (!this.externalEngines.has(projectId)) {
+          runtimeLog.warn(
+            `Refusing to start engine for ${projectId}: ${err.message}`,
+          );
+        }
+        this.externalEngines.add(projectId);
       }
       throw err;
     });
@@ -452,6 +484,8 @@ export class ProjectEngineManager {
 
     this.engines.set(projectId, engine);
     this.starting.delete(projectId);
+    // We now own the engine — clear any prior "owned by another process" marker.
+    this.externalEngines.delete(projectId);
     runtimeLog.log(
       `Started engine for ${project.name ?? projectId} (${projectId})`,
     );
