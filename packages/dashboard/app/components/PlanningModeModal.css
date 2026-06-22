@@ -74,6 +74,17 @@ FN-6886 promotes Planning Mode into the main app content area. The embedded shel
 
 /*
 FNXC:PlanningMode 2026-06-22-00:00:
+Embedded planning must blend into the main content like Command Center: no panel shadow, no border/outline, no rounded card chrome, and a transparent background so the view sits flush on the project-content surface. Higher specificity (.planning-view .planning-modal--embedded) is required to beat the base .modal shadow/border/background.
+*/
+.planning-view .planning-modal--embedded {
+  box-shadow: none;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+/*
+FNXC:PlanningMode 2026-06-22-00:00:
 The embedded planning title must read like other embedded-view titles (Command Center cc-header/cc-title): a plain heading with no tinted modal-header bar, no bottom divider, and no close button. Strip the modal-header background/border and align the title to the content edge; bump the heading to the shared 1.125rem embedded-title size.
 */
 .planning-modal--embedded .modal-header--embedded {

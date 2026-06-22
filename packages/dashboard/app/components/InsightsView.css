@@ -7,10 +7,16 @@
   overflow: hidden;
 }
 
+/*
+FNXC:Insights 2026-06-22-00:00:
+The header title and action buttons must never overlap: allow the row to wrap so the actions drop to a new line when there is not enough horizontal room. The gap keeps spacing between the wrapped rows.
+*/
 .insights-view-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
   padding: var(--space-lg);
   border-bottom: 1px solid var(--border);
   background: var(--surface);

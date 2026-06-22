@@ -556,6 +556,15 @@ FN-6529 requires list-view agent-active tasks to use a simple static highlight i
   white-space: nowrap;
 }
 
+/*
+FNXC:ListView 2026-06-22-00:00:
+In the split sidebar the title cell must allow the title to wrap to two lines (handled by .list-title-text clamp) instead of being capped/truncated to one line, so the left panel can be dragged much narrower while titles stay legible.
+*/
+.list-split-sidebar .list-cell-title {
+  max-width: none;
+  white-space: normal;
+}
+
 .list-title-content {
   display: flex;
   flex-direction: column;

@@ -191,6 +191,11 @@ export const STATIC_OVERFLOW_VIEW_ENTRIES: readonly OverflowViewEntry[] = [
 function buildPluginOverflowViewEntries(pluginDashboardViews: PluginDashboardViewEntry[] = []): OverflowViewEntry[] {
   return pluginDashboardViews
     .filter((entry) => entry.view.placement !== "primary")
+    /*
+    FNXC:Navigation 2026-06-22-00:00:
+    The dependency graph must not appear in the right sidebar; it remains a left-sidebar destination only.
+    */
+    .filter((entry) => entry.pluginId !== "fusion-plugin-dependency-graph")
     .sort((a, b) => (a.view.order ?? Number.MAX_SAFE_INTEGER) - (b.view.order ?? Number.MAX_SAFE_INTEGER))
     .map((entry) => {
       const pluginTaskView = buildPluginTaskViewId(entry.pluginId, entry.view.viewId);
