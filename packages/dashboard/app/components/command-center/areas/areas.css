@@ -312,7 +312,7 @@ Team owns the Agent org chart and Heartbeat control. Org nodes must be self-styl
 }
 
 .cc-team-org-scroll {
-  max-block-size: calc(var(--space-2xl) * 10);
+  max-block-size: calc(var(--space-2xl) * 13);
   overflow: auto;
   overscroll-behavior: contain;
 }
@@ -341,6 +341,9 @@ Team owns the Agent org chart and Heartbeat control. Org nodes must be self-styl
 /*
 FNXC:CommandCenter 2026-06-21-00:00:
 The Team tab org chart should use a horizontal top-down tree when the shared Agents-view width resolver says the container can fit it, while vertical connector/indent styles remain scoped to vertical mode so they do not leave visual shells in horizontal mode.
+
+FNXC:CommandCenter 2026-06-21-00:00:
+The Team org-chart viewport must be taller and every parent with children must draw connector lines in vertical and horizontal layouts across desktop and mobile. Attach connector pseudo-elements only to child lists/items so leaf nodes without a .cc-team-org-children list never render dangling stubs.
 */
 .cc-team-org-scroll[data-layout="horizontal"] .cc-team-org-roots,
 .cc-team-org-scroll[data-layout="horizontal"] .cc-team-org-children {
@@ -351,7 +354,30 @@ The Team tab org chart should use a horizontal top-down tree when the shared Age
 }
 
 .cc-team-org-scroll[data-layout="horizontal"] .cc-team-org-children {
+  position: relative;
   margin-block-start: var(--space-md);
+  padding-block-start: var(--space-md);
+}
+
+.cc-team-org-scroll[data-layout="horizontal"] .cc-team-org-children::before,
+.cc-team-org-scroll[data-layout="horizontal"] .cc-team-org-children::after,
+.cc-team-org-scroll[data-layout="horizontal"] .cc-team-org-children > .cc-team-org-item::before {
+  position: absolute;
+  content: "";
+  pointer-events: none;
+}
+
+.cc-team-org-scroll[data-layout="horizontal"] .cc-team-org-children::before {
+  inset-block-start: calc(var(--space-md) * -1);
+  inset-inline-start: 50%;
+  block-size: var(--space-md);
+  border-inline-start: thin solid var(--border-subtle);
+}
+
+.cc-team-org-scroll[data-layout="horizontal"] .cc-team-org-children::after {
+  inset-block-start: calc(var(--space-md) / 2);
+  inset-inline: 0;
+  border-block-start: thin solid var(--border-subtle);
 }
 
 .cc-team-org-item {
@@ -359,9 +385,17 @@ The Team tab org chart should use a horizontal top-down tree when the shared Age
 }
 
 .cc-team-org-scroll[data-layout="horizontal"] .cc-team-org-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+
+.cc-team-org-scroll[data-layout="horizontal"] .cc-team-org-children > .cc-team-org-item::before {
+  inset-block-start: calc(var(--space-md) * -1);
+  inset-inline-start: 50%;
+  block-size: var(--space-md);
+  border-inline-start: thin solid var(--border-subtle);
 }
 
 .cc-team-org-card {
@@ -527,7 +561,7 @@ Tablet Command Center areas share the FN-6679 overflow fix with the shell: area 
   }
 
   .cc-team-org-scroll {
-    max-block-size: calc(var(--space-2xl) * 8);
+    max-block-size: calc(var(--space-2xl) * 10);
   }
 
   .cc-team-org-scroll[data-layout="horizontal"] .cc-team-org-roots,
