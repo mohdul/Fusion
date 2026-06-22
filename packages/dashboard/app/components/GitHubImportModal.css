@@ -960,6 +960,28 @@ The embedded root is a plain flow box that fills the host; the inner shell sheds
   box-shadow: none;
   border-radius: 0;
   resize: none;
+  padding: var(--space-lg);
+}
+
+/*
+FNXC:RightDockEmbedding 2026-06-22-00:40:
+Import Tasks embedded header reads like Command Center (cc-header/cc-title): a plain title row with the GitHub logo and the shared 1.125rem embedded-title font, no modal-header bar/background/border.
+*/
+.github-import-modal__embedded-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding-bottom: var(--space-md);
+}
+
+.github-import-modal__embedded-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0;
+  font-size: 1.125rem;
 }
 
 /*

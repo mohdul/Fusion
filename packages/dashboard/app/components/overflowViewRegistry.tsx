@@ -1,9 +1,11 @@
-import { Suspense, type ComponentType, type ReactNode } from "react";
+import { Suspense, lazy, type ComponentType, type ReactNode } from "react";
 import {
   Activity,
   Folder,
   GitBranch,
   History,
+  Lock,
+  Monitor,
   type LucideProps,
 } from "lucide-react";
 import type { Task, TaskDetail, WorkflowStep } from "@fusion/core";
@@ -19,11 +21,20 @@ import { UsageIndicator } from "./UsageIndicator";
 import { ActivityLogModal } from "./ActivityLogModal";
 import { GitManagerModal } from "./GitManagerModal";
 
+/*
+FNXC:Navigation 2026-06-22-00:40:
+Dev Server and Secrets are right-dock tools (moved off the left sidebar). They render inline in the dock; Dev Server is gated by the devServerView experimental flag. Lazy-loaded to keep them out of the main bundle.
+*/
+const DevServerView = lazy(() => import("./DevServerView").then((m) => ({ default: m.DevServerView })));
+const SecretsView = lazy(() => import("./SecretsView").then((m) => ({ default: m.SecretsView })));
+
 export type OverflowViewKey =
   | "usage"
   | "activity-log"
   | "git-manager"
   | "files"
+  | "devserver"
+  | "secrets"
   | `plugin:${string}:${string}`;
 
 export interface OverflowViewFeatureState {
@@ -147,6 +158,21 @@ export const STATIC_OVERFLOW_VIEW_ENTRIES: readonly OverflowViewEntry[] = [
         presentation="embedded"
       />,
     ),
+  },
+  {
+    key: "devserver",
+    label: "Dev Server",
+    icon: Monitor,
+    testId: "right-dock-tab-devserver",
+    isVisible: (options) => options.experimentalFeatures?.devServerView === true,
+    render: (props) => wrapOverflowView(<DevServerView addToast={props.addToast} projectId={props.projectId} />),
+  },
+  {
+    key: "secrets",
+    label: "Secrets",
+    icon: Lock,
+    testId: "right-dock-tab-secrets",
+    render: (props) => wrapOverflowView(<SecretsView addToast={props.addToast} />),
   },
 ];
 
