@@ -287,26 +287,43 @@ function expectSparklineHeightsFinite(testId: string): void {
   }
 }
 
+function viewBoxNumbers(chart: Element): [number, number, number, number] {
+  return (chart.getAttribute("viewBox") ?? "")
+    .split(/\s+/)
+    .map(Number) as [number, number, number, number];
+}
+
 function expectSvgLinePointsInsideViewBox(testId: string, label: string): void {
   const section = screen.getByTestId(testId);
   const chart = within(section).getByRole("img", { name: label });
+  const [, , viewBoxWidth, viewBoxHeight] = viewBoxNumbers(chart);
   for (const point of Array.from(chart.querySelectorAll(".cc-line-chart-point"))) {
     const cx = Number(point.getAttribute("cx"));
     const cy = Number(point.getAttribute("cy"));
     const r = Number(point.getAttribute("r"));
     expect(cx).toBeGreaterThanOrEqual(r);
-    expect(cx).toBeLessThanOrEqual(100 - r);
+    expect(cx).toBeLessThanOrEqual(viewBoxWidth - r);
     expect(cy).toBeGreaterThanOrEqual(r);
-    expect(cy).toBeLessThanOrEqual(100 - r);
+    expect(cy).toBeLessThanOrEqual(viewBoxHeight - r);
   }
 }
 
-function expectSvgLineMarkersUndistorted(testId: string, label: string): void {
+function expectSvgLineFillsBoxAndKeepsRoundMarkers(testId: string, label: string): void {
   const section = screen.getByTestId(testId);
   const chart = within(section).getByRole("img", { name: label });
-  expect(chart.getAttribute("preserveAspectRatio")).toBe("xMidYMid meet");
-  expect(chart.getAttribute("preserveAspectRatio")).not.toBe("none");
+  const [, , viewBoxWidth, viewBoxHeight] = viewBoxNumbers(chart);
+  const line = chart.querySelector(".cc-line-chart-path");
+  const pointPairs = (line?.getAttribute("points") ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((pair) => pair.split(",").map(Number) as [number, number]);
+  expect(viewBoxWidth).toBeGreaterThan(viewBoxHeight);
+  expect(chart.getAttribute("preserveAspectRatio")).toBe("none");
+  expect(chart.getAttribute("viewBox")).not.toBe("0 0 100 100");
   expect(chart.querySelectorAll(".cc-line-chart-point").length).toBeGreaterThan(0);
+  expect(pointPairs[0]?.[0]).toBe(3);
+  expect(pointPairs.at(-1)?.[0]).toBe(viewBoxWidth - 3);
 }
 
 describe("useAnalyticsArea", () => {
@@ -403,13 +420,13 @@ describe("ActivityArea", () => {
     expect(screen.getByRole("img", { name: "Activity trend" })).toHaveAttribute("data-scale-mode", "series");
     expectRechartsWrapperWithin("cc-activity-pie", "Agent run outcome share");
     expectSvgLinePointsInsideViewBox("cc-activity-line-messages", "Messages / day");
-    expectSvgLineMarkersUndistorted("cc-activity-line-messages", "Messages / day");
+    expectSvgLineFillsBoxAndKeepsRoundMarkers("cc-activity-line-messages", "Messages / day");
     expectSvgLinePointsInsideViewBox("cc-activity-line-agents", "Active agents / day");
-    expectSvgLineMarkersUndistorted("cc-activity-line-agents", "Active agents / day");
+    expectSvgLineFillsBoxAndKeepsRoundMarkers("cc-activity-line-agents", "Active agents / day");
     expectSvgLinePointsInsideViewBox("cc-activity-line-nodes", "Active nodes / day");
-    expectSvgLineMarkersUndistorted("cc-activity-line-nodes", "Active nodes / day");
+    expectSvgLineFillsBoxAndKeepsRoundMarkers("cc-activity-line-nodes", "Active nodes / day");
     expectSvgLinePointsInsideViewBox("cc-activity-line-throughput", "Throughput / day");
-    expectSvgLineMarkersUndistorted("cc-activity-line-throughput", "Throughput / day");
+    expectSvgLineFillsBoxAndKeepsRoundMarkers("cc-activity-line-throughput", "Throughput / day");
     expect(within(screen.getByTestId("cc-activity-agent-runs-sparkline")).getByRole("img", { name: "Agent runs / day" }).classList).toContain("cc-sparkline");
     expectSparklineHeightsFinite("cc-activity-agent-runs-sparkline");
   });

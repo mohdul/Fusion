@@ -349,8 +349,8 @@ The token-over-time chart is live-updated and animated, but the motion is decora
 FNXC:CommandCenterStyling 2026-06-18-14:29:
 Line-chart motion is decorative, token-timed, and disabled for reduced-motion users; sizing and stroke colors stay on design tokens so the Activity area remains readable across desktop and mobile without chart-specific hardcoded colors or lengths.
 
-FNXC:CommandCenterCharts 2026-06-20-22:59:
-FN-6818 keeps the CSS box wide/short for the Activity layout while the SVG now uses uniform scaling for geometry. Do not switch the square viewBox back to non-uniform scaling to fill this box: that made point markers render as ovals on mobile, and non-scaling stroke was insufficient because it did not protect circle coordinates.
+FNXC:CommandCenterCharts 2026-06-21-17:10:
+FN-6883 keeps the Activity line chart CSS box wide/short while the SVG coordinate system now tracks the rendered box. FN-6818's square `xMidYMid meet` viewBox kept markers circular but collapsed the plot into a centered square with blank margins; the measured viewBox fills desktop and mobile boxes while preserving round markers.
 */
 .cc-line-chart {
   display: block;
