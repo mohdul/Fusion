@@ -1251,6 +1251,14 @@ Bring the embedded Automations header to the canonical ViewHeader treatment: edg
   margin-inline: var(--space-xl);
 }
 
+/*
+FNXC:Automations 2026-06-23-04:45:
+With the header now edge-to-edge (its own border-bottom divider), the first body row sat too close to the divider. Add a small top margin on the first non-header child so the body content gets breathing room below the divider instead of reading flush against it. Scoped to the first body row only (the flex gap handles spacing between subsequent rows).
+*/
+.automations-embedded-header + :not(.automations-embedded-header) {
+  margin-top: var(--space-sm);
+}
+
 .automations-embedded-view > :last-child:not(.automations-embedded-header) {
   margin-bottom: var(--space-lg);
 }

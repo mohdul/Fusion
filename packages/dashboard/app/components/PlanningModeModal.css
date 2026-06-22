@@ -91,6 +91,11 @@ Embedded planning must blend into the main content like Command Center: no panel
   border: none;
   border-radius: 0;
   background: transparent;
+  /*
+  FNXC:Planning 2026-06-23-04:45:
+  The base .modal sets max-height:80vh; that wins over the equal-specificity .planning-modal--embedded { max-height:none } by source order, so the embedded panel was capped at 80vh (≈576px) and stopped ~49px short of the .planning-view bottom (measured: embedded bottom 635 vs view bottom 684). Re-assert max-height:none here at higher specificity (.planning-view .planning-modal--embedded) so the embedded shell — and therefore the sidebar list+footer and the detail pane below it — fills the full main-content height with no bottom gap, in both the initial (no-session) and active-session states.
+  */
+  max-height: none;
 }
 
 /*
