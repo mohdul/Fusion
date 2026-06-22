@@ -2791,9 +2791,10 @@ export function ModelOnboardingModal({
 
                   {hasProjectSelected && (
                     <>
+                      {/* FNXC:Onboarding 2026-06-22-04:01: The provider/GitHub onboarding flow also reaches task creation, so it must repeat that users can create tasks without creating or assigning a persistent agent; Fusion spawns temporary plan/execute/review/merge agents for task work. */}
                       <OnboardingDisclosure summary={t("setup.whatHappensWhenCreateTask", "What happens when I create a task?")}>
                         <p className="onboarding-helper-text">
-                          {t("setup.whatHappensWhenCreateTaskBody", "A task describes something you want done. Fusion's AI agents will read your description and work on implementing it. You can track progress on the board and review the results.")}
+                          {t("setup.whatHappensWhenCreateTaskBody", "A task describes something you want done. You do not need to create or assign a persistent agent first: Fusion automatically spawns temporary agents to plan, execute, review, and merge task work. You can track progress on the board and review the results.")}
                         </p>
                       </OnboardingDisclosure>
 
@@ -2808,7 +2809,7 @@ export function ModelOnboardingModal({
                           </div>
                           <div className="cta-content">
                             <strong>{t("setup.createNewTask", "Create a New Task")}</strong>
-                            <span>{t("setup.createNewTaskSubtitle", "Describe what you need built and AI will work on it")}</span>
+                            <span>{t("setup.createNewTaskSubtitle", "Describe what you need built; Fusion will spawn temporary task agents automatically")}</span>
                           </div>
                         </button>
 
