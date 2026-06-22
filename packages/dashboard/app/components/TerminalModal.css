@@ -26,6 +26,9 @@ FN-6811 recurrence #6 tightened ownership of this scoped symbols face: every ter
 /*
 FNXC:Terminal 2026-06-21-22:32:
 FN-6887 turns desktop/tablet terminal into a bottom-docked panel above the footer. Keep mobile on the fullscreen modal path through the max-width media override below.
+
+FNXC:Terminal 2026-06-22-00:00:
+The docked/floating terminal must not blur or dim the page behind it, and the page must stay interactive. The base .modal-overlay applies backdrop-filter: blur(4px); override it to none here. background is already transparent and pointer-events:none lets clicks pass through to the page behind (the terminal panel itself re-enables pointer-events).
 */
 .terminal-modal-overlay--docked,
 .terminal-modal-overlay--floating {
@@ -33,6 +36,7 @@ FN-6887 turns desktop/tablet terminal into a bottom-docked panel above the foote
   justify-content: flex-end;
   padding: 0;
   background: transparent;
+  backdrop-filter: none;
   pointer-events: none;
 }
 

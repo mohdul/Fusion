@@ -37,6 +37,9 @@ The collapse toggle lives in the footer above Settings instead of floating on th
 /*
 FNXC:Navigation 2026-06-21-20:45:
 The persistent desktop/tablet sidebar needs a centered New Task CTA at the top so task creation is reachable from any project screen. It uses the shared row label and rail hiding behavior so expanded mode shows icon plus text while collapsed mode remains an icon-only button with the same global dialog trigger.
+
+FNXC:Navigation 2026-06-22-00:00:
+The New Task CTA must occupy exactly the same box as a sidebar item highlight: same min-height/padding/radius (inherited from .left-sidebar-nav__item) and the same horizontal inset as list rows. The list insets its rows by --space-sm padding, so the CTA matches with --space-sm side margins. The drop shadow is removed because it bled past the box edge and made the CTA read as larger than the item highlights; spacing below the CTA equals the inter-row gap (list padding-top --space-sm).
 */
 .left-sidebar-nav__new-task {
   flex-shrink: 0;
@@ -48,7 +51,6 @@ The persistent desktop/tablet sidebar needs a centered New Task CTA at the top s
   background: var(--accent);
   color: var(--accent-text);
   font-weight: 600;
-  box-shadow: var(--shadow-sm);
 }
 
 .left-sidebar-nav__new-task:hover,
@@ -150,7 +152,14 @@ The narrower resizable sidebar must preserve row rhythm by truncating labels ins
   flex-shrink: 0;
 }
 
+/*
+FNXC:Navigation 2026-06-22-00:00:
+The footer stacks the Collapse toggle above Settings. Use a flex column with a small gap so the two controls are visually separated instead of butting directly against each other.
+*/
 .left-sidebar-nav__footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
   margin-top: auto;
   padding: var(--space-sm);
   border-top: 1px solid var(--border);
