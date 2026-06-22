@@ -1,7 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ExecutorStatusBar } from "../ExecutorStatusBar";
+
+const viewportModeMock = vi.hoisted(() => ({ value: "desktop" as "desktop" | "tablet" | "mobile" }));
+const mockFetchScripts = vi.hoisted(() => vi.fn());
+
+vi.mock("../../hooks/useViewportMode", () => ({
+  useViewportMode: () => viewportModeMock.value,
+}));
+
+vi.mock("../../api", () => ({
+  fetchScripts: (...args: unknown[]) => mockFetchScripts(...args),
+}));
 
 // Mock the useExecutorStats hook
 vi.mock("../../hooks/useExecutorStats", () => ({
@@ -65,6 +76,8 @@ describe("ExecutorStatusBar", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    viewportModeMock.value = "desktop";
+    mockFetchScripts.mockResolvedValue({ build: "pnpm build" });
     vi.mocked(mockUseExecutorStats).mockReturnValue({
       stats: defaultStats,
       loading: false,
@@ -165,6 +178,41 @@ describe("ExecutorStatusBar", () => {
 
       const statusBar = screen.getByRole("status");
       expect(statusBar).toHaveTextContent("3");
+    });
+
+    it("renders the terminal launcher in the footer on desktop and opens terminal from the preserved toggle test id", async () => {
+      const user = userEvent.setup();
+      const onToggleTerminal = vi.fn();
+      render(<ExecutorStatusBar tasks={emptyTasks} onToggleTerminal={onToggleTerminal} onOpenScripts={vi.fn()} onRunScript={vi.fn()} />);
+
+      expect(screen.getByTestId("executor-terminal-launcher-segment")).toBeInTheDocument();
+      await user.click(screen.getByTestId("terminal-toggle-btn"));
+
+      expect(onToggleTerminal).toHaveBeenCalledTimes(1);
+      await user.click(screen.getByTestId("scripts-btn"));
+
+      expect(screen.getByTestId("scripts-btn")).toBeInTheDocument();
+      expect(await screen.findByTestId("quick-scripts-dropdown")).toBeInTheDocument();
+      await waitFor(() => expect(mockFetchScripts).toHaveBeenCalledWith(undefined));
+    });
+
+    it("renders the terminal launcher in the footer on tablet", () => {
+      viewportModeMock.value = "tablet";
+
+      render(<ExecutorStatusBar tasks={emptyTasks} onToggleTerminal={vi.fn()} onOpenScripts={vi.fn()} onRunScript={vi.fn()} />);
+
+      expect(screen.getByTestId("executor-terminal-launcher-segment")).toBeInTheDocument();
+      expect(screen.getByTestId("terminal-toggle-btn")).toBeInTheDocument();
+    });
+
+    it("omits the terminal launcher from the footer on mobile", () => {
+      viewportModeMock.value = "mobile";
+
+      render(<ExecutorStatusBar tasks={emptyTasks} onToggleTerminal={vi.fn()} onOpenScripts={vi.fn()} onRunScript={vi.fn()} />);
+
+      expect(screen.queryByTestId("executor-terminal-launcher-segment")).toBeNull();
+      expect(screen.queryByTestId("terminal-toggle-btn")).toBeNull();
+      expect(screen.queryByTestId("scripts-btn")).toBeNull();
     });
 
     it("does not show stuck tasks segment when count is 0", () => {
@@ -295,7 +343,7 @@ describe("ExecutorStatusBar", () => {
 
       render(<ExecutorStatusBar tasks={emptyTasks} />);
 
-      const statusBar = screen.getByRole("status");
+      const statusBar = screen.getByLabelText("Executor status");
       expect(statusBar).toHaveTextContent("Loading...");
       expect(statusBar).toHaveClass("executor-status-bar--loading");
     });

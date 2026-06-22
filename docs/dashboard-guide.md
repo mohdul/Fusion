@@ -371,6 +371,8 @@ Features:
 
 - Multiple terminal tabs
 - PTY-backed shell sessions
+- On desktop and tablet, the terminal opens from the footer executor status bar as a bottom-docked panel with a draggable top resize handle; use **Pop out** to switch to a draggable, freely resizable floating terminal, then **Dock** to return it to the footer panel.
+- Mobile keeps the terminal as a full-screen modal with the existing keyboard-aware layout instead of the docked or floating desktop/tablet modes.
 - Ctrl/Cmd+C copies the current terminal selection, while plain Ctrl+C with no selection still sends SIGINT
 - Ctrl/Cmd+V pastes clipboard text into the active terminal session
 - The Shortcuts panel includes Ctrl/Alt helpers, ESC/Tab, common shell shortcuts, and Up/Down/Left/Right arrow buttons that send standard ANSI cursor sequences for keyboard-less shell history and line editing

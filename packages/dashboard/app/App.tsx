@@ -1974,9 +1974,6 @@ function AppInner() {
         onOpenSchedules={openSchedulesWithNav}
         onOpenGitManager={openGitManagerWithNav}
         onOpenWorkflowEditor={openWorkflowEditorWithNav}
-        onOpenScripts={openScriptsWithNav}
-        onRunScript={runScriptWithNav}
-        onToggleTerminal={toggleTerminalWithNav}
         onOpenFiles={openFilesWithNav}
         filesOpen={modalManager.filesOpen}
         todosEnabled={todosEnabled}
@@ -2192,6 +2189,9 @@ function AppInner() {
           onOpenProjectDirectory={handleOpenProjectDirectory}
           keyboardOpen={footerKeyboardOpen}
           hideWhenKeyboardOpen={mobileKeyboardOpen}
+          onToggleTerminal={toggleTerminalWithNav}
+          onOpenScripts={openScriptsWithNav}
+          onRunScript={runScriptWithNav}
         />
       )}
       <MobileNavBar

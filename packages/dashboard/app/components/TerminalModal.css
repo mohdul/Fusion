@@ -23,6 +23,19 @@ FN-6811 recurrence #6 tightened ownership of this scoped symbols face: every ter
   padding-bottom: 0;
 }
 
+/*
+FNXC:Terminal 2026-06-21-22:32:
+FN-6887 turns desktop/tablet terminal into a bottom-docked panel above the footer. Keep mobile on the fullscreen modal path through the max-width media override below.
+*/
+.terminal-modal-overlay--docked,
+.terminal-modal-overlay--floating {
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: 0;
+  background: transparent;
+  pointer-events: none;
+}
+
 .modal.terminal-modal {
   /* Initial dimensions are applied only when no persisted size has been
      restored — see :not([style*=...]) selectors below. */
@@ -43,6 +56,110 @@ FN-6811 recurrence #6 tightened ownership of this scoped symbols face: every ter
 .modal.terminal-modal:not([style*="height"]) {
   height: min(85vh, calc(100dvh - 40px));
 }
+
+.modal.terminal-modal.terminal-modal--docked {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--icb-bottom-offset, 0px) + var(--executor-footer-height, calc(var(--space-xl) + var(--space-md))));
+  width: 100vw;
+  min-width: 0;
+  height: var(--terminal-docked-height);
+  min-height: calc(var(--space-xl) * 10);
+  max-width: none;
+  max-height: calc(100dvh - (var(--space-xl) * 4));
+  resize: none;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  pointer-events: auto;
+  box-shadow: var(--shadow-xl);
+}
+
+.terminal-docked-resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--space-sm);
+  cursor: ns-resize;
+  z-index: 1;
+}
+
+.terminal-docked-resize-handle::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: calc(var(--space-xs) / 2);
+  width: calc(var(--space-xl) * 2);
+  height: calc(var(--space-xs) / 2);
+  transform: translateX(-50%);
+  border-radius: var(--radius-full);
+  background: var(--border);
+}
+
+.modal.terminal-modal.terminal-modal--floating {
+  position: fixed;
+  left: var(--terminal-float-x);
+  top: var(--terminal-float-y);
+  width: var(--terminal-float-width);
+  height: var(--terminal-float-height);
+  min-width: calc(var(--space-xl) * 20);
+  min-height: calc(var(--space-xl) * 13.333);
+  max-width: calc(100vw - (var(--space-lg) * 2));
+  max-height: calc(100dvh - (var(--space-lg) * 2));
+  resize: none;
+  pointer-events: auto;
+  box-shadow: var(--shadow-xl);
+}
+
+.terminal-header--draggable {
+  cursor: grab;
+  user-select: none;
+}
+
+.terminal-header--draggable:active {
+  cursor: grabbing;
+}
+
+.terminal-floating-resize-handle {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+
+.terminal-floating-resize-handle--n,
+.terminal-floating-resize-handle--s {
+  left: var(--space-sm);
+  right: var(--space-sm);
+  height: var(--space-sm);
+  cursor: ns-resize;
+}
+
+.terminal-floating-resize-handle--n { top: 0; }
+.terminal-floating-resize-handle--s { bottom: 0; }
+
+.terminal-floating-resize-handle--e,
+.terminal-floating-resize-handle--w {
+  top: var(--space-sm);
+  bottom: var(--space-sm);
+  width: var(--space-sm);
+  cursor: ew-resize;
+}
+
+.terminal-floating-resize-handle--e { right: 0; }
+.terminal-floating-resize-handle--w { left: 0; }
+
+.terminal-floating-resize-handle--ne,
+.terminal-floating-resize-handle--nw,
+.terminal-floating-resize-handle--se,
+.terminal-floating-resize-handle--sw {
+  width: var(--space-lg);
+  height: var(--space-lg);
+}
+
+.terminal-floating-resize-handle--ne { top: 0; right: 0; cursor: nesw-resize; }
+.terminal-floating-resize-handle--nw { top: 0; left: 0; cursor: nwse-resize; }
+.terminal-floating-resize-handle--se { bottom: 0; right: 0; cursor: nwse-resize; }
+.terminal-floating-resize-handle--sw { bottom: 0; left: 0; cursor: nesw-resize; }
 
 .terminal-header {
   display: flex;

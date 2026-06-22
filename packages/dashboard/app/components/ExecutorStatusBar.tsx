@@ -15,6 +15,8 @@ import { LoadingSpinner } from "./LoadingSpinner";
 import type { ExecutorState, AiSessionSummary } from "../api";
 import { BackgroundTasksIndicator } from "./BackgroundTasksIndicator";
 import { EngineControlMenu, type EngineControlMenuHandle } from "./EngineControlMenu";
+import { TerminalLauncher } from "./TerminalLauncher";
+import { useViewportMode } from "../hooks/useViewportMode";
 
 interface ExecutorStatusBarProps {
   /** Task list (shared with the board to keep counts in sync) */
@@ -43,6 +45,12 @@ interface ExecutorStatusBarProps {
   /** iOS-only hide guard to prevent footer drifting over content while
    *  visualViewport settles during keyboard transitions. */
   hideWhenKeyboardOpen?: boolean;
+  /** Opens or closes the terminal surface from the desktop/tablet footer launcher. */
+  onToggleTerminal?: () => void;
+  /** Opens the scripts management modal from the footer launcher dropdown. */
+  onOpenScripts?: () => void;
+  /** Runs a configured script in the terminal from the footer launcher dropdown. */
+  onRunScript?: (name: string, command: string) => void;
 }
 
 /**
@@ -92,8 +100,10 @@ function getStateDisplay(state: ExecutorState, t: TFunction<"app">): { label: st
  * - Executor state badge (idle/running/paused)
  * - Last activity timestamp
  */
-export function ExecutorStatusBar({ tasks, projectId, taskStuckTimeoutMs, staleHighFanoutBlockerAgeThresholdMs, backgroundSessions, backgroundGenerating, backgroundNeedsInput, onOpenBackgroundSession, onDismissBackgroundSession, lastFetchTimeMs, currentProjectPath, onOpenProjectDirectory, keyboardOpen, hideWhenKeyboardOpen }: ExecutorStatusBarProps) {
+export function ExecutorStatusBar({ tasks, projectId, taskStuckTimeoutMs, staleHighFanoutBlockerAgeThresholdMs, backgroundSessions, backgroundGenerating, backgroundNeedsInput, onOpenBackgroundSession, onDismissBackgroundSession, lastFetchTimeMs, currentProjectPath, onOpenProjectDirectory, keyboardOpen, hideWhenKeyboardOpen, onToggleTerminal, onOpenScripts, onRunScript }: ExecutorStatusBarProps) {
   const { t } = useTranslation("app");
+  const viewportMode = useViewportMode();
+  const showTerminalLauncher = viewportMode !== "mobile" && Boolean(onToggleTerminal);
   const { stats, loading, error } = useExecutorStats(tasks, projectId, taskStuckTimeoutMs, lastFetchTimeMs);
   const [isProjectPathVisible, setIsProjectPathVisible] = useState(false);
   const engineControlMenuRef = useRef<EngineControlMenuHandle>(null);
@@ -288,6 +298,21 @@ export function ExecutorStatusBar({ tasks, projectId, taskStuckTimeoutMs, staleH
 
       {/* Spacer */}
       <div className="executor-status-bar__spacer" />
+
+      {showTerminalLauncher && (
+        <>
+          <div className="executor-status-bar__segment executor-status-bar__segment--terminal-launcher" data-testid="executor-terminal-launcher-segment">
+            <TerminalLauncher
+              projectId={projectId}
+              onToggleTerminal={onToggleTerminal}
+              onOpenScripts={onOpenScripts}
+              onRunScript={onRunScript}
+              variant="footer"
+            />
+          </div>
+          <span className="executor-status-bar__divider" aria-hidden="true" />
+        </>
+      )}
 
       {/* Last activity */}
       <div className="executor-status-bar__segment executor-status-bar__segment--time">

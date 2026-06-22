@@ -249,6 +249,117 @@ describe("TerminalModal", () => {
     expect(container.firstChild).toBeNull();
   });
 
+  it("renders desktop terminal as a docked bottom panel and refits after top-handle resize", async () => {
+    const projectId = "docked-resize-test";
+    window.localStorage.removeItem(`fusion:terminal-docked-height-${projectId}`);
+
+    render(<TerminalModal isOpen={true} onClose={mockOnClose} projectId={projectId} />);
+
+    const modal = await screen.findByTestId("terminal-modal");
+    await waitFor(() => expect(mockTerminalInstance.open).toHaveBeenCalled());
+    expect(modal).toHaveClass("terminal-modal--docked");
+    expect(modal).not.toHaveClass("terminal-modal--floating");
+
+    const fitCallBaseline = mockFitAddonFit.mock.calls.length;
+    const handle = screen.getByTestId("terminal-docked-resize-handle") as HTMLElement & { setPointerCapture: (pointerId: number) => void };
+    handle.setPointerCapture = vi.fn();
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 500 });
+    fireEvent.pointerMove(document, { clientY: 420 });
+    fireEvent.pointerUp(document, { pointerId: 1 });
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem(`fusion:terminal-docked-height-${projectId}`)).toBe("440");
+      expect(mockFitAddonFit.mock.calls.length).toBeGreaterThan(fitCallBaseline);
+    });
+  });
+
+  it("toggles between docked and floating terminal modes with the pop-out control", async () => {
+    render(<TerminalModal isOpen={true} onClose={mockOnClose} projectId="popout-toggle-test" />);
+
+    const modal = await screen.findByTestId("terminal-modal");
+    expect(modal).toHaveClass("terminal-modal--docked");
+    expect(screen.getByTestId("terminal-docked-resize-handle")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("terminal-popout-toggle"));
+
+    await waitFor(() => {
+      expect(modal).toHaveClass("terminal-modal--floating");
+      expect(modal).not.toHaveClass("terminal-modal--docked");
+      expect(screen.getByTestId("terminal-floating-resize-se")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("terminal-popout-toggle"));
+
+    await waitFor(() => {
+      expect(modal).toHaveClass("terminal-modal--docked");
+      expect(screen.getByTestId("terminal-docked-resize-handle")).toBeInTheDocument();
+    });
+  });
+
+  it("exposes floating drag and resize handles and refits after floating resize", async () => {
+    const projectId = "floating-resize-test";
+    window.localStorage.setItem(`fusion:terminal-display-mode-${projectId}`, "floating");
+    window.localStorage.removeItem(`fusion:terminal-modal-size-${projectId}`);
+    window.localStorage.removeItem(`fusion:terminal-float-pos-${projectId}`);
+
+    render(<TerminalModal isOpen={true} onClose={mockOnClose} projectId={projectId} />);
+
+    const modal = await screen.findByTestId("terminal-modal");
+    await waitFor(() => expect(mockTerminalInstance.open).toHaveBeenCalled());
+    expect(modal).toHaveClass("terminal-modal--floating");
+    expect(screen.getByTestId("terminal-floating-resize-n")).toBeInTheDocument();
+    expect(screen.getByTestId("terminal-floating-resize-se")).toBeInTheDocument();
+
+    const fitCallBaseline = mockFitAddonFit.mock.calls.length;
+    const resizeHandle = screen.getByTestId("terminal-floating-resize-se") as HTMLElement & { setPointerCapture: (pointerId: number) => void };
+    resizeHandle.setPointerCapture = vi.fn();
+
+    fireEvent.pointerDown(resizeHandle, { pointerId: 1, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(document, { clientX: 140, clientY: 130 });
+    fireEvent.pointerUp(document, { pointerId: 1 });
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem(`fusion:terminal-modal-size-${projectId}`)).toBe(JSON.stringify({ width: 992, height: 590 }));
+      expect(mockFitAddonFit.mock.calls.length).toBeGreaterThan(fitCallBaseline);
+    });
+
+    const header = modal.querySelector(".terminal-header") as HTMLElement & { setPointerCapture: (pointerId: number) => void };
+    header.setPointerCapture = vi.fn();
+    fireEvent.pointerDown(header, { pointerId: 2, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(document, { clientX: 125, clientY: 135 });
+    fireEvent.pointerUp(document, { pointerId: 2 });
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem(`fusion:terminal-float-pos-${projectId}`)).toBeTruthy();
+    });
+  });
+
+  it("keeps mobile terminal on the full-screen modal path without docked or floating controls", async () => {
+    const previousInnerWidth = window.innerWidth;
+    const previousOntouchstart = window.ontouchstart;
+    Object.defineProperty(window, "innerWidth", { value: 500, configurable: true });
+    Object.defineProperty(window, "ontouchstart", { value: null, configurable: true });
+
+    try {
+      render(<TerminalModal isOpen={true} onClose={mockOnClose} projectId="mobile-fullscreen-test" />);
+
+      const modal = await screen.findByTestId("terminal-modal");
+      expect(modal).not.toHaveClass("terminal-modal--docked");
+      expect(modal).not.toHaveClass("terminal-modal--floating");
+      expect(screen.queryByTestId("terminal-docked-resize-handle")).toBeNull();
+      expect(screen.queryByTestId("terminal-popout-toggle")).toBeNull();
+      expect(screen.queryByTestId("terminal-floating-resize-se")).toBeNull();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { value: previousInnerWidth, configurable: true });
+      if (previousOntouchstart === undefined) {
+        delete (window as any).ontouchstart;
+      } else {
+        Object.defineProperty(window, "ontouchstart", { value: previousOntouchstart, configurable: true });
+      }
+    }
+  });
+
   it("shows loading state while sessions are not ready", async () => {
     mockUseTerminalSessions.mockReturnValue({
       ...defaultSessionState,

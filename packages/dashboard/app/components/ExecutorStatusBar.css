@@ -46,6 +46,14 @@
   color: var(--text-dim);
 }
 
+/*
+FNXC:Terminal 2026-06-21-22:13:
+FN-6887 makes the footer status bar the canonical desktop/tablet terminal launcher surface. Mobile continues to use MobileNavBar's More sheet, so this segment is hidden at the mobile breakpoint.
+*/
+.executor-status-bar__segment--terminal-launcher {
+  flex-shrink: 0;
+}
+
 .executor-status-bar__segment--stuck {
   color: var(--color-error);
 }

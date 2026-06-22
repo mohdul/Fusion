@@ -20,10 +20,11 @@ import {
   Plus,
   Keyboard,
   Settings,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { useTerminal } from "../hooks/useTerminal";
 import { useTerminalSessions } from "../hooks/useTerminalSessions";
-import { useModalResizePersist } from "../hooks/useModalResizePersist";
 import { getPathBasename } from "../utils/pathDisplay";
 import {
   DEFAULT_TERMINAL_PREFERENCES,
@@ -48,6 +49,123 @@ import type { FitAddon } from "@xterm/addon-fit";
 const XTERM_INIT_TIMEOUT_MS = 10000;
 
 const XTERM_IMPORT_RETRY_DELAYS_MS = [500, 1500, 3000] as const;
+
+type TerminalDisplayMode = "docked" | "floating";
+
+const TERMINAL_DOCKED_DEFAULT_HEIGHT = 360;
+const TERMINAL_DOCKED_MIN_HEIGHT = 240;
+const TERMINAL_DOCKED_VIEWPORT_MARGIN = 96;
+const TERMINAL_FLOAT_DEFAULT_WIDTH = 960;
+const TERMINAL_FLOAT_DEFAULT_HEIGHT = 560;
+const TERMINAL_FLOAT_MIN_WIDTH = 480;
+const TERMINAL_FLOAT_MIN_HEIGHT = 320;
+const TERMINAL_FLOAT_VIEWPORT_PADDING = 16;
+
+type TerminalResizeDirection = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+const TERMINAL_RESIZE_DIRECTIONS: TerminalResizeDirection[] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
+
+interface TerminalFloatSize {
+  width: number;
+  height: number;
+}
+
+interface TerminalFloatPosition {
+  x: number;
+  y: number;
+}
+
+function readTerminalDisplayMode(projectId?: string): TerminalDisplayMode {
+  if (typeof window === "undefined") return "docked";
+  const value = window.localStorage.getItem(`fusion:terminal-display-mode-${projectId ?? "default"}`);
+  return value === "floating" ? "floating" : "docked";
+}
+
+function writeTerminalDisplayMode(mode: TerminalDisplayMode, projectId?: string): TerminalDisplayMode {
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(`fusion:terminal-display-mode-${projectId ?? "default"}`, mode);
+  }
+  return mode;
+}
+
+function readTerminalDockedHeight(projectId?: string): number {
+  if (typeof window === "undefined") return TERMINAL_DOCKED_DEFAULT_HEIGHT;
+  const parsed = Number.parseInt(window.localStorage.getItem(`fusion:terminal-docked-height-${projectId ?? "default"}`) ?? "", 10);
+  return Number.isFinite(parsed) ? parsed : TERMINAL_DOCKED_DEFAULT_HEIGHT;
+}
+
+function clampTerminalDockedHeight(height: number): number {
+  if (typeof window === "undefined") return Math.max(TERMINAL_DOCKED_MIN_HEIGHT, height);
+  const maxHeight = Math.max(TERMINAL_DOCKED_MIN_HEIGHT, window.innerHeight - TERMINAL_DOCKED_VIEWPORT_MARGIN);
+  return Math.min(Math.max(height, TERMINAL_DOCKED_MIN_HEIGHT), maxHeight);
+}
+
+function writeTerminalDockedHeight(height: number, projectId?: string): number {
+  const clamped = clampTerminalDockedHeight(height);
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(`fusion:terminal-docked-height-${projectId ?? "default"}`, String(Math.round(clamped)));
+  }
+  return clamped;
+}
+
+function clampTerminalFloatSize(size: TerminalFloatSize): TerminalFloatSize {
+  if (typeof window === "undefined") return size;
+  return {
+    width: Math.min(Math.max(size.width, TERMINAL_FLOAT_MIN_WIDTH), Math.max(TERMINAL_FLOAT_MIN_WIDTH, window.innerWidth - TERMINAL_FLOAT_VIEWPORT_PADDING * 2)),
+    height: Math.min(Math.max(size.height, TERMINAL_FLOAT_MIN_HEIGHT), Math.max(TERMINAL_FLOAT_MIN_HEIGHT, window.innerHeight - TERMINAL_FLOAT_VIEWPORT_PADDING * 2)),
+  };
+}
+
+function clampTerminalFloatPosition(position: TerminalFloatPosition, size: TerminalFloatSize): TerminalFloatPosition {
+  if (typeof window === "undefined") return position;
+  return {
+    x: Math.min(Math.max(position.x, TERMINAL_FLOAT_VIEWPORT_PADDING), Math.max(TERMINAL_FLOAT_VIEWPORT_PADDING, window.innerWidth - size.width - TERMINAL_FLOAT_VIEWPORT_PADDING)),
+    y: Math.min(Math.max(position.y, TERMINAL_FLOAT_VIEWPORT_PADDING), Math.max(TERMINAL_FLOAT_VIEWPORT_PADDING, window.innerHeight - size.height - TERMINAL_FLOAT_VIEWPORT_PADDING)),
+  };
+}
+
+function readTerminalFloatSize(projectId?: string): TerminalFloatSize {
+  if (typeof window === "undefined") return { width: TERMINAL_FLOAT_DEFAULT_WIDTH, height: TERMINAL_FLOAT_DEFAULT_HEIGHT };
+  try {
+    const raw = window.localStorage.getItem(`fusion:terminal-modal-size-${projectId ?? "default"}`) ?? window.localStorage.getItem("fusion:terminal-modal-size");
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<TerminalFloatSize>;
+      if (typeof parsed.width === "number" && typeof parsed.height === "number") return clampTerminalFloatSize({ width: parsed.width, height: parsed.height });
+    }
+  } catch {
+    // ignore corrupted size
+  }
+  return clampTerminalFloatSize({ width: TERMINAL_FLOAT_DEFAULT_WIDTH, height: TERMINAL_FLOAT_DEFAULT_HEIGHT });
+}
+
+function writeTerminalFloatSize(size: TerminalFloatSize, projectId?: string): TerminalFloatSize {
+  const clamped = clampTerminalFloatSize(size);
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(`fusion:terminal-modal-size-${projectId ?? "default"}`, JSON.stringify(clamped));
+  }
+  return clamped;
+}
+
+function readTerminalFloatPosition(size: TerminalFloatSize, projectId?: string): TerminalFloatPosition {
+  if (typeof window === "undefined") return { x: TERMINAL_FLOAT_VIEWPORT_PADDING, y: TERMINAL_FLOAT_VIEWPORT_PADDING };
+  try {
+    const raw = window.localStorage.getItem(`fusion:terminal-float-pos-${projectId ?? "default"}`);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<TerminalFloatPosition>;
+      if (typeof parsed.x === "number" && typeof parsed.y === "number") return clampTerminalFloatPosition({ x: parsed.x, y: parsed.y }, size);
+    }
+  } catch {
+    // ignore corrupted position
+  }
+  return clampTerminalFloatPosition({ x: window.innerWidth - size.width - TERMINAL_FLOAT_VIEWPORT_PADDING, y: TERMINAL_FLOAT_VIEWPORT_PADDING }, size);
+}
+
+function writeTerminalFloatPosition(position: TerminalFloatPosition, size: TerminalFloatSize, projectId?: string): TerminalFloatPosition {
+  const clamped = clampTerminalFloatPosition(position, size);
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(`fusion:terminal-float-pos-${projectId ?? "default"}`, JSON.stringify(clamped));
+  }
+  return clamped;
+}
 
 const TERMINAL_KEY_LABELS = {
   ctrl: "Ctrl",
@@ -169,6 +287,12 @@ function isMobileDevice(): boolean {
   return hasTouchScreen && isNarrow;
 }
 
+function isTerminalMobileViewport(): boolean {
+  if (typeof window === "undefined") return false;
+  const hasTouchScreen = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+  return window.innerWidth <= 768 || (hasTouchScreen && window.innerHeight <= 480);
+}
+
 function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") {
     return false;
@@ -274,11 +398,17 @@ export function TerminalModal({ isOpen, onClose, initialCommand, initialCommandG
   const [showPreferences, setShowPreferences] = useState(false);
   const [stickyModifier, setStickyModifier] = useState<null | "ctrl" | "alt">(null);
   const [pendingInitialCommandGeneration, setPendingInitialCommandGeneration] = useState(0);
+  const [displayMode, setDisplayModeState] = useState<TerminalDisplayMode>(() => readTerminalDisplayMode(projectId));
+  const [dockedHeight, setDockedHeight] = useState(() => readTerminalDockedHeight(projectId));
+  const [floatingSize, setFloatingSize] = useState<TerminalFloatSize>(() => readTerminalFloatSize(projectId));
+  const [floatingPosition, setFloatingPosition] = useState<TerminalFloatPosition>(() => readTerminalFloatPosition(readTerminalFloatSize(projectId), projectId));
+  const [isMobileTerminal, setIsMobileTerminal] = useState(() => isTerminalMobileViewport());
+  const isDockedMode = !isMobileTerminal && displayMode === "docked";
+  const isFloatingMode = !isMobileTerminal && displayMode === "floating";
   
   const terminalRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const overlayMouseDownRef = useRef(false);
-  useModalResizePersist(modalRef, isOpen, "fusion:terminal-modal-size");
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<ITerminalAddon | null>(null);
   const hasInitialCommandRun = useRef<string | false>(false);
@@ -310,6 +440,141 @@ export function TerminalModal({ isOpen, onClose, initialCommand, initialCommandG
   fontSizeRef.current = fontSize;
   terminalPreferencesRef.current = terminalPreferences;
   resolvedFontFamilyRef.current = resolvedFontFamily;
+
+  useEffect(() => {
+    setDisplayModeState(readTerminalDisplayMode(projectId));
+    setDockedHeight(readTerminalDockedHeight(projectId));
+    const nextSize = readTerminalFloatSize(projectId);
+    setFloatingSize(nextSize);
+    setFloatingPosition(readTerminalFloatPosition(nextSize, projectId));
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    /*
+    FNXC:Terminal 2026-06-21-22:58:
+    Viewport changes must force the terminal back onto the mobile fullscreen path at <=768px or touch-primary short landscape, then restore the stored desktop/tablet docked/floating mode when the viewport expands.
+    */
+    const updateViewportMode = () => setIsMobileTerminal(isTerminalMobileViewport());
+    updateViewportMode();
+    window.addEventListener("resize", updateViewportMode);
+    window.visualViewport?.addEventListener("resize", updateViewportMode);
+    return () => {
+      window.removeEventListener("resize", updateViewportMode);
+      window.visualViewport?.removeEventListener("resize", updateViewportMode);
+    };
+  }, [isOpen]);
+
+  const setDisplayMode = useCallback((mode: TerminalDisplayMode) => {
+    setDisplayModeState(writeTerminalDisplayMode(mode, projectId));
+  }, [projectId]);
+
+  const persistDockedHeight = useCallback((height: number) => {
+    setDockedHeight(writeTerminalDockedHeight(height, projectId));
+  }, [projectId]);
+
+  const persistFloatingSize = useCallback((size: TerminalFloatSize) => {
+    setFloatingSize(writeTerminalFloatSize(size, projectId));
+  }, [projectId]);
+
+  const persistFloatingPosition = useCallback((position: TerminalFloatPosition, size = floatingSize) => {
+    setFloatingPosition(writeTerminalFloatPosition(position, size, projectId));
+  }, [floatingSize, projectId]);
+
+  /*
+  FNXC:Terminal 2026-06-21-22:26:
+  FN-6887 requires desktop/tablet terminal opens to default to a project-scoped docked bottom panel. Persist `fusion:terminal-display-mode-${projectId}` and `fusion:terminal-docked-height-${projectId}` so each project restores its preferred panel mode and height without affecting mobile fullscreen behavior.
+
+  FNXC:Terminal 2026-06-21-22:45:
+  The pop-out terminal mode uses project-scoped `fusion:terminal-modal-size-${projectId}` and `fusion:terminal-float-pos-${projectId}` keys so floating windows restore independently per project while avoiding the old bottom-right native resize grip conflict.
+  */
+  const handleDockedResizePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isDockedMode) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const startY = event.clientY;
+    const startHeight = dockedHeight;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      persistDockedHeight(startHeight + (startY - moveEvent.clientY));
+    };
+    const handlePointerUp = () => {
+      document.body.style.userSelect = previousUserSelect;
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("pointercancel", handlePointerUp);
+    };
+
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("pointercancel", handlePointerUp);
+  }, [dockedHeight, isDockedMode, persistDockedHeight]);
+
+  const handleFloatingDragPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isFloatingMode || (event.target as HTMLElement).closest("button")) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startPosition = floatingPosition;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      persistFloatingPosition({ x: startPosition.x + moveEvent.clientX - startX, y: startPosition.y + moveEvent.clientY - startY });
+    };
+    const handlePointerUp = () => {
+      document.body.style.userSelect = previousUserSelect;
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("pointercancel", handlePointerUp);
+    };
+
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("pointercancel", handlePointerUp);
+  }, [floatingPosition, isFloatingMode, persistFloatingPosition]);
+
+  const handleFloatingResizePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>, direction: TerminalResizeDirection) => {
+    if (!isFloatingMode) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startSize = floatingSize;
+    const startPosition = floatingPosition;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      const rawSize = {
+        width: startSize.width + (direction.includes("e") ? dx : direction.includes("w") ? -dx : 0),
+        height: startSize.height + (direction.includes("s") ? dy : direction.includes("n") ? -dy : 0),
+      };
+      const nextSize = clampTerminalFloatSize(rawSize);
+      const nextPosition = {
+        x: startPosition.x + (direction.includes("w") ? startSize.width - nextSize.width : 0),
+        y: startPosition.y + (direction.includes("n") ? startSize.height - nextSize.height : 0),
+      };
+      persistFloatingSize(nextSize);
+      persistFloatingPosition(nextPosition, nextSize);
+    };
+    const handlePointerUp = () => {
+      document.body.style.userSelect = previousUserSelect;
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("pointercancel", handlePointerUp);
+    };
+
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("pointercancel", handlePointerUp);
+  }, [floatingPosition, floatingSize, isFloatingMode, persistFloatingPosition, persistFloatingSize]);
 
   /**
    * Fit xterm and publish cols/rows for a specific terminal session.
@@ -422,6 +687,17 @@ export function TerminalModal({ isOpen, onClose, initialCommand, initialCommandG
       setViewportHeight(null);
     };
   }, [fitAndResizeForSession, isOpen]);
+
+  /*
+  FNXC:Terminal 2026-06-21-22:07:
+  Docked and floating terminal resize interactions change the terminal viewport without a window resize event, so refit xterm after display mode, docked height, or floating size changes to keep rows/cols synchronized.
+  */
+  useEffect(() => {
+    if (!isOpen) return;
+    const sessionId = typeof xtermInitializedRef.current === "string" ? xtermInitializedRef.current : undefined;
+    const frame = requestAnimationFrame(() => fitAndResizeForSession(sessionId));
+    return () => cancelAnimationFrame(frame);
+  }, [displayMode, dockedHeight, fitAndResizeForSession, floatingSize, isOpen]);
 
   // Refit xterm whenever the user drags the modal's CSS resize grip.
   // The window/visualViewport listeners only fire on viewport changes; native
@@ -1252,6 +1528,10 @@ export function TerminalModal({ isOpen, onClose, initialCommand, initialCommandG
     setFontSize((current) => clampTerminalFontSize(current - 1));
   }, [setFontSize]);
 
+  const handleToggleDisplayMode = useCallback(() => {
+    setDisplayMode(displayMode === "floating" ? "docked" : "floating");
+  }, [displayMode, setDisplayMode]);
+
   const handlePreferenceFontSizeChange = useCallback(
     (value: string) => {
       const parsed = Number.parseInt(value, 10);
@@ -1355,10 +1635,33 @@ export function TerminalModal({ isOpen, onClose, initialCommand, initialCommandG
   // Once a tab exists we keep the xterm container visible while UI init runs,
   // avoiding a retry-loop spinner flash after bootstrap recovery.
   const isLoading = !isReady || (!activeTab && !bootstrapError);
+  const overlayClassName = `modal-overlay open${isDockedMode ? " terminal-modal-overlay--docked" : ""}${isFloatingMode ? " terminal-modal-overlay--floating" : ""}`;
+  const modalClassName = `modal terminal-modal${isDockedMode ? " terminal-modal--docked" : ""}${isFloatingMode ? " terminal-modal--floating" : ""}`;
+  const modalStyle = {
+    ...(keyboardOverlap > 0
+      ? {
+          "--keyboard-overlap": `${keyboardOverlap}px`,
+          // On mobile with keyboard open, constrain to visualViewport height
+          // so the modal (including status bar) fits entirely above the keyboard.
+          // This is more reliable than 100dvh which behaves differently
+          // across Chrome Android vs iOS Safari.
+          "--vv-height": viewportHeight ? `${viewportHeight}px` : undefined,
+        }
+      : {}),
+    ...(isDockedMode ? { "--terminal-docked-height": `${dockedHeight}px` } : {}),
+    ...(isFloatingMode
+      ? {
+          "--terminal-float-x": `${floatingPosition.x}px`,
+          "--terminal-float-y": `${floatingPosition.y}px`,
+          "--terminal-float-width": `${floatingSize.width}px`,
+          "--terminal-float-height": `${floatingSize.height}px`,
+        }
+      : {}),
+  } as CSSProperties;
 
   return (
     <div
-      className="modal-overlay open"
+      className={overlayClassName}
       onMouseDown={handleOverlayMouseDown}
       onMouseUp={handleOverlayMouseUp}
       role="dialog"
@@ -1368,30 +1671,39 @@ export function TerminalModal({ isOpen, onClose, initialCommand, initialCommandG
         keyboardOverlap > 0
           ? {
               "--overlay-padding-top": "0px",
-            } as React.CSSProperties
+            } as CSSProperties
           : undefined
       }
     >
       <div
         ref={modalRef}
-        className="modal terminal-modal"
+        className={modalClassName}
         data-testid="terminal-modal"
-        style={
-          keyboardOverlap > 0
-            ? {
-                "--keyboard-overlap": `${keyboardOverlap}px`,
-                // On mobile with keyboard open, constrain to visualViewport height
-                // so the modal (including status bar) fits entirely above the keyboard.
-                // This is more reliable than 100dvh which behaves differently
-                // across Chrome Android vs iOS Safari.
-                "--vv-height": viewportHeight ? `${viewportHeight}px` : undefined,
-              } as React.CSSProperties
-            : undefined
-        }
+        style={modalStyle}
       >
+        {isDockedMode && (
+          <div
+            className="terminal-docked-resize-handle"
+            data-testid="terminal-docked-resize-handle"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label={t("terminal.resizeDockedPanel", "Resize terminal panel")}
+            onPointerDown={handleDockedResizePointerDown}
+          />
+        )}
+        {isFloatingMode && TERMINAL_RESIZE_DIRECTIONS.map((direction) => (
+          <div
+            key={direction}
+            className={`terminal-floating-resize-handle terminal-floating-resize-handle--${direction}`}
+            data-testid={`terminal-floating-resize-${direction}`}
+            role="separator"
+            aria-label={t("terminal.resizeFloatingPanel", "Resize terminal window")}
+            onPointerDown={(event) => handleFloatingResizePointerDown(event, direction)}
+          />
+        ))}
         {/* Header — on mobile (≤768px) keep tabs and actions on one row;
             .terminal-title is hidden; action button labels are hidden (icons only) */}
-        <div className="terminal-header">
+        <div className={`terminal-header${isFloatingMode ? " terminal-header--draggable" : ""}`} onPointerDown={handleFloatingDragPointerDown}>
           {/* Tab Bar */}
           <div className="terminal-tabs" data-testid="terminal-tabs">
             {tabs.map((tab) => (
@@ -1486,6 +1798,18 @@ export function TerminalModal({ isOpen, onClose, initialCommand, initialCommandG
               <Settings size={14} />
               <span className="terminal-action-label">{t("terminal.preferences", "Preferences")}</span>
             </button>
+            {!isMobileTerminal && (
+              <button
+                className="terminal-clear-btn terminal-clear-btn--shortcut"
+                onClick={handleToggleDisplayMode}
+                data-testid="terminal-popout-toggle"
+                title={displayMode === "floating" ? t("terminal.dockTerminal", "Dock terminal") : t("terminal.popOutTerminal", "Pop out terminal")}
+                aria-pressed={displayMode === "floating"}
+              >
+                {displayMode === "floating" ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                <span className="terminal-action-label">{displayMode === "floating" ? t("terminal.dock", "Dock") : t("terminal.popOut", "Pop out")}</span>
+              </button>
+            )}
             <button
               className="terminal-close"
               onClick={onClose}

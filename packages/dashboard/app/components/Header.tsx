@@ -1,13 +1,12 @@
-import { useState, useEffect, useRef, useCallback, useMemo, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Settings, Play, LayoutGrid, List, Terminal, Search, X, Activity, MoreHorizontal, Clock, Folder, History, GitBranch, Monitor, Workflow, Bot, Target, ChevronRight, FileCode, Loader2, Grid3X3, Mail, MessageSquare, ChevronDown, Check, Zap, Sparkles, FileText, Brain, CheckSquare, Lock, Gauge, PanelRight } from "lucide-react";
+import { Settings, LayoutGrid, List, Search, X, Activity, MoreHorizontal, Clock, Folder, History, GitBranch, Monitor, Workflow, Bot, Target, Grid3X3, Mail, MessageSquare, Check, Zap, Sparkles, FileText, Brain, CheckSquare, Lock, Gauge, PanelRight, ChevronDown, ChevronRight } from "lucide-react";
 import "./Header.css";
 // ProjectSelector styles used by the imported standalone component.
 import "./ProjectSelector.css";
 import { ProjectSelector as StandaloneProjectSelector } from "./ProjectSelector";
 import type { ProjectInfo } from "../api";
 import type { NodeConfig, ProjectStatus } from "@fusion/core";
-import { fetchScripts } from "../api";
 import { NodeStatusIndicator } from "./NodeStatusIndicator";
 import { NodeHealthDot } from "./NodeHealthDot";
 import { PluginSlot } from "./PluginSlot";
@@ -49,11 +48,6 @@ function GitHubLogo({ size = 16 }: { size?: number }) {
   );
 }
 
-interface DropdownPosition {
-  top: number;
-  left: number;
-  width: number;
-}
 
 export interface HeaderProps {
   onOpenSettings?: () => void;
@@ -73,9 +67,6 @@ export interface HeaderProps {
   onOpenSchedules?: () => void;
   onOpenGitManager?: () => void;
   onOpenWorkflowEditor?: () => void;
-  onOpenScripts?: () => void;
-  onRunScript?: (name: string, command: string) => void;
-  onToggleTerminal?: () => void;
   /** Opens the top-level workspace-aware file browser modal. */
   onOpenFiles?: () => void;
   filesOpen?: boolean;
@@ -136,9 +127,6 @@ export function Header({
   onOpenSchedules,
   onOpenGitManager,
   onOpenWorkflowEditor,
-  onOpenScripts,
-  onRunScript,
-  onToggleTerminal,
   onOpenFiles,
   todosEnabled,
   view = "board",
@@ -192,30 +180,17 @@ export function Header({
   // Track when user has explicitly closed the search (used for toggle visibility)
   const [isNonMobileSearchExplicitlyClosed, setIsNonMobileSearchExplicitlyClosed] = useState(false);
   const [isOverflowMenuOpen, setIsOverflowMenuOpen] = useState(false);
-  const [isTerminalSubmenuOpen, setIsTerminalSubmenuOpen] = useState(false);
   const [isNodeSelectorOpen, setIsNodeSelectorOpen] = useState(false);
   const [isMobileProjectSwitchOpen, setIsMobileProjectSwitchOpen] = useState(false);
   const [isViewOverflowOpen, setIsViewOverflowOpen] = useState(false);
-  const [isScriptsOpen, setIsScriptsOpen] = useState(false);
-  const [scripts, setScripts] = useState<Record<string, string>>({});
-  const [scriptsLoading, setScriptsLoading] = useState(false);
-  const [highlightedScriptIndex, setHighlightedScriptIndex] = useState(-1);
-  const [scriptsDropdownPosition, setScriptsDropdownPosition] = useState<DropdownPosition | null>(null);
-  const [overflowScripts, setOverflowScripts] = useState<Record<string, string>>({});
-  const [overflowScriptsLoading, setOverflowScriptsLoading] = useState(false);
   const overflowButtonRef = useRef<HTMLButtonElement>(null);
   const overflowMenuRef = useRef<HTMLDivElement>(null);
   const mobileSearchRef = useRef<HTMLDivElement>(null);
   const mobileSearchInputRef = useRef<HTMLInputElement>(null);
-  const terminalSubmenuOpenRef = useRef(false);
   const nodeSelectorRef = useRef<HTMLDivElement>(null);
   const mobileProjectSwitchRef = useRef<HTMLDivElement>(null);
   const viewOverflowRef = useRef<HTMLDivElement>(null);
   const viewOverflowTriggerRef = useRef<HTMLButtonElement>(null);
-  const scriptsSplitButtonRef = useRef<HTMLDivElement>(null);
-  const scriptsChevronButtonRef = useRef<HTMLButtonElement>(null);
-  const scriptsMenuRef = useRef<HTMLDivElement>(null);
-  const scriptsOpenRef = useRef(false);
   
   // Get remote nodes only (exclude local node type)
   const remoteNodes = useMemo(() => 
@@ -223,19 +198,6 @@ export function Header({
     [availableNodes]
   );
   const showNodeSelector = remoteNodes.length > 0;
-
-  // Script entries sorted alphabetically for desktop scripts dropdown
-  const scriptEntries = useMemo(() => {
-    return Object.entries(scripts).sort(([a], [b]) => a.localeCompare(b));
-  }, [scripts]);
-
-  const showScriptsFooter = scriptEntries.length > 0;
-  const totalScriptItems = scriptEntries.length + (showScriptsFooter ? 1 : 0);
-
-  // Script entries sorted alphabetically for overflow submenu
-  const overflowScriptEntries = useMemo(() => {
-    return Object.entries(overflowScripts).sort(([a], [b]) => a.localeCompare(b));
-  }, [overflowScripts]);
 
   const hasViewOverflowItems = useMemo(() => {
     return !!(
@@ -252,283 +214,6 @@ export function Header({
       pluginDashboardViews.some((entry) => entry.view.placement !== "primary")
     );
   }, [onChangeView, experimentalFeatures, todosEnabled, showSkillsTab, hideFullNav, isTablet, pluginDashboardViews]);
-
-  const getEffectiveViewport = useCallback(() => {
-    const vv = window.visualViewport;
-    if (vv && vv.width > 0 && vv.height > 0) {
-      return {
-        width: vv.width,
-        height: vv.height,
-        offsetTop: vv.offsetTop,
-        offsetLeft: vv.offsetLeft,
-      };
-    }
-
-    return {
-      width: window.innerWidth,
-      height: window.innerHeight,
-      offsetTop: 0,
-      offsetLeft: 0,
-    };
-  }, []);
-
-  const updateScriptsDropdownPosition = useCallback(() => {
-    const trigger = scriptsChevronButtonRef.current;
-    if (!trigger) return;
-
-    const rect = trigger.getBoundingClientRect();
-    const menu = scriptsMenuRef.current;
-    const { width: viewportWidth, height: viewportHeight, offsetTop, offsetLeft } = getEffectiveViewport();
-    const horizontalPadding = 16;
-    const verticalPadding = 16;
-    const gap = 6;
-
-    const measuredWidth = menu?.offsetWidth || Math.max(rect.width, 260);
-    const width = Math.min(
-      measuredWidth,
-      Math.max(viewportWidth - horizontalPadding * 2, 160),
-    );
-
-    const measuredHeight = menu?.offsetHeight || 280;
-    const constrainedHeight = Math.min(
-      measuredHeight,
-      Math.max(viewportHeight - verticalPadding * 2, 160),
-    );
-
-    const triggerTop = rect.top - offsetTop;
-    const triggerBottom = rect.bottom - offsetTop;
-    const triggerRight = rect.right - offsetLeft;
-
-    const spaceBelow = viewportHeight - triggerBottom;
-    const spaceAbove = triggerTop;
-
-    const openUpward = spaceBelow < constrainedHeight && spaceAbove > spaceBelow;
-
-    const left = Math.min(
-      Math.max(triggerRight - width, horizontalPadding),
-      viewportWidth - horizontalPadding - width,
-    ) + offsetLeft;
-
-    const top = openUpward
-      ? Math.max(verticalPadding + offsetTop, triggerTop - constrainedHeight - gap + offsetTop)
-      : Math.min(
-          triggerBottom + gap + offsetTop,
-          viewportHeight + offsetTop - verticalPadding - constrainedHeight,
-        );
-
-    setScriptsDropdownPosition({ top, left, width });
-  }, [getEffectiveViewport]);
-
-  const handleRunQuickScript = useCallback(
-    (name: string, command: string) => {
-      onRunScript?.(name, command);
-      setIsScriptsOpen(false);
-      setHighlightedScriptIndex(-1);
-    },
-    [onRunScript],
-  );
-
-  const handleManageScripts = useCallback(() => {
-    onOpenScripts?.();
-    setIsScriptsOpen(false);
-    setHighlightedScriptIndex(-1);
-  }, [onOpenScripts]);
-
-  const handleScriptsDropdownKeyDown = useCallback(
-    (e: ReactKeyboardEvent<HTMLDivElement>) => {
-      switch (e.key) {
-        case "ArrowDown":
-          e.preventDefault();
-          if (totalScriptItems > 0) {
-            setHighlightedScriptIndex((prev) => (prev < totalScriptItems - 1 ? prev + 1 : 0));
-          }
-          break;
-        case "ArrowUp":
-          e.preventDefault();
-          if (totalScriptItems > 0) {
-            setHighlightedScriptIndex((prev) => (prev > 0 ? prev - 1 : totalScriptItems - 1));
-          }
-          break;
-        case "Enter":
-          e.preventDefault();
-          if (highlightedScriptIndex >= 0) {
-            if (highlightedScriptIndex < scriptEntries.length) {
-              const [name, command] = scriptEntries[highlightedScriptIndex];
-              handleRunQuickScript(name, command);
-            } else if (showScriptsFooter && highlightedScriptIndex === scriptEntries.length) {
-              handleManageScripts();
-            }
-          }
-          break;
-        case "Home":
-          e.preventDefault();
-          if (totalScriptItems > 0) {
-            setHighlightedScriptIndex(0);
-          }
-          break;
-        case "End":
-          e.preventDefault();
-          if (totalScriptItems > 0) {
-            setHighlightedScriptIndex(totalScriptItems - 1);
-          }
-          break;
-      }
-    },
-    [handleManageScripts, handleRunQuickScript, highlightedScriptIndex, scriptEntries, showScriptsFooter, totalScriptItems],
-  );
-
-  // Keep ref in sync with state
-  useEffect(() => {
-    terminalSubmenuOpenRef.current = isTerminalSubmenuOpen;
-  }, [isTerminalSubmenuOpen]);
-
-  useEffect(() => {
-    scriptsOpenRef.current = isScriptsOpen;
-  }, [isScriptsOpen]);
-
-  // Fetch scripts when terminal submenu opens in compact mode
-  useEffect(() => {
-    if (!isTerminalSubmenuOpen || !isCompact) return;
-
-    let cancelled = false;
-    setOverflowScriptsLoading(true);
-
-    fetchScripts(projectId)
-      .then((data) => {
-        if (!cancelled) {
-          setOverflowScripts(data);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setOverflowScripts({});
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setOverflowScriptsLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isTerminalSubmenuOpen, isCompact, projectId]);
-
-  // Fetch scripts when desktop scripts dropdown opens
-  useEffect(() => {
-    if (!isScriptsOpen || isCompact) return;
-
-    let cancelled = false;
-    setScriptsLoading(true);
-
-    fetchScripts(projectId)
-      .then((data) => {
-        if (!cancelled) {
-          setScripts(data);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setScripts({});
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setScriptsLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isScriptsOpen, isCompact, projectId]);
-
-  // Close desktop scripts dropdown on outside click
-  useEffect(() => {
-    if (!isScriptsOpen) return;
-
-    const handleClickOutside = (e: MouseEvent) => {
-      if (
-        scriptsSplitButtonRef.current &&
-        !scriptsSplitButtonRef.current.contains(e.target as Node)
-      ) {
-        setIsScriptsOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isScriptsOpen]);
-
-  // Close desktop scripts dropdown on Escape
-  useEffect(() => {
-    if (!isScriptsOpen) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setIsScriptsOpen(false);
-        scriptsChevronButtonRef.current?.focus();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isScriptsOpen]);
-
-  // Reset highlight and focus menu when dropdown opens
-  useEffect(() => {
-    if (isScriptsOpen) {
-      setHighlightedScriptIndex(-1);
-      const timeoutId = window.setTimeout(() => scriptsMenuRef.current?.focus(), 0);
-      return () => window.clearTimeout(timeoutId);
-    }
-
-    setScriptsDropdownPosition(null);
-  }, [isScriptsOpen]);
-
-  // Position scripts dropdown when opening and content changes
-  useEffect(() => {
-    if (!isScriptsOpen) return;
-
-    const rafId = requestAnimationFrame(() => {
-      updateScriptsDropdownPosition();
-    });
-
-    return () => cancelAnimationFrame(rafId);
-  }, [isScriptsOpen, scriptsLoading, scriptEntries.length, showScriptsFooter, updateScriptsDropdownPosition]);
-
-  // Keep scripts dropdown anchored on viewport changes
-  useEffect(() => {
-    if (!isScriptsOpen) return;
-
-    const handleReposition = () => updateScriptsDropdownPosition();
-
-    window.addEventListener("resize", handleReposition);
-    window.addEventListener("scroll", handleReposition, true);
-
-    const vv = window.visualViewport;
-    if (vv) {
-      vv.addEventListener("resize", handleReposition);
-      vv.addEventListener("scroll", handleReposition);
-    }
-
-    return () => {
-      window.removeEventListener("resize", handleReposition);
-      window.removeEventListener("scroll", handleReposition, true);
-      if (vv) {
-        vv.removeEventListener("resize", handleReposition);
-        vv.removeEventListener("scroll", handleReposition);
-      }
-    };
-  }, [isScriptsOpen, updateScriptsDropdownPosition]);
-
-  useEffect(() => {
-    if (isCompact) {
-      setIsScriptsOpen(false);
-      setHighlightedScriptIndex(-1);
-    }
-  }, [isCompact]);
 
   // Keep mobile search open if there's an active search query
   const shouldShowMobileSearch = isMobileSearchOpen || searchQuery.length > 0;
@@ -588,15 +273,6 @@ export function Header({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setIsViewOverflowOpen(false);
-        if (terminalSubmenuOpenRef.current) {
-          setIsTerminalSubmenuOpen(false);
-          return;
-        }
-        if (scriptsOpenRef.current) {
-          setIsScriptsOpen(false);
-          scriptsChevronButtonRef.current?.focus();
-          return;
-        }
         setIsOverflowMenuOpen(false);
         setIsMobileSearchOpen(false);
         setIsNodeSelectorOpen(false);
@@ -666,7 +342,6 @@ export function Header({
   const handleOverflowAction = useCallback((callback?: () => void) => {
     if (callback) callback();
     setIsOverflowMenuOpen(false);
-    setIsTerminalSubmenuOpen(false);
   }, []);
 
   const handleMobileSearchClose = useCallback(() => {
@@ -1045,7 +720,7 @@ export function Header({
             )}
             <button
               className={`view-toggle-btn${view === "mailbox" ? " active" : ""}`}
-              onClick={() => onChangeView("mailbox")}
+              onClick={() => (onOpenMailbox ? onOpenMailbox() : onChangeView("mailbox"))}
               title={t("header.mailboxView", "Mailbox view")}
               aria-label={t("header.mailboxView", "Mailbox view")}
               aria-pressed={view === "mailbox"}
@@ -1290,118 +965,6 @@ export function Header({
         FN-6886 removes the header Lightbulb affordances because Planning Mode is now a primary left-sidebar destination after Command Center and a single canonical MobileNavBar More item on compact breakpoints.
         */}
 
-        {/* Terminal split button - desktop only (moved to overflow on mobile/tablet) */}
-        {!isCompact && (
-          <div className="terminal-split-btn" ref={scriptsSplitButtonRef}>
-            <button
-              className="btn-icon btn-icon--terminal terminal-split-btn__main"
-              onClick={onToggleTerminal}
-              title={t("header.openTerminal", "Open Terminal")}
-              data-testid="terminal-toggle-btn"
-            >
-              <Terminal size={16} />
-            </button>
-            {onOpenScripts && onRunScript && (
-              <>
-                <span className="terminal-split-btn__divider" />
-                <button
-                  ref={scriptsChevronButtonRef}
-                  className={`btn-icon terminal-split-btn__chevron${isScriptsOpen ? " btn-icon--active" : ""}`}
-                  onClick={() => setIsScriptsOpen((prev) => !prev)}
-                  title={t("header.scripts", "Scripts")}
-                  aria-haspopup="listbox"
-                  aria-expanded={isScriptsOpen}
-                  aria-label={t("header.quickScripts", "Quick scripts")}
-                  data-testid="scripts-btn"
-                >
-                  <ChevronDown size={12} className={`quick-scripts-dropdown__trigger-chevron${isScriptsOpen ? " rotate" : ""}`} />
-                </button>
-                {isScriptsOpen && (
-                  <div
-                    ref={scriptsMenuRef}
-                    tabIndex={-1}
-                    className="quick-scripts-dropdown__menu"
-                    role="listbox"
-                    aria-label={t("header.scripts", "Scripts")}
-                    onKeyDown={handleScriptsDropdownKeyDown}
-                    data-testid="quick-scripts-dropdown"
-                    style={
-                      scriptsDropdownPosition
-                        ? {
-                            position: "fixed",
-                            top: `${scriptsDropdownPosition.top}px`,
-                            left: `${scriptsDropdownPosition.left}px`,
-                            width: `${scriptsDropdownPosition.width}px`,
-                            right: "auto",
-                          }
-                        : undefined
-                    }
-                  >
-                    {scriptsLoading ? (
-                      <div className="quick-scripts-dropdown__loading" data-testid="quick-scripts-loading">
-                        <Loader2 size={16} className="animate-spin" />
-                        <span>{t("header.loadingScripts", "Loading scripts...")}</span>
-                      </div>
-                    ) : scriptEntries.length === 0 ? (
-                      <div className="quick-scripts-dropdown__empty" data-testid="quick-scripts-empty">
-                        <div className="quick-scripts-dropdown__empty-icon">
-                          <Terminal size={16} />
-                        </div>
-                        <p>{t("header.noScriptsConfigured", "No scripts configured")}</p>
-                        <button
-                          className="quick-scripts-dropdown__empty-action btn"
-                          onClick={handleManageScripts}
-                        >
-                          {t("header.addFirstScript", "Add your first script")}
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="quick-scripts-dropdown__list">
-                          {scriptEntries.map(([name, command], index) => (
-                            <button
-                              key={name}
-                              className={`quick-scripts-dropdown__item ${
-                                highlightedScriptIndex === index ? "highlighted" : ""
-                              }`}
-                              onClick={() => handleRunQuickScript(name, command)}
-                              role="option"
-                              aria-selected={highlightedScriptIndex === index}
-                              data-testid={`quick-script-item-${name}`}
-                            >
-                              <Play size={14} className="quick-scripts-dropdown__item-icon" />
-                              <div className="quick-scripts-dropdown__item-info">
-                                <span className="quick-scripts-dropdown__item-name">{name}</span>
-                                <span className="quick-scripts-dropdown__item-command" title={command}>
-                                  {command.length > 50 ? `${command.slice(0, 50)}...` : command}
-                                </span>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-
-                        <div className="quick-scripts-dropdown__footer">
-                          <button
-                            className={`quick-scripts-dropdown__manage ${
-                              showScriptsFooter && highlightedScriptIndex === scriptEntries.length ? "highlighted" : ""
-                            }`}
-                            onClick={handleManageScripts}
-                            data-testid="quick-scripts-manage"
-                          >
-                            <Settings size={14} />
-                            <span>{t("header.manageScripts", "Manage Scripts...")}</span>
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-
         {/* Workflows - desktop only (moved to overflow on mobile/tablet) */}
         {!isCompact && onOpenWorkflowEditor && (
           <button
@@ -1498,98 +1061,17 @@ export function Header({
                 <span>{t("header.importFromGitHub", "Import from GitHub")}</span>
               </button>
             )}
-            <div
-              className="mobile-overflow-group"
-              data-testid="overflow-terminal-group"
-            >
-              <div className="mobile-overflow-split-row">
-                <button
-                  className="mobile-overflow-item mobile-overflow-split-primary"
-                  onClick={() => handleOverflowAction(onToggleTerminal)}
-                  role="menuitem"
-                  data-testid="overflow-terminal-primary-btn"
-                >
-                  <Terminal size={16} />
-                  <span>{t("header.terminal", "Terminal")}</span>
-                </button>
-                <button
-                  className="mobile-overflow-split-toggle"
-                  onClick={() => setIsTerminalSubmenuOpen((prev) => !prev)}
-                  role="menuitem"
-                  aria-expanded={isTerminalSubmenuOpen}
-                  aria-haspopup="menu"
-                  aria-label={t("header.showScripts", "Show scripts")}
-                  data-testid="overflow-terminal-submenu-toggle"
-                >
-                  <ChevronRight
-                    size={14}
-                    className={`mobile-overflow-chevron${isTerminalSubmenuOpen ? " mobile-overflow-chevron--open" : ""}`}
-                  />
-                </button>
-              </div>
-              {isTerminalSubmenuOpen && (
-                <div className="mobile-overflow-submenu" role="menu" aria-label={t("header.scriptsSubmenu", "Scripts submenu")}>
-                  {overflowScriptsLoading ? (
-                    <div className="mobile-overflow-submenu-loading" data-testid="overflow-scripts-loading">
-                      <Loader2 size={14} className="animate-spin" />
-                      <span>{t("header.loadingScripts", "Loading scripts...")}</span>
-                    </div>
-                  ) : overflowScriptEntries.length > 0 ? (
-                    <>
-                      {overflowScriptEntries.map(([name, command]) => (
-                        <button
-                          key={name}
-                          className="mobile-overflow-item mobile-overflow-subitem"
-                          onClick={() => {
-                            if (onRunScript) onRunScript(name, command);
-                            setIsOverflowMenuOpen(false);
-                            setIsTerminalSubmenuOpen(false);
-                          }}
-                          role="menuitem"
-                          data-testid={`overflow-script-item-${name}`}
-                        >
-                          <Play size={14} />
-                          <span>{name}</span>
-                        </button>
-                      ))}
-                      {onOpenScripts && (
-                        <button
-                          className="mobile-overflow-item mobile-overflow-subitem mobile-overflow-subitem--manage"
-                          onClick={() => handleOverflowAction(onOpenScripts)}
-                          role="menuitem"
-                          data-testid="overflow-scripts-manage"
-                        >
-                          <FileCode size={14} />
-                          <span>{t("header.manageScripts", "Manage Scripts...")}</span>
-                        </button>
-                      )}
-                    </>
-                  ) : (
-                    onOpenScripts && (
-                      <button
-                        className="mobile-overflow-item mobile-overflow-subitem"
-                        onClick={() => handleOverflowAction(onOpenScripts)}
-                        role="menuitem"
-                        data-testid="overflow-scripts-manage"
-                      >
-                        <FileCode size={14} />
-                        <span>{t("header.noScriptsAddOne", "No scripts — add one…")}</span>
-                      </button>
-                    )
-                  )}
-                </div>
-              )}
-            </div>
-            <button
-              className="mobile-overflow-item"
-              onClick={() => handleOverflowAction(onOpenSchedules)}
-              role="menuitem"
-              data-testid="overflow-schedules-btn"
-            >
-              <Clock size={16} />
-              <span>{t("header.automation", "Automation")}</span>
-            </button>
-            {/* Activity Log - in overflow on mobile */}
+            {onOpenSchedules && (
+              <button
+                className="mobile-overflow-item"
+                onClick={() => handleOverflowAction(onOpenSchedules)}
+                role="menuitem"
+                data-testid="overflow-schedules-btn"
+              >
+                <Clock size={16} />
+                <span>{t("header.automation", "Automation")}</span>
+              </button>
+            )}
             {onOpenActivityLog && (
               <button
                 className="mobile-overflow-item"
@@ -1601,7 +1083,6 @@ export function Header({
                 <span>{t("header.viewActivityLog", "View Activity Log")}</span>
               </button>
             )}
-            {/* Mailbox - in overflow on mobile */}
             {onOpenMailbox && (
               <button
                 className="mobile-overflow-item"
@@ -1616,7 +1097,6 @@ export function Header({
                 )}
               </button>
             )}
-            {/* Usage - in overflow on mobile */}
             {onOpenUsage && (
               <button
                 className="mobile-overflow-item"
@@ -1630,7 +1110,6 @@ export function Header({
                 <span>{t("header.viewUsage", "View Usage")}</span>
               </button>
             )}
-            {/* Workflows - in overflow on mobile */}
             {onOpenWorkflowEditor && (
               <button
                 className="mobile-overflow-item"

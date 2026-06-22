@@ -495,109 +495,24 @@ describe("Header", () => {
     });
   });
 
-  describe("terminal split button", () => {
-    it("renders terminal main button and scripts chevron on desktop", () => {
+  describe("terminal launcher relocation", () => {
+    it("does not render the terminal launcher or scripts chevron in the desktop header", () => {
       renderHeader({ onToggleTerminal: noop, onOpenScripts: noop, onRunScript: noop }, "desktop");
-      expect(screen.getByTitle("Open Terminal")).toBeDefined();
-      expect(screen.getByTestId("scripts-btn")).toBeDefined();
-    });
-
-    it("does not render terminal button inline on mobile", () => {
-      renderHeader({ onToggleTerminal: noop }, "mobile");
       expect(screen.queryByTitle("Open Terminal")).toBeNull();
+      expect(screen.queryByTestId("terminal-toggle-btn")).toBeNull();
+      expect(screen.queryByTestId("scripts-btn")).toBeNull();
+      expect(screen.queryByTestId("terminal-split-btn")).toBeNull();
     });
 
-    it("clicking main button calls onToggleTerminal without opening scripts dropdown", () => {
-      const onToggleTerminal = vi.fn();
-      renderHeader({ onToggleTerminal, onOpenScripts: noop, onRunScript: noop }, "desktop");
-      fireEvent.click(screen.getByTestId("terminal-toggle-btn"));
-      expect(onToggleTerminal).toHaveBeenCalledTimes(1);
-      expect(screen.queryByTestId("quick-scripts-dropdown")).toBeNull();
-    });
-
-    it("clicking scripts chevron opens dropdown without calling onToggleTerminal", async () => {
-      const onToggleTerminal = vi.fn();
-      renderHeader({ onToggleTerminal, onOpenScripts: noop, onRunScript: noop }, "desktop");
-
-      fireEvent.click(screen.getByTestId("scripts-btn"));
-
-      expect(onToggleTerminal).not.toHaveBeenCalled();
-      await waitFor(() => {
-        expect(screen.getByTestId("quick-scripts-dropdown")).toBeDefined();
-      });
-    });
-
-    it("fetches scripts and runs selected script from dropdown", async () => {
-      mockFetchScripts.mockResolvedValue({ build: "pnpm build" });
-      const onRunScript = vi.fn();
-
-      renderHeader({ onToggleTerminal: noop, onOpenScripts: noop, onRunScript, projectId: "proj-1" }, "desktop");
-      fireEvent.click(screen.getByTestId("scripts-btn"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("quick-script-item-build")).toBeDefined();
-      });
-
-      fireEvent.click(screen.getByTestId("quick-script-item-build"));
-      expect(onRunScript).toHaveBeenCalledWith("build", "pnpm build");
-      expect(screen.queryByTestId("quick-scripts-dropdown")).toBeNull();
-    });
-
-    it("shows loading state while scripts are fetching", () => {
-      mockFetchScripts.mockImplementation(() => new Promise(() => {}));
-      renderHeader({ onToggleTerminal: noop, onOpenScripts: noop, onRunScript: noop }, "desktop");
-      fireEvent.click(screen.getByTestId("scripts-btn"));
-      expect(screen.getByTestId("quick-scripts-loading")).toBeDefined();
-    });
-
-    it("shows empty state when no scripts are configured", async () => {
-      mockFetchScripts.mockResolvedValue({});
-      renderHeader({ onToggleTerminal: noop, onOpenScripts: noop, onRunScript: noop }, "desktop");
-      fireEvent.click(screen.getByTestId("scripts-btn"));
-      await waitFor(() => {
-        expect(screen.getByTestId("quick-scripts-empty")).toBeDefined();
-      });
-    });
-
-    it("shows manage scripts footer when scripts exist", async () => {
-      mockFetchScripts.mockResolvedValue({ test: "pnpm test" });
-      renderHeader({ onToggleTerminal: noop, onOpenScripts: noop, onRunScript: noop }, "desktop");
-      fireEvent.click(screen.getByTestId("scripts-btn"));
-      await waitFor(() => {
-        expect(screen.getByTestId("quick-scripts-manage")).toBeDefined();
-      });
-    });
-
-    it("supports keyboard navigation in scripts dropdown", async () => {
-      mockFetchScripts.mockResolvedValue({ alpha: "echo alpha", beta: "echo beta" });
-      const onRunScript = vi.fn();
-
-      renderHeader({ onToggleTerminal: noop, onOpenScripts: noop, onRunScript }, "desktop");
-      fireEvent.click(screen.getByTestId("scripts-btn"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("quick-script-item-alpha")).toBeDefined();
-      });
-
-      const menu = screen.getByTestId("quick-scripts-dropdown");
-      fireEvent.keyDown(menu, { key: "ArrowDown" });
-      fireEvent.keyDown(menu, { key: "Enter" });
-      expect(onRunScript).toHaveBeenCalledWith("alpha", "echo alpha");
-
-      fireEvent.click(screen.getByTestId("scripts-btn"));
-      await waitFor(() => {
-        expect(screen.getByTestId("quick-scripts-dropdown")).toBeDefined();
-      });
-      fireEvent.keyDown(screen.getByTestId("quick-scripts-dropdown"), { key: "Escape" });
-      await waitFor(() => {
-        expect(screen.queryByTestId("quick-scripts-dropdown")).toBeNull();
-      });
-    });
-
-    it("is always enabled regardless of task state", () => {
-      renderHeader({ onToggleTerminal: noop }, "desktop");
-      const btn = screen.getByTitle("Open Terminal");
-      expect(btn.hasAttribute("disabled")).toBe(false);
+    it("does not render terminal launcher affordances in the mobile header overflow", () => {
+      renderHeader({ onToggleTerminal: noop, onOpenScripts: noop, onRunScript: noop }, "mobile");
+      fireEvent.click(screen.getByTitle("More header actions"));
+      expect(screen.queryByTitle("Open Terminal")).toBeNull();
+      expect(screen.queryByTestId("terminal-toggle-btn")).toBeNull();
+      expect(screen.queryByTestId("scripts-btn")).toBeNull();
+      expect(screen.queryByTestId("terminal-split-btn")).toBeNull();
+      expect(screen.queryByTestId("overflow-terminal-primary-btn")).toBeNull();
+      expect(screen.queryByTestId("overflow-terminal-submenu-toggle")).toBeNull();
     });
   });
 
@@ -820,180 +735,53 @@ describe("Header", () => {
       expect(screen.queryByTitle("More header actions")).toBeNull();
     });
 
-    it("shows terminal group in overflow menu on mobile", () => {
-      renderHeader({ onToggleTerminal: noop }, "mobile");
+    it("does not render terminal or scripts affordances in mobile header overflow", () => {
+      renderHeader({ onToggleTerminal: noop, onOpenScripts: noop, onRunScript: noop }, "mobile");
       fireEvent.click(screen.getByTitle("More header actions"));
-      expect(screen.getByTestId("overflow-terminal-primary-btn")).toBeDefined();
-      expect(screen.getByTestId("overflow-terminal-submenu-toggle")).toBeDefined();
-    });
-
-    it("shows terminal submenu items when terminal group is expanded on mobile", async () => {
-      renderHeader({ onToggleTerminal: noop, onOpenScripts: noop }, "mobile");
-      fireEvent.click(screen.getByTitle("More header actions"));
-      fireEvent.click(screen.getByTestId("overflow-terminal-submenu-toggle"));
-      await waitFor(() => {
-        expect(screen.getByTestId("overflow-scripts-manage")).toBeDefined();
-      });
-    });
-
-    it("shows scripts manage in terminal submenu on mobile when onOpenScripts is provided", async () => {
-      renderHeader({ onOpenScripts: noop }, "mobile");
-      fireEvent.click(screen.getByTitle("More header actions"));
-      fireEvent.click(screen.getByTestId("overflow-terminal-submenu-toggle"));
-      await waitFor(() => {
-        expect(screen.getByTestId("overflow-scripts-manage")).toBeDefined();
-      });
-    });
-
-    it("does not show scripts manage in terminal submenu when onOpenScripts is undefined", () => {
-      renderHeader({ onToggleTerminal: noop }, "mobile");
-      fireEvent.click(screen.getByTitle("More header actions"));
-      fireEvent.click(screen.getByTestId("overflow-terminal-submenu-toggle"));
-      expect(screen.queryByTestId("overflow-scripts-manage")).toBeNull();
-    });
-
-    it("calls onToggleTerminal from primary terminal button on mobile", () => {
-      const onToggleTerminal = vi.fn();
-      renderHeader({ onToggleTerminal }, "mobile");
-      fireEvent.click(screen.getByTitle("More header actions"));
-      fireEvent.click(screen.getByTestId("overflow-terminal-primary-btn"));
-      expect(onToggleTerminal).toHaveBeenCalled();
-    });
-
-    it("calls onOpenScripts from terminal submenu manage on mobile", async () => {
-      const onOpenScripts = vi.fn();
-      renderHeader({ onOpenScripts }, "mobile");
-      fireEvent.click(screen.getByTitle("More header actions"));
-      fireEvent.click(screen.getByTestId("overflow-terminal-submenu-toggle"));
-      await waitFor(() => {
-        expect(screen.getByTestId("overflow-scripts-manage")).toBeDefined();
-      });
-      fireEvent.click(screen.getByTestId("overflow-scripts-manage"));
-      expect(onOpenScripts).toHaveBeenCalled();
-    });
-
-    it("primary terminal button opens terminal directly without expanding submenu", () => {
-      const onToggleTerminal = vi.fn();
-      renderHeader({ onToggleTerminal }, "mobile");
-      fireEvent.click(screen.getByTitle("More header actions"));
-      // Click primary button — should open terminal and NOT expand submenu
-      fireEvent.click(screen.getByTestId("overflow-terminal-primary-btn"));
-      expect(onToggleTerminal).toHaveBeenCalled();
-      // Overflow menu should close after action
-      expect(screen.queryByRole("menu")).toBeNull();
-    });
-
-    it("chevron toggle expands submenu without opening terminal", () => {
-      const onToggleTerminal = vi.fn();
-      renderHeader({ onToggleTerminal, onOpenScripts: noop }, "mobile");
-      fireEvent.click(screen.getByTitle("More header actions"));
-      // Click chevron — should expand submenu but NOT call onToggleTerminal
-      fireEvent.click(screen.getByTestId("overflow-terminal-submenu-toggle"));
-      expect(onToggleTerminal).not.toHaveBeenCalled();
-      // Overflow menu should still be open (check by primary button still being visible)
-      expect(screen.getByTestId("overflow-terminal-primary-btn")).toBeDefined();
-    });
-
-    it("renders one script item per fetched script in submenu", async () => {
-      mockFetchScripts.mockResolvedValue({ build: "pnpm build", test: "pnpm test" });
-      const onRunScript = vi.fn();
-      renderHeader({ onToggleTerminal: noop, onRunScript, onOpenScripts: noop, projectId: "test-project" }, "mobile");
-      fireEvent.click(screen.getByTitle("More header actions"));
-      fireEvent.click(screen.getByTestId("overflow-terminal-submenu-toggle"));
-      await waitFor(() => {
-        expect(screen.getByTestId("overflow-script-item-build")).toBeDefined();
-        expect(screen.getByTestId("overflow-script-item-test")).toBeDefined();
-      });
-    });
-
-    it("clicking a script entry calls onRunScript and closes overflow", async () => {
-      mockFetchScripts.mockResolvedValue({ build: "pnpm build" });
-      const onRunScript = vi.fn();
-      renderHeader({ onToggleTerminal: noop, onRunScript, onOpenScripts: noop, projectId: "test-project" }, "mobile");
-      fireEvent.click(screen.getByTitle("More header actions"));
-      fireEvent.click(screen.getByTestId("overflow-terminal-submenu-toggle"));
-      await waitFor(() => {
-        expect(screen.getByTestId("overflow-script-item-build")).toBeDefined();
-      });
-      fireEvent.click(screen.getByTestId("overflow-script-item-build"));
-      expect(onRunScript).toHaveBeenCalledWith("build", "pnpm build");
-      // Overflow menu should close after running script
-      expect(screen.queryByRole("menu")).toBeNull();
-    });
-
-    it("does not render old overflow-scripts-btn item", async () => {
-      mockFetchScripts.mockResolvedValue({ build: "pnpm build" });
-      renderHeader({ onToggleTerminal: noop, onRunScript: noop, onOpenScripts: noop, projectId: "test-project" }, "mobile");
-      fireEvent.click(screen.getByTitle("More header actions"));
-      fireEvent.click(screen.getByTestId("overflow-terminal-submenu-toggle"));
-      await waitFor(() => {
-        expect(screen.getByTestId("overflow-script-item-build")).toBeDefined();
-      });
-      // The old generic scripts button should not exist
+      expect(screen.queryByTestId("overflow-terminal-primary-btn")).toBeNull();
+      expect(screen.queryByTestId("overflow-terminal-submenu-toggle")).toBeNull();
       expect(screen.queryByTestId("overflow-scripts-btn")).toBeNull();
-      // The old terminal submenu "Open Terminal" button should not exist
       expect(screen.queryByTestId("overflow-terminal-btn")).toBeNull();
-    });
-
-    it("shows loading state while fetching scripts", () => {
-      mockFetchScripts.mockImplementation(() => new Promise(() => {}));
-      renderHeader({ onToggleTerminal: noop, onOpenScripts: noop, projectId: "test-project" }, "mobile");
-      fireEvent.click(screen.getByTitle("More header actions"));
-      fireEvent.click(screen.getByTestId("overflow-terminal-submenu-toggle"));
-      expect(screen.getByTestId("overflow-scripts-loading")).toBeDefined();
-    });
-
-    it("shows manage scripts link when no scripts are configured", async () => {
-      mockFetchScripts.mockResolvedValue({});
-      renderHeader({ onToggleTerminal: noop, onOpenScripts: noop, projectId: "test-project" }, "mobile");
-      fireEvent.click(screen.getByTitle("More header actions"));
-      fireEvent.click(screen.getByTestId("overflow-terminal-submenu-toggle"));
-      await waitFor(() => {
-        expect(screen.getByTestId("overflow-scripts-manage")).toBeDefined();
-      });
-    });
-
-    it("does not show manage scripts link when onOpenScripts is undefined", async () => {
-      mockFetchScripts.mockResolvedValue({});
-      renderHeader({ onToggleTerminal: noop, projectId: "test-project" }, "mobile");
-      fireEvent.click(screen.getByTitle("More header actions"));
-      fireEvent.click(screen.getByTestId("overflow-terminal-submenu-toggle"));
-      await waitFor(() => {
-        expect(screen.queryByTestId("overflow-scripts-manage")).toBeNull();
-      });
-    });
-
-    it("handles missing onRunScript gracefully", async () => {
-      mockFetchScripts.mockResolvedValue({ build: "pnpm build" });
-      renderHeader({ onToggleTerminal: noop, onOpenScripts: noop, projectId: "test-project" }, "mobile");
-      fireEvent.click(screen.getByTitle("More header actions"));
-      fireEvent.click(screen.getByTestId("overflow-terminal-submenu-toggle"));
-      await waitFor(() => {
-        expect(screen.getByTestId("overflow-script-item-build")).toBeDefined();
-      });
-      // Clicking script without onRunScript should not throw
-      expect(() => {
-        fireEvent.click(screen.getByTestId("overflow-script-item-build"));
-      }).not.toThrow();
-      // Overflow menu should still close
-      expect(screen.queryByRole("menu")).toBeNull();
-    });
-
-    it("shows Manage Scripts after script entries when scripts exist", async () => {
-      mockFetchScripts.mockResolvedValue({ build: "pnpm build" });
-      renderHeader({ onToggleTerminal: noop, onRunScript: noop, onOpenScripts: noop, projectId: "test-project" }, "mobile");
-      fireEvent.click(screen.getByTitle("More header actions"));
-      fireEvent.click(screen.getByTestId("overflow-terminal-submenu-toggle"));
-      await waitFor(() => {
-        expect(screen.getByTestId("overflow-script-item-build")).toBeDefined();
-        expect(screen.getByTestId("overflow-scripts-manage")).toBeDefined();
-      });
+      expect(screen.queryByTestId("overflow-scripts-manage")).toBeNull();
     });
 
     it("shows GitHub import in overflow menu on mobile", () => {
       renderHeader({}, "mobile");
       fireEvent.click(screen.getByTitle("More header actions"));
       expect(screen.getByText("Import from GitHub")).toBeDefined();
+    });
+
+    it("keeps Mailbox in the compact overflow with unread and approval badges", () => {
+      const onOpenMailbox = vi.fn();
+      renderHeader({ onOpenMailbox, mailboxUnreadCount: 3, mailboxPendingApprovalCount: 2 }, "mobile");
+      fireEvent.click(screen.getByTitle("More header actions"));
+
+      const mailboxButton = screen.getByTestId("overflow-mailbox-btn");
+      expect(mailboxButton).toHaveTextContent("Mailbox (3)");
+      expect(screen.getByTestId("overflow-mailbox-approval-badge")).toHaveTextContent("2");
+
+      fireEvent.click(mailboxButton);
+      expect(onOpenMailbox).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps compact overflow tool ordering from before terminal moved to the footer launcher", () => {
+      renderHeader({ onOpenGitManager: noop, onOpenSchedules: noop, onOpenActivityLog: noop, onOpenMailbox: noop, onOpenUsage: noop, onOpenWorkflowEditor: noop }, "mobile");
+      fireEvent.click(screen.getByTitle("More header actions"));
+
+      const menu = screen.getByRole("menu", { name: "Additional header actions" });
+      const orderedItems = [
+        "overflow-git-btn",
+        "overflow-schedules-btn",
+        "overflow-activity-log-btn",
+        "overflow-mailbox-btn",
+        "overflow-usage-btn",
+        "overflow-workflow-steps-btn",
+      ].map((testId) => screen.getByTestId(testId));
+
+      expect(menu).toContainElement(orderedItems[0]);
+      for (let index = 1; index < orderedItems.length; index += 1) {
+        expect(orderedItems[index - 1].compareDocumentPosition(orderedItems[index]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      }
     });
 
     it("omits planning from the header overflow menu on mobile", () => {
