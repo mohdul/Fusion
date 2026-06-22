@@ -175,6 +175,10 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
     createdAt: BUILTIN_TS,
     updatedAt: BUILTIN_TS,
   },
+  /*
+   * FNXC:Workflows 2026-06-21-00:00:
+   * FN-6904 requires every compound-engineering stage prompt to name its /ce- slash command explicitly. The prompt body stays self-documenting and reinforces the skill invocation even when executor skill preambles change.
+   */
   linear({
     id: "builtin:compound-engineering",
     name: "Compound engineering (built-in)",
@@ -191,7 +195,7 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
           // fn_spawn_agent (registered only for coding-mode steps). It is not
           // meant to write — see the accepted write-capability posture (Risk-1).
           toolMode: "coding",
-          prompt: "Produce a short implementation plan for this task before any code is written.",
+          prompt: "Run /ce-plan to produce a short implementation plan for this task before any code is written.",
         },
       },
       {
@@ -205,7 +209,7 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
           // default and would strip them). ce-work does the implementation the
           // CE way instead of the generic executor seam.
           toolMode: "coding",
-          prompt: "Execute the plan for this task, following existing patterns and maintaining quality throughout.",
+          prompt: "Run /ce-work to execute the plan for this task, following existing patterns and maintaining quality throughout.",
         },
       },
       {
@@ -224,7 +228,7 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
           // subagents via fn_spawn_agent. As a gate step it still emits the
           // verdict JSON (KTD-6); it is not meant to write the tree (Risk-1).
           toolMode: "coding",
-          prompt: "Run a structured code review of the changes. Block merge on P0/P1 findings.",
+          prompt: "Run /ce-code-review to perform a structured code review of the changes. Block merge on P0/P1 findings.",
         },
       },
       {
@@ -239,7 +243,7 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
           // stays with Fusion's merge seam below (workflow-owned merge), so the
           // two never race the same branch state.
           toolMode: "coding",
-          prompt: "Commit the work in logical commits, push the branch, and open a pull request with a value-first description.",
+          prompt: "Run /ce-commit-push-pr to commit the work in logical commits, push the branch, and open a pull request with a value-first description.",
         },
       },
       {
@@ -253,7 +257,7 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
           // Resolves open PR review threads. On the first autonomous pass there
           // may be no feedback yet (review is async); the skill no-ops when there
           // are no threads, and a re-run picks up later feedback.
-          prompt: "Resolve open PR review feedback: evaluate each thread, fix valid issues, and reply.",
+          prompt: "Run /ce-resolve-pr-feedback to resolve open PR review feedback: evaluate each thread, fix valid issues, and reply.",
         },
       },
       { id: "merge", kind: "prompt", config: builtinPromptConfig("merge", "Merge boundary") },
@@ -267,7 +271,7 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
           // Coding mode so ce-compound can WRITE the learning doc into
           // docs/solutions (readonly would strip write tools).
           toolMode: "coding",
-          prompt: "Capture any reusable learnings from this task into docs/solutions.",
+          prompt: "Run /ce-compound to capture any reusable learnings from this task into docs/solutions.",
         },
       },
     ],

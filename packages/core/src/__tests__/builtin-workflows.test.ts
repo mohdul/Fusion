@@ -379,6 +379,24 @@ describe("built-in workflows", () => {
     expect(execute!.toolMode).toBe("coding");
   });
 
+  it("compound-engineering skill-node prompts name their /ce- slash commands", () => {
+    const ce = getBuiltinWorkflow("builtin:compound-engineering")!;
+    const byId = (id: string) => ce.ir.nodes.find((n) => n.id === id);
+    const expectedPrompts = new Map([
+      ["plan", "/ce-plan"],
+      ["execute", "/ce-work"],
+      ["code-review", "/ce-code-review"],
+      ["commit-pr", "/ce-commit-push-pr"],
+      ["resolve-feedback", "/ce-resolve-pr-feedback"],
+      ["document", "/ce-compound"],
+    ]);
+
+    for (const [nodeId, slashCommand] of expectedPrompts) {
+      expect(String(byId(nodeId)?.config?.prompt ?? "")).toContain(slashCommand);
+    }
+    expect(String(byId("merge")?.config?.prompt ?? "")).not.toContain("/ce-");
+  });
+
   it("compound-engineering merge stage uses the CE commit/PR + resolve-feedback skills", () => {
     const ce = getBuiltinWorkflow("builtin:compound-engineering")!;
     const byId = (id: string) => ce.ir.nodes.find((n) => n.id === id);
