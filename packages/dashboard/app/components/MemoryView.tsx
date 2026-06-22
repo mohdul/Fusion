@@ -352,12 +352,12 @@ export function MemoryView({ projectId, addToast, onSendSelectionToTask }: Memor
     <div className="memory-view">
       {/*
       FNXC:Navigation 2026-06-22-01:10:
-      Memory adopts the shared ViewHeader (CC-modeled) for a consistent main-content title row; the prior description renders just below the header, and the Working/Insights/Engines tab bar stays beneath it.
+      Memory adopts the shared ViewHeader (CC-modeled) for a consistent main-content title row.
+
+      FNXC:Memory 2026-06-22-12:00:
+      The Memory view header should be title-only; remove the "Working memory, long-term insights, and engine status" subtitle so the tab bar becomes the first content under the header.
       */}
       <ViewHeader icon={Brain} title={t("memory.title", "Memory")} />
-      <p className="memory-view-description">
-        {t("memory.description", "Working memory, long-term insights, and engine status")}
-      </p>
 
       {/* Tab bar */}
       <div className="memory-view-tabs" role="tablist">

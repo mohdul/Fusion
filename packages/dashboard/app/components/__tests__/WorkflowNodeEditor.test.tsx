@@ -413,6 +413,7 @@ describe("WorkflowNodeEditor", () => {
   });
 
   afterEach(() => {
+    localStorage.removeItem("fusion:wf-left-sidebar-collapsed");
     localStorage.removeItem("fusion:wf-sidebar-settings-collapsed");
     localStorage.removeItem("fusion:wf-templates-collapsed");
     cleanup();
@@ -436,6 +437,28 @@ describe("WorkflowNodeEditor", () => {
     expect(await screen.findByTestId("wf-workflow-name")).toHaveTextContent("QA");
     expect(screen.queryByTestId("wf-mobile-select-note")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "QA" })[0]).toHaveClass("active");
+  });
+
+  it("lets desktop users collapse and restore the workflow sidebar", async () => {
+    vi.mocked(fetchWorkflows).mockResolvedValue([def()]);
+
+    render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
+
+    expect(await screen.findByTestId("wf-workflow-name")).toHaveTextContent("QA");
+    const body = screen.getByTestId("wf-new-workflow").closest(".wf-editor-body");
+    expect(body).not.toBeNull();
+    expect(body!).not.toHaveClass("wf-editor-body--sidebar-collapsed");
+    expect(screen.queryByTestId("wf-sidebar-restore")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("wf-sidebar-collapse"));
+
+    expect(body!).toHaveClass("wf-editor-body--sidebar-collapsed");
+    expect(screen.getByTestId("wf-sidebar-restore")).toHaveTextContent("Workflows");
+
+    fireEvent.click(screen.getByTestId("wf-sidebar-restore"));
+
+    expect(body!).not.toHaveClass("wf-editor-body--sidebar-collapsed");
+    expect(screen.queryByTestId("wf-sidebar-restore")).not.toBeInTheDocument();
   });
 
   it("lets users collapse and restore the workflow mini map", async () => {

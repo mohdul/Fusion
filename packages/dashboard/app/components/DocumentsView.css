@@ -15,6 +15,9 @@ The header row now comes from the shared .view-header (which supplies the --spac
 
 FNXC:ViewHeader 2026-06-23-03:45:
 The shared ViewHeader now owns the single border-bottom divider + surface background, so this wrapper drops its own border-bottom/background to avoid a doubled divider under the title row (the divider sits directly under the canonical title row, and the controls row reads as body content below it). The controls row keeps its own side/bottom padding so the tab bar/search stay aligned.
+
+FNXC:ViewHeader 2026-06-22-12:00:
+Artifacts controls are the first page content below the shared header, so add a top inset there instead of on the header wrapper. This keeps the tab/search row from bumping against the title divider while preserving the existing body alignment.
 */
 .documents-view-header {
   background: var(--surface);
@@ -30,7 +33,7 @@ The shared ViewHeader now owns the single border-bottom divider + surface backgr
   align-items: center;
   gap: var(--space-md);
   flex-wrap: nowrap;
-  padding: 0 var(--space-lg) var(--space-lg);
+  padding: var(--space-lg) var(--space-lg) var(--space-lg);
 }
 
 .documents-tab-bar {

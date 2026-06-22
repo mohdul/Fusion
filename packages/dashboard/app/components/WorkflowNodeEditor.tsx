@@ -824,10 +824,25 @@ function InnerEditor({
   // U12: the columns/fields authoring panels live in the left sidebar (below the
   // workflow list) as collapsible disclosure sections. Each section's collapsed
   // state persists in localStorage; default expanded.
+  /*
+  FNXC:WorkflowSidebar 2026-06-22-12:00:
+  The workflow view needs the entire left sidebar collapsible, not only its
+  internal column/field/settings groups, so graph editing can use the full
+  canvas width. Persist the shell state and keep a visible restore control in
+  the canvas area when the sidebar is hidden.
+  */
+  const sidebarCollapsedStorageKey = "fusion:wf-left-sidebar-collapsed";
   const columnsCollapsedStorageKey = "fusion:wf-sidebar-columns-collapsed";
   const fieldsCollapsedStorageKey = "fusion:wf-sidebar-fields-collapsed";
   const settingsCollapsedStorageKey = "fusion:wf-sidebar-settings-collapsed";
   const optionalStepsCollapsedStorageKey = "fusion:wf-sidebar-optional-steps-collapsed";
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(sidebarCollapsedStorageKey) === "1";
+    } catch {
+      return false;
+    }
+  });
   const [columnsCollapsed, setColumnsCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem(columnsCollapsedStorageKey) === "1";
@@ -856,6 +871,13 @@ function InnerEditor({
       return false;
     }
   });
+  useEffect(() => {
+    try {
+      localStorage.setItem(sidebarCollapsedStorageKey, sidebarCollapsed ? "1" : "0");
+    } catch {
+      // localStorage unavailable (private mode / SSR): non-fatal.
+    }
+  }, [sidebarCollapsed]);
   useEffect(() => {
     try {
       localStorage.setItem(columnsCollapsedStorageKey, columnsCollapsed ? "1" : "0");
@@ -2540,17 +2562,32 @@ function InnerEditor({
             simpleLayoutEnabled ? " wf-editor-body--simple-layout" : ""
           }${mobileNodeDetailStage ? " wf-editor-body--mobile-node-detail" : ""}${
             mobileEdgeDetailStage ? " wf-editor-body--mobile-edge-detail" : ""
-          }`}
+          }${sidebarCollapsed ? " wf-editor-body--sidebar-collapsed" : ""}`}
         >
           <aside className="wf-editor-sidebar">
-            <button
-              className="wf-editor-new"
-              ref={newWorkflowBtnRef}
-              data-testid="wf-new-workflow"
-              onClick={() => setCreateOpen(true)}
-            >
-              <Plus size={14} /> {t("workflows.newWorkflow", "New workflow")}
-            </button>
+            <div className="wf-editor-sidebar-head">
+              <button
+                className="wf-editor-new"
+                ref={newWorkflowBtnRef}
+                data-testid="wf-new-workflow"
+                onClick={() => setCreateOpen(true)}
+              >
+                <Plus size={14} /> {t("workflows.newWorkflow", "New workflow")}
+              </button>
+              {!isMobileMode && (
+                <button
+                  type="button"
+                  className="wf-sidebar-shell-toggle"
+                  data-testid="wf-sidebar-collapse"
+                  aria-expanded={!sidebarCollapsed}
+                  aria-label={t("workflows.collapseSidebar", "Collapse workflow sidebar")}
+                  title={t("workflows.collapseSidebar", "Collapse workflow sidebar")}
+                  onClick={() => setSidebarCollapsed(true)}
+                >
+                  <ChevronLeft size={14} aria-hidden />
+                </button>
+              )}
+            </div>
             {/* U5/R10: keyboard-accessible import affordance triggering a hidden
                 file input; validation failures render in the persistent inline
                 region below (role="alert"), not a toast. */}
@@ -2717,6 +2754,20 @@ function InnerEditor({
           </aside>
 
           <section className="wf-editor-canvas-wrap">
+            {sidebarCollapsed && !isMobileMode && (
+              <button
+                type="button"
+                className="wf-sidebar-shell-restore"
+                data-testid="wf-sidebar-restore"
+                aria-expanded="false"
+                aria-label={t("workflows.showSidebar", "Show workflow sidebar")}
+                title={t("workflows.showSidebar", "Show workflow sidebar")}
+                onClick={() => setSidebarCollapsed(false)}
+              >
+                <ChevronRight size={14} aria-hidden />
+                <span>{t("workflows.sidebar", "Workflows")}</span>
+              </button>
+            )}
             <button
               type="button"
               className="wf-editor-mobile-back"

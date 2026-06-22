@@ -129,6 +129,76 @@ embedded view.
   overflow-y: auto;
 }
 
+/*
+FNXC:WorkflowSidebar 2026-06-22-12:00:
+Workflow authors need to reclaim horizontal graph-editing space without leaving
+the workflow view. Hide only the sidebar shell when collapsed and keep the
+restore control attached to the canvas so the state is always reversible.
+*/
+.wf-editor-body--sidebar-collapsed .wf-editor-sidebar {
+  display: none;
+}
+
+.wf-editor-sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.wf-editor-sidebar-head .wf-editor-new {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+
+.wf-sidebar-shell-toggle,
+.wf-sidebar-shell-restore {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  min-height: 30px;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  box-shadow: var(--shadow-sm);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.wf-sidebar-shell-toggle {
+  flex: 0 0 auto;
+  width: 30px;
+  padding-inline: 0;
+}
+
+.wf-sidebar-shell-restore {
+  position: absolute;
+  top: var(--space-sm);
+  left: var(--space-sm);
+  z-index: 6;
+  white-space: nowrap;
+}
+
+.wf-sidebar-shell-toggle:hover,
+.wf-sidebar-shell-restore:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+  color: var(--accent);
+}
+
+.wf-sidebar-shell-toggle:focus-visible,
+.wf-sidebar-shell-restore:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 /* U12: columns + fields authoring sections moved into the left sidebar, below
    the workflow list. Each is a collapsible disclosure whose toggle button is the
    section header; the panels' own internal <h3> is suppressed to avoid a double
@@ -321,6 +391,7 @@ embedded view.
   flex-direction: column;
   flex: 1;
   min-width: 0;
+  position: relative;
 }
 
 .wf-editor-mobile-back {
@@ -428,6 +499,20 @@ embedded view.
   display: flex;
   align-items: center;
   gap: var(--space-xs);
+}
+
+/*
+FNXC:WorkflowToolbar 2026-06-22-12:00:
+Toolbar commands such as Export should move as whole controls when space is
+tight; do not allow their short labels to split onto multiple lines.
+*/
+.wf-editor-toolbar .wf-editor-action,
+.wf-editor-toolbar .wf-editor-delete,
+.wf-editor-toolbar .wf-editor-save,
+.wf-editor-readonly-banner .wf-editor-action,
+.wf-editor-readonly-banner .wf-editor-save {
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 
 .wf-editor-readonly-note {

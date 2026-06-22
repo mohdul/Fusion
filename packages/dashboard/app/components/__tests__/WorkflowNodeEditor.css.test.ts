@@ -141,6 +141,14 @@ describe("WorkflowNodeEditor sidebar overflow CSS contract", () => {
     expect(listStageSidebarRule).toMatch(/min-width\s*:\s*0\s*;/);
     expect(listStageSidebarRule).toMatch(/overflow-x\s*:\s*hidden\s*;/);
     expect(listStageSidebarRule).toMatch(/overflow-y\s*:\s*auto\s*;/);
+
+    const collapsedSidebarRule = findRule([editorCss], /\.wf-editor-body--sidebar-collapsed \.wf-editor-sidebar\s*\{[^}]*\}/);
+    expect(collapsedSidebarRule).toMatch(/display\s*:\s*none\s*;/);
+
+    const restoreRule = findRule([editorCss], /\.wf-sidebar-shell-restore\s*\{[^}]*\}/);
+    expect(restoreRule).toMatch(/position\s*:\s*absolute\s*;/);
+    expect(restoreRule).toMatch(/left\s*:\s*var\(--space-sm\)\s*;/);
+    expect(restoreRule).toMatch(/white-space\s*:\s*nowrap\s*;/);
   });
 
   it("FN-6379 keeps sidebar children from forcing horizontal scroll", () => {
@@ -164,6 +172,13 @@ describe("WorkflowNodeEditor sidebar overflow CSS contract", () => {
     );
     expect(paletteButtonRule).toMatch(/min-width\s*:\s*0\s*;/);
     expect(paletteButtonRule).toMatch(/overflow-wrap\s*:\s*anywhere\s*;/);
+
+    const actionNoWrapRule = findRule(
+      [editorCss],
+      /\.wf-editor-toolbar \.wf-editor-action,\s*\.wf-editor-toolbar \.wf-editor-delete,\s*\.wf-editor-toolbar \.wf-editor-save,\s*\.wf-editor-readonly-banner \.wf-editor-action,\s*\.wf-editor-readonly-banner \.wf-editor-save\s*\{[^}]*\}/,
+    );
+    expect(actionNoWrapRule).toMatch(/white-space\s*:\s*nowrap\s*;/);
+    expect(actionNoWrapRule).toMatch(/overflow-wrap\s*:\s*normal\s*;/);
 
     const sidebarCodeRule = findRule([editorCss], /\.wf-editor-sidebar \.wf-code-source\s*\{[^}]*\}/);
     expect(sidebarCodeRule).toMatch(/overflow-x\s*:\s*hidden\s*;/);
