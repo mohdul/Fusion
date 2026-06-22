@@ -13,7 +13,7 @@ import type {
   ResearchSynthesisRequest,
   ResearchSynthesisResult,
 } from "@fusion/core";
-import { allowsAutoMergeProcessing, assertNotWorkspaceTaskMerge, compareTasksByPriorityThenAgeAndId, getTaskHardMergeBlocker, isSharedBranchGroupMemberIntegration, normalizeMergerMode, resolveMaxAutoMergeRetries, sortTasksByPriorityThenAgeAndId, WorkspaceTaskMergeError } from "@fusion/core";
+import { allowsAutoMergeProcessing, assertNotWorkspaceTaskMerge, compareTasksByPriorityThenAgeAndId, getTaskHardMergeBlocker, isSharedBranchGroupMemberIntegration, normalizeMergerMode, resolveMaxAutoMergeRetries, sortTasksByPriorityThenAgeAndId } from "@fusion/core";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { InProcessRuntime } from "./runtimes/in-process-runtime.js";
@@ -2287,11 +2287,15 @@ export class ProjectEngine {
                   this.activeMergeSession = session;
                 },
               };
-              // FNXC:Workspace 2026-06-21-19:05:
+              // FNXC:Workspace 2026-06-21-19:40:
               // R7 merge-boundary guard (master-plan U0). Reject workspace-mode
               // tasks BEFORE any git work — they need the per-repo merge loop that
               // lands in master-plan U6 (which removes this guard). Load the task
               // here so the dispatch shares the one predicate in @fusion/core.
+              // This door is a FAST-FAIL only: a getTask failure is swallowed to null
+              // and the guard is skipped, but the unconditional chokepoint guard inside
+              // runAiMerge (which re-reads the task) is the authoritative enforcement,
+              // so a transient read failure here cannot let a workspace task reach git work.
               const mergeTask = await store.getTask(taskId).catch(() => null);
               if (mergeTask) assertNotWorkspaceTaskMerge(mergeTask);
 
@@ -2358,19 +2362,24 @@ export class ProjectEngine {
             continue;
           }
 
-          // FNXC:Workspace 2026-06-21-19:05:
+          // FNXC:Workspace 2026-06-21-19:40:
           // R7 workspace merge-boundary park (master-plan U0). A WorkspaceTaskMergeError
           // is a PERMANENT config error (workspace task hit a merge door before the
           // per-repo merge loop exists — master-plan U6), NOT a transient merge failure.
-          // Park the task WITHOUT burning mergeRetries (set to 0) so a human can manually
-          // retry after addressing the config; the default failed-path below would
-          // otherwise pin mergeRetries to the cap and permanently block manual retry.
+          // Park with status:"failed" so the auto-merge cooldown sweep STOPS re-attempting:
+          // `canMergeTask` short-circuits on status==="failed". (Parking with status:null +
+          // mergeRetries:0 passes every eligibility gate, so the sweep re-enqueues every tick
+          // → tight WorkspaceTaskMergeError re-throw/re-park loop.) Keep mergeRetries:0 (not
+          // the cap) so a human's manual merge after the config is addressed is not blocked by
+          // exhausted retries — and manual merge flows through the manual-resolver branch
+          // (rejectMergeResolvers), which bypasses canMergeTask, so "failed" never blocks it.
+          // Detect by err.name (matches the VerificationError/MergeAbortedError convention and
+          // is robust across the @fusion/core→@fusion/engine package boundary).
           const isWorkspaceMergeError =
-            err instanceof WorkspaceTaskMergeError
-            || (err as { name?: string } | null)?.name === "WorkspaceTaskMergeError";
+            err instanceof Error && err.name === "WorkspaceTaskMergeError";
           if (isWorkspaceMergeError) {
             runtimeLog.error(
-              `${hasManualResolver ? "Manual" : "Auto"}-merge blocked for ${taskId}: workspace-mode tasks cannot merge until per-repo merge support (master-plan U6) lands; parking without burning mergeRetries so a human can retry after the config is addressed: ${errorMsg}`,
+              `${hasManualResolver ? "Manual" : "Auto"}-merge blocked for ${taskId}: workspace-mode tasks cannot merge until per-repo merge support (master-plan U6) lands; parking as failed (manual retry still works) without exhausting mergeRetries: ${errorMsg}`,
             );
             await store
               .logEntry(taskId, `Merge blocked: ${errorMsg}`, "WorkspaceTaskMergeError")
@@ -2379,7 +2388,7 @@ export class ProjectEngine {
               this.rejectMergeResolvers(taskId, err instanceof Error ? err : new Error(errorMsg));
             } else {
               await store
-                .updateTask(taskId, { status: null, mergeRetries: 0, error: errorMsg })
+                .updateTask(taskId, { status: "failed", mergeRetries: 0, error: errorMsg })
                 .catch(() => undefined);
             }
             continue;

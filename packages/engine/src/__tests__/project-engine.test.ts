@@ -1318,6 +1318,44 @@ describe("ProjectEngine U0 merge unification dispatch", () => {
     expect(mocks.runAiMerge).not.toHaveBeenCalled();
     await engine.stop();
   });
+
+  // Regression: the auto-merge park for a WorkspaceTaskMergeError must set status:"failed",
+  // not status:null. status:null + mergeRetries:0 passes every eligibility gate, so the
+  // cooldown sweep re-enqueues the task every tick → tight re-throw/re-park loop. status:"failed"
+  // makes canMergeTask short-circuit; manual retry still works (it bypasses canMergeTask).
+  it("R7 auto-merge park: workspace task is parked status:'failed' so it is not re-enqueued", async () => {
+    const mockStore = createMockStore({ ...baseSettings, autoMerge: true });
+    mockStore.store.getTask.mockResolvedValue({
+      id: "FN-WS-AUTO",
+      column: "in-review",
+      paused: false,
+      mergeRetries: 0,
+      status: "queued",
+      workspaceWorktrees: {
+        "repo-a": { worktreePath: "/tmp/a", branch: "fusion/fn-ws-a" },
+      },
+    } as any);
+    mocks.currentStore = mockStore.store;
+
+    const engine = createEngine();
+    await engine.start();
+    // Auto-merge path (no manual resolver): the R7 door guard throws before runAiMerge,
+    // and the dispatch catch parks the task.
+    engine.enqueueMerge("FN-WS-AUTO");
+    await vi.waitFor(() => {
+      expect(mockStore.store.updateTask).toHaveBeenCalledWith(
+        "FN-WS-AUTO",
+        expect.objectContaining({ status: "failed", mergeRetries: 0 }),
+      );
+    });
+    expect(mocks.runAiMerge).not.toHaveBeenCalled();
+    // Guard against regression to the re-enqueue loop (status:null park):
+    expect(mockStore.store.updateTask).not.toHaveBeenCalledWith(
+      "FN-WS-AUTO",
+      expect.objectContaining({ status: null }),
+    );
+    await engine.stop();
+  });
 });
 
 describe("ProjectEngine merge queue priority ordering", () => {
