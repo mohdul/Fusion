@@ -381,10 +381,9 @@ export function LeftSidebarNav({
     ...(experimentalFeatures?.goalsView
       ? [{ id: "goals", label: t("header.goalsView", "Goals"), view: "goalsView" as TaskView, isActive: view === "goalsView", icon: Target, testId: "sidebar-nav-goals", onSelect: () => onChangeView("goalsView") }]
       : []),
-    ...(compoundPluginEntry ? [mapPluginEntry(compoundPluginEntry)] : []),
     /*
-    FNXC:Navigation 2026-06-22-00:00:
-    Workflows, Import Tasks, and Automations are left-sidebar destinations that load in the main content area (not modals). Import Tasks is the GitHub import view (labeled "Import Tasks", not "Import from GitHub").
+    FNXC:Navigation 2026-06-22-00:00 (reordered 2026-06-23-01:45):
+    Workflows, Import Tasks, and Automations are left-sidebar destinations that load in the main content area (not modals). Import Tasks is the GitHub import view (labeled "Import Tasks", not "Import from GitHub"). Automations + Import Tasks sit directly ABOVE Compound Eng per user request.
     */
     {
       id: "automations",
@@ -404,6 +403,7 @@ export function LeftSidebarNav({
       testId: "sidebar-nav-import-tasks",
       onSelect: () => onChangeView("import-tasks"),
     },
+    ...(compoundPluginEntry ? [mapPluginEntry(compoundPluginEntry)] : []),
     {
       id: "workflows",
       label: t("nav.workflows", "Workflows"),
