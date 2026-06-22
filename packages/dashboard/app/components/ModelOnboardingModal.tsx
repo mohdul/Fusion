@@ -1807,6 +1807,11 @@ export function ModelOnboardingModal({
   const hasAiProvider = connectedAiProviders.length > 0;
   const hasProjectSelected = Boolean(projectId);
   const selectedAgentPreset = selectedAgentPresetId ? getPresetById(selectedAgentPresetId) : undefined;
+  /*
+  FNXC:Onboarding 2026-06-22-06:03:
+  AI-generated agent drafts are custom and should not appear selected as a template, but the template radiogroup still needs one tabbable item for keyboard users.
+  */
+  const agentPresetTabStopId = selectedAgentPresetId || ceoPreset.id;
   const isAgentActionDisabled = isCreatingAgent || !hasProjectSelected;
   // True when on GitHub step but skipped AI setup (no AI provider connected)
   const aiSetupSkipped = step === "github" && !hasAiProvider;
@@ -2832,7 +2837,7 @@ export function ModelOnboardingModal({
                           role="radio"
                           aria-checked={selected}
                           aria-label={selected ? t("setup.selectedAgentTemplate", "{{name}} selected", { name: preset.name }) : preset.name}
-                          tabIndex={selected ? 0 : -1}
+                          tabIndex={preset.id === agentPresetTabStopId ? 0 : -1}
                           data-model-onboarding-agent-preset-id={preset.id}
                           disabled={isAgentActionDisabled}
                           onClick={() => handleAgentPresetSelect(preset.id)}
@@ -3185,7 +3190,12 @@ export function ModelOnboardingModal({
             </div>
           )}
         >
-          <Suspense fallback={null}>
+          <Suspense fallback={(
+            <div className="wizard-error setup-wizard-agent-interview-error" role="status">
+              {t("setup.firstAgentInterviewLoading", "Loading AI Interview...")}
+            </div>
+          )}
+          >
             <ExperimentalAgentOnboardingModal
               isOpen={isAgentInterviewOpen}
               onClose={() => setIsAgentInterviewOpen(false)}

@@ -636,6 +636,9 @@ describe("SetupWizardModal", () => {
 
     expect(await screen.findByText("Launch Coordinator")).toBeDefined();
     expect(screen.getByText("Launch Planning Agent")).toBeDefined();
+    const ceoRadio = screen.getByRole("radio", { name: "CEO" });
+    expect(ceoRadio).toHaveAttribute("tabIndex", "0");
+    expect(ceoRadio).toHaveAttribute("aria-checked", "false");
     expect(mockCreateAgent).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByText("Create Agent"));

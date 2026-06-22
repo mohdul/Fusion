@@ -127,6 +127,36 @@ vi.mock("../ProviderIcon", () => ({
   ),
 }));
 
+vi.mock("../ExperimentalAgentOnboardingModal", () => ({
+  ExperimentalAgentOnboardingModal: ({ isOpen, onClose, onUseDraft }: { isOpen: boolean; onClose: () => void; onUseDraft: (draft: any) => void }) => (
+    isOpen ? (
+      <div data-testid="agent-interview-modal">
+        AI Interview Modal
+        <button
+          type="button"
+          onClick={() => {
+            onUseDraft({
+              name: "Launch Coordinator",
+              title: "Launch Planning Agent",
+              icon: "◇",
+              role: "not-a-real-role",
+              instructionsText: "Coordinate launch tasks.",
+              soul: "Strategic launch planner.",
+              skills: ["planning", "review"],
+              runtimeHint: "codex-local",
+              maxTurns: 24,
+              thinkingLevel: "medium",
+            });
+            onClose();
+          }}
+        >
+          Use Draft
+        </button>
+      </div>
+    ) : null
+  ),
+}));
+
 // Mock lucide-react icons - preserve actual icons for other components
 vi.mock("lucide-react", async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
@@ -3248,6 +3278,35 @@ describe("ModelOnboardingModal", () => {
       await waitFor(() => {
         expect(screen.getByText("Create Your First Task")).toBeTruthy();
       });
+    });
+
+    it("keeps one agent template tabbable after applying an AI draft", async () => {
+      render(
+        <ModelOnboardingModal
+          onComplete={vi.fn()}
+          addToast={vi.fn()}
+          projectId="proj_123"
+          agentOnboardingEnabled
+        />,
+      );
+
+      await navigateToProjectSetupStep();
+      fireEvent.click(screen.getByText("Next →"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Create Your First Agent")).toBeTruthy();
+      });
+
+      fireEvent.click(screen.getByText("AI Interview"));
+      expect(await screen.findByTestId("agent-interview-modal")).toBeTruthy();
+
+      fireEvent.click(screen.getByText("Use Draft"));
+
+      expect(await screen.findByText("Launch Coordinator")).toBeTruthy();
+      expect(screen.getByText("Launch Planning Agent")).toBeTruthy();
+      const ceoRadio = screen.getByRole("radio", { name: "CEO" });
+      expect(ceoRadio).toHaveAttribute("tabIndex", "0");
+      expect(ceoRadio).toHaveAttribute("aria-checked", "false");
     });
 
     it("allows completing full onboarding flow without any setup", async () => {

@@ -6598,6 +6598,7 @@
     "firstAgentDraftName": "Draft agent",
     "firstAgentContinueWithTemplates": "Continue with templates",
     "firstAgentInterviewLoadError": "AI interview could not load. You can still create an agent from a template or skip this step.",
+    "firstAgentInterviewLoading": "Loading AI Interview...",
     "firstAgentIntro": "Agents are optional. Fusion can build tasks without one by starting temporary agents for planning, coding, review, and merge. Create an agent only if you want help coordinating tasks and direction.",
     "firstAgentNoInstructions": "No inline instructions yet",
     "firstAgentPreview": "Preview",

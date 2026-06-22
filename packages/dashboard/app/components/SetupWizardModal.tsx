@@ -158,6 +158,10 @@ export function SetupWizardModal({
       const result = await registerProject(input);
 
       if (!includeAgentStep) {
+        setState((prev) => ({
+          ...prev,
+          isRegistering: false,
+        }));
         onProjectRegistered(result);
         return;
       }
@@ -267,6 +271,11 @@ export function SetupWizardModal({
     ? getPresetById(state.selectedPresetId)
     : undefined;
   const isAgentActionDisabled = state.isCreatingAgent;
+  /*
+   FNXC:Onboarding 2026-06-22-06:03:
+   AI-generated agent drafts are custom and should not appear selected as a template, but the template radiogroup still needs one tabbable item for keyboard users.
+   */
+  const agentPresetTabStopId = state.selectedPresetId || ceoPreset.id;
   /*
    FNXC:Onboarding 2026-06-22-05:37:
    The optional project-agent step needs more horizontal room than project details so templates and preview can be compared side by side.
@@ -510,7 +519,7 @@ export function SetupWizardModal({
                           role="radio"
                           aria-checked={selected}
                           aria-label={selected ? t("setup.selectedAgentTemplate", "{{name}} selected", { name: preset.name }) : preset.name}
-                          tabIndex={selected ? 0 : -1}
+                          tabIndex={preset.id === agentPresetTabStopId ? 0 : -1}
                           data-agent-preset-id={preset.id}
                           disabled={isAgentActionDisabled}
                           onClick={() => handlePresetSelect(preset.id)}
@@ -672,7 +681,12 @@ export function SetupWizardModal({
             </div>
           )}
         >
-          <Suspense fallback={null}>
+          <Suspense fallback={(
+            <div className="wizard-error setup-wizard-agent-interview-error" role="status">
+              {t("setup.firstAgentInterviewLoading", "Loading AI Interview...")}
+            </div>
+          )}
+          >
             <ExperimentalAgentOnboardingModal
               isOpen={isInterviewOpen}
               onClose={() => setIsInterviewOpen(false)}
