@@ -1,8 +1,9 @@
+import { readFileSync } from "node:fs";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoardWorkflowDefinition } from "../../api";
 import { loadAllAppCssBaseOnly } from "../../test/cssFixture";
-import { WorkflowSwitcher } from "../WorkflowSwitcher";
+import { computeMenuWidth, OPTION_DECORATIONS_WIDTH, WorkflowSwitcher } from "../WorkflowSwitcher";
 import type { WorkflowStatusCounts } from "../workflowStatusCounts";
 
 const workflows: BoardWorkflowDefinition[] = [
@@ -26,6 +27,39 @@ function cssRuleFor(css: string, selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
 }
+
+function menuWidth() {
+  const menu = screen.getByRole("listbox", { name: "Workflow" });
+  return Number.parseFloat(menu.style.width);
+}
+
+beforeEach(() => {
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("computeMenuWidth", () => {
+  it("keeps short-name menus at or above the min width and trigger width", () => {
+    expect(computeMenuWidth({ longestNameWidth: 12, triggerWidth: 180, viewportWidth: 1024 })).toBe(240);
+    expect(computeMenuWidth({ longestNameWidth: 12, triggerWidth: 280, viewportWidth: 1024 })).toBe(280);
+  });
+
+  it("grows with long names plus the option decorations budget", () => {
+    const longestNameWidth = 420;
+    expect(computeMenuWidth({ longestNameWidth, triggerWidth: 180, viewportWidth: 1024 })).toBe(longestNameWidth + OPTION_DECORATIONS_WIDTH);
+  });
+
+  it("caps content-driven width to the padded viewport", () => {
+    expect(computeMenuWidth({ longestNameWidth: 1200, triggerWidth: 180, viewportWidth: 390, horizontalPadding: 16 })).toBe(358);
+  });
+
+  it("uses trigger dominance when the collapsed control is wider than the content budget", () => {
+    expect(computeMenuWidth({ longestNameWidth: 20, triggerWidth: 360, viewportWidth: 1024 })).toBe(360);
+  });
+});
 
 describe("WorkflowSwitcher", () => {
   it("renders the active workflow without compact counts while collapsed", () => {
@@ -56,6 +90,46 @@ describe("WorkflowSwitcher", () => {
 
     fireEvent.mouseDown(document.body);
     expect(screen.queryByRole("listbox", { name: "Workflow" })).not.toBeInTheDocument();
+  });
+
+  it("widens the open listbox for long workflow names without changing the trigger sizing contract", () => {
+    /* Surface Enumeration: this covers short/long populated options through the shared Board/ListView switcher component seam, with CSS assertions for the collapsed trigger and mobile viewport overflow safety net. */
+    const ctxStub = {
+      font: "",
+      measureText: (text: string) => ({ width: text.length * 8 }),
+    };
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctxStub as CanvasRenderingContext2D);
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
+
+    const { unmount } = render(<WorkflowSwitcher workflows={workflows} value="coding" onChange={vi.fn()} counts={countMap()} />);
+    fireEvent.click(screen.getByTestId("workflow-switcher"));
+    const shortWidth = menuWidth();
+    unmount();
+
+    render(
+      <WorkflowSwitcher
+        workflows={[
+          workflows[0],
+          { id: "long", name: "Release Engineering Workflow With Very Long Name", columns: [] },
+        ]}
+        value="coding"
+        onChange={vi.fn()}
+        counts={countMap()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("workflow-switcher"));
+    const longWidth = menuWidth();
+
+    expect(shortWidth).toBeGreaterThanOrEqual(240);
+    expect(longWidth).toBeGreaterThan(shortWidth);
+
+    const css = loadAllAppCssBaseOnly();
+    const triggerRule = cssRuleFor(css, ".workflow-switcher-trigger");
+    expect(triggerRule).toMatch(/max-width:\s*calc\(var\(--space-xl\) \* 12\)/);
+    const currentNameRule = cssRuleFor(css, ".workflow-switcher-current-name,\n.workflow-switcher-option-name");
+    expect(currentNameRule).toMatch(/text-overflow:\s*ellipsis/);
+    const switcherCss = readFileSync("app/components/WorkflowSwitcher.css", "utf8");
+    expect(switcherCss).toMatch(/@media\s*\(max-width:\s*768px\)[\s\S]*max-width:\s*calc\(100vw - var\(--space-xl\)\);/);
   });
 
   it("fires onOpen only on click-driven closed-to-open transitions", () => {
