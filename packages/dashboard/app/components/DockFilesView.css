@@ -2,16 +2,50 @@
 FNXC:RightDockFiles 2026-06-22-00:00:
 The inline Files viewer fills the right-dock body and scrolls internally so the read-only FileEditor never overflows the dock.
 The header is a compact bar: BACK on the left, a truncating file name in the middle, POP-OUT on the right.
+
+FNXC:Files 2026-06-22-00:00:
+Responsive single-panel vs two-pane layout driven entirely by a CSS container query.
+The root is a query container (container-type: inline-size, container-name: dock-files). Both the tree pane (.dock-files-view__tree) and the viewer pane (.dock-files-view__viewer) are always rendered in the DOM; CSS decides visibility per container width.
+- NARROW (default, in the dock): single-panel stack. The tree fills the root. When a file is selected (root [data-selected="true"]) the viewer pane covers the stack and the tree is hidden; BACK returns to the tree.
+- WIDE (>=720px, the RightDockExpandModal pop-out): two-pane side-by-side. Tree pinned left (clamped width, scrollable), viewer flex:1 on the right (scrollable). Both always visible regardless of data-selected; BACK is hidden because the tree never disappears.
 */
 .dock-files-view {
   display: flex;
   flex-direction: column;
   min-height: 0;
   height: 100%;
+  /* FNXC:Files — establish the query container so child panes can respond to the dock vs expand-modal width. */
+  container-type: inline-size;
+  container-name: dock-files;
 }
 
-.dock-files-view--viewer {
+/* FNXC:Files — NARROW default: tree fills the root as the single panel. */
+.dock-files-view__tree {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
   overflow: hidden;
+}
+
+/*
+FNXC:Files — NARROW default: viewer is the stacked second panel.
+Hidden until a file is selected; when selected it overlays the tree as the single visible panel (the tree is hidden below).
+*/
+.dock-files-view__viewer {
+  display: none;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.dock-files-view[data-selected="true"] .dock-files-view__tree {
+  display: none;
+}
+
+.dock-files-view[data-selected="true"] .dock-files-view__viewer {
+  display: flex;
 }
 
 .dock-files-viewer__header {
@@ -60,4 +94,51 @@ The header is a compact bar: BACK on the left, a truncating file name in the mid
 
 .dock-files-viewer__status--error {
   color: var(--danger, var(--text));
+}
+
+/* FNXC:Files — empty-state placeholder shown in the wide right pane until a file is selected. */
+.dock-files-viewer__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  text-align: center;
+}
+
+/*
+FNXC:Files 2026-06-22-00:00:
+WIDE container (>=720px): two-pane side-by-side. Activated when DockFilesView is rendered in the wide RightDockExpandModal.
+Both panes are always visible; data-selected no longer toggles visibility here.
+*/
+@container dock-files (min-width: 720px) {
+  .dock-files-view {
+    flex-direction: row;
+  }
+
+  /* Tree pinned left: clamped, scrollable, with a divider against the viewer. */
+  .dock-files-view__tree {
+    display: flex;
+    flex: 0 0 clamp(220px, 32%, 360px);
+    min-width: 0;
+    overflow: auto;
+    border-right: 1px solid var(--border);
+  }
+
+  /* Viewer fills the remaining width; always visible (empty-state until a file is selected). */
+  .dock-files-view__viewer,
+  .dock-files-view[data-selected="true"] .dock-files-view__viewer {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .dock-files-view[data-selected="true"] .dock-files-view__tree {
+    display: flex;
+  }
+
+  /* BACK is meaningless when the tree is always visible. */
+  .dock-files-view__viewer .dock-files-viewer__back {
+    display: none;
+  }
 }

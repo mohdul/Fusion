@@ -19,6 +19,11 @@ FNXC:RightDockFiles 2026-06-22-00:00:
 The right-dock Files tool opens a clicked file INLINE inside the dock as a read-only viewer instead of immediately launching the resizable/movable FileBrowserModal.
 Clicking a file in the tree sets local `selectedFile` (it does NOT call `openFile`); the inline viewer reuses the read-only `FileEditor` so markdown previews and syntax highlighting match the rest of the app.
 The viewer header carries a BACK button (clears `selectedFile`, returning to the tree) and a POP-OUT button that calls `openFile(path, { workspace: "project" })` to escalate to the existing resizable/movable modal. This preserves the modal path; it is now opt-in via pop-out rather than the default click behavior.
+
+FNXC:Files 2026-06-22-00:00:
+Responsive layout via CSS container query. The root is a query container (container-type: inline-size, container-name: dock-files). BOTH the tree pane and the viewer pane are always rendered in the DOM; CSS decides what is visible per container width.
+- NARROW (dock, default): single-panel stack. Tree shows alone; selecting a file reveals the viewer pane which overlays the stack, and the BACK button returns to the tree. This preserves the prior navigation-stack UX.
+- WIDE (>=720px, the RightDockExpandModal pop-out): two-pane side-by-side. Left pane = tree (always visible, clamped width, scrollable). Right pane = viewer (flex:1, scrollable) showing an empty-state until a file is selected. Selecting a file updates the right pane without hiding the tree, so the BACK button is hidden when wide.
 */
 export function DockFilesView({ projectId, openFile }: DockFilesViewProps) {
   const { t } = useTranslation("app");
@@ -66,11 +71,36 @@ export function DockFilesView({ projectId, openFile }: DockFilesViewProps) {
     if (selectedFile) openFile?.(selectedFile, { workspace: "project" });
   }, [openFile, selectedFile]);
 
-  if (selectedFile) {
-    const fileName = selectedFile.split("/").pop() || selectedFile;
-    return (
-      <div className="dock-files-view dock-files-view--viewer" data-testid="right-dock-files-view">
+  const fileName = selectedFile ? selectedFile.split("/").pop() || selectedFile : "";
+
+  // FNXC:Files 2026-06-22-00:00:
+  // `data-selected` on the root lets the container query distinguish "no file selected" (narrow: viewer pane hidden so only the tree shows) from "file selected" (narrow: viewer pane covers the stack). When wide both panes are always visible regardless of this flag.
+  return (
+    <div
+      className="dock-files-view"
+      data-testid="right-dock-files-view"
+      data-selected={selectedFile ? "true" : "false"}
+    >
+      {/* FNXC:Files — left pane: tree. Always in the DOM; CSS hides it only in the narrow single-panel stack when a file is selected. */}
+      <div className="dock-files-view__tree" data-testid="right-dock-files-tree">
+        <FileBrowser
+          entries={entries}
+          currentPath={currentPath}
+          onSelectFile={(path) => setSelectedFile(path)}
+          onNavigate={setPath}
+          loading={loading}
+          error={error}
+          onRetry={refresh}
+          workspace="project"
+          onRefresh={refresh}
+          projectId={projectId}
+        />
+      </div>
+
+      {/* FNXC:Files — right pane: viewer. Always in the DOM; CSS shows it side-by-side when wide, or as the single-panel stack when narrow + a file is selected. */}
+      <div className="dock-files-view__viewer" data-testid="right-dock-files-viewer">
         <div className="dock-files-viewer__header">
+          {/* FNXC:Files — BACK only matters in the narrow stack (returns to the tree); CSS hides it when wide since the tree is always visible. */}
           <button
             type="button"
             className="btn btn-sm btn-icon dock-files-viewer__back"
@@ -81,11 +111,12 @@ export function DockFilesView({ projectId, openFile }: DockFilesViewProps) {
           >
             <ArrowLeft size={14} />
           </button>
-          <span className="dock-files-viewer__title" title={selectedFile}>{fileName}</span>
+          <span className="dock-files-viewer__title" title={selectedFile ?? undefined}>{fileName}</span>
           <button
             type="button"
             className="btn btn-sm btn-icon dock-files-viewer__popout"
             onClick={handlePopOut}
+            disabled={!selectedFile}
             aria-label={t("fileViewer.popOut", "Open in resizable window")}
             title={t("fileViewer.popOut", "Open in resizable window")}
             data-testid="right-dock-files-popout"
@@ -94,7 +125,11 @@ export function DockFilesView({ projectId, openFile }: DockFilesViewProps) {
           </button>
         </div>
         <div className="dock-files-viewer__body">
-          {contentLoading ? (
+          {!selectedFile ? (
+            <div className="dock-files-viewer__status dock-files-viewer__empty" data-testid="right-dock-files-empty">
+              {t("fileViewer.selectAFile", "Select a file")}
+            </div>
+          ) : contentLoading ? (
             <div className="dock-files-viewer__status">{t("common.loading", "Loading...")}</div>
           ) : contentError ? (
             <div className="dock-files-viewer__status dock-files-viewer__status--error">{contentError}</div>
@@ -103,23 +138,6 @@ export function DockFilesView({ projectId, openFile }: DockFilesViewProps) {
           )}
         </div>
       </div>
-    );
-  }
-
-  return (
-    <div className="dock-files-view" data-testid="right-dock-files-view">
-      <FileBrowser
-        entries={entries}
-        currentPath={currentPath}
-        onSelectFile={(path) => setSelectedFile(path)}
-        onNavigate={setPath}
-        loading={loading}
-        error={error}
-        onRetry={refresh}
-        workspace="project"
-        onRefresh={refresh}
-        projectId={projectId}
-      />
     </div>
   );
 }
