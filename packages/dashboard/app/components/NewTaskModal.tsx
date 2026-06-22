@@ -26,9 +26,11 @@ interface NewTaskModalProps {
   onCreateTask: (input: TaskCreateInput) => Promise<Task>;
   addToast: (message: string, type?: ToastType) => void;
   initialDescription?: string;
+  onPlanningMode?: (initialPlan: string, workflowId?: string | null) => void;
+  onSubtaskBreakdown?: (description: string, workflowId?: string | null) => void;
 }
 
-export function NewTaskModal({ isOpen, onClose, projectId, tasks, onCreateTask, addToast, initialDescription = "" }: NewTaskModalProps) {
+export function NewTaskModal({ isOpen, onClose, projectId, tasks, onCreateTask, addToast, initialDescription = "", onPlanningMode, onSubtaskBreakdown }: NewTaskModalProps) {
   const { t } = useTranslation("app");
   const { confirm } = useConfirm();
   const viewportMode = useViewportMode();
@@ -186,15 +188,7 @@ export function NewTaskModal({ isOpen, onClose, projectId, tasks, onCreateTask, 
     setHasDirtyState(isDirty);
   }, [description, dependencies, pendingImages, selectedWorkflowId, enabledWorkflowSteps, executorModel, validatorModel, planningModel, thinkingLevel, selectedAgentId, reviewLevel, autoMerge, priority, nodeId, branchMode, branch, baseBranch, githubTrackingEnabled, githubRepoOverrideTrimmed]);
 
-  const handleClose = useCallback(async () => {
-    if (hasDirtyState) {
-      const shouldDiscard = await confirm({
-        title: t("newTaskModal.discardChanges", "Discard Changes"),
-        message: t("newTaskModal.unsavedChanges", "You have unsaved changes. Discard them?"),
-        danger: true,
-      });
-      if (!shouldDiscard) return;
-    }
+  const resetForm = useCallback(() => {
     // Clean up object URLs
     pendingImages.forEach((img) => URL.revokeObjectURL(img.previewUrl));
     // Reset form
@@ -221,8 +215,29 @@ export function NewTaskModal({ isOpen, onClose, projectId, tasks, onCreateTask, 
     setHasDirtyState(false);
     setGithubTrackingEnabled(false);
     setGithubRepoOverride("");
+  }, [pendingImages]);
+
+  const handleClose = useCallback(async () => {
+    if (hasDirtyState) {
+      const shouldDiscard = await confirm({
+        title: t("newTaskModal.discardChanges", "Discard Changes"),
+        message: t("newTaskModal.unsavedChanges", "You have unsaved changes. Discard them?"),
+        danger: true,
+      });
+      if (!shouldDiscard) return;
+    }
+    resetForm();
     onClose();
-  }, [hasDirtyState, onClose, pendingImages, confirm, t]);
+  }, [hasDirtyState, onClose, confirm, t, resetForm]);
+
+  /**
+   * FNXC:NewTaskDialogAffordances 2026-06-21-17:50:
+   * The New Task dialog must expose the same Plan and Subtask quick-add handoff affordances as QuickEntryBox. Close without the dirty-state discard confirmation because the typed description is intentionally handed off to the planning/subtask modal instead of discarded.
+   */
+  const handleAiAssistClose = useCallback(() => {
+    resetForm();
+    onClose();
+  }, [onClose, resetForm]);
 
   const handleSubmit = useCallback(async () => {
     const trimmedDesc = description.trim();
@@ -528,7 +543,9 @@ export function NewTaskModal({ isOpen, onClose, projectId, tasks, onCreateTask, 
             disabled={isSubmitting}
             addToast={addToast}
             isActive={isOpen}
-            onClose={handleClose}
+            onClose={handleAiAssistClose}
+            onPlanningMode={onPlanningMode}
+            onSubtaskBreakdown={onSubtaskBreakdown}
             planningModel={planningModel}
             onPlanningModelChange={setPlanningModel}
             thinkingLevel={thinkingLevel}

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { NewTaskModal } from "../NewTaskModal";
 import type { Task, Column } from "@fusion/core";
 
@@ -75,12 +76,12 @@ function makeTask(id: string): Task {
   };
 }
 
-function renderNewTaskModal(props = {}) {
-  const defaultProps = {
+function renderNewTaskModal(props: Partial<ComponentProps<typeof NewTaskModal>> = {}) {
+  const defaultProps: ComponentProps<typeof NewTaskModal> = {
     isOpen: true,
     onClose: vi.fn(),
     tasks: [] as Task[],
-    onCreateTask: vi.fn().mockResolvedValue({ id: "FN-001" }),
+    onCreateTask: vi.fn().mockResolvedValue(makeTask("FN-001")),
     addToast: vi.fn(),
   };
   const mergedProps = { ...defaultProps, ...props };
@@ -147,6 +148,76 @@ describe("NewTaskModal", () => {
     });
     expect(screen.getByRole("button", { name: "Create Task" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+  });
+
+  it("exposes New Task dialog quick-add affordance parity when AI handoff callbacks are supplied", () => {
+    renderNewTaskModal({
+      onPlanningMode: vi.fn(),
+      onSubtaskBreakdown: vi.fn(),
+    });
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Create parity coverage" } });
+
+    // Canonical QuickEntryBox action row includes Plan, Subtask, Refine, Deps, Attach, Models, Node, and Agent affordances; the modal maps these to existing TaskForm/quick-field controls instead of duplicating implementations.
+    expect(screen.getAllByTestId("task-form-plan-button")).toHaveLength(1);
+    expect(screen.getAllByTestId("task-form-subtask-button")).toHaveLength(1);
+    expect(screen.getByTestId("refine-button")).toBeInTheDocument();
+    expect(screen.getByTestId("dep-trigger")).toBeInTheDocument();
+    expect(screen.getByTestId("new-task-agent-button")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("task-form-more-options-toggle"));
+
+    expect(screen.getByTestId("task-form-github-tracking")).toBeInTheDocument();
+    expect(screen.getByTestId("task-priority-select")).toBeInTheDocument();
+    expect(screen.getByText(/Attachments/i)).toBeInTheDocument();
+    expect(screen.getByText(/Node Override/i)).toBeInTheDocument();
+  });
+
+  it("hands trimmed descriptions to planning and subtask callbacks without discard confirmation", () => {
+    const onPlanningMode = vi.fn();
+    const onSubtaskBreakdown = vi.fn();
+    const { unmount, props } = renderNewTaskModal({
+      onPlanningMode,
+      onSubtaskBreakdown,
+    });
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "  Break this down  " } });
+    fireEvent.click(screen.getByTestId("task-form-plan-button"));
+
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(onPlanningMode).toHaveBeenCalledWith("Break this down");
+    expect(onSubtaskBreakdown).not.toHaveBeenCalled();
+
+    unmount();
+    renderNewTaskModal({
+      onPlanningMode,
+      onSubtaskBreakdown,
+    });
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "  Split into subtasks  " } });
+    fireEvent.click(screen.getByTestId("task-form-subtask-button"));
+
+    expect(onSubtaskBreakdown).toHaveBeenCalledWith("Split into subtasks");
+    expect(onPlanningMode).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables Plan and Subtask handoff buttons until a description is present", () => {
+    renderNewTaskModal({
+      onPlanningMode: vi.fn(),
+      onSubtaskBreakdown: vi.fn(),
+    });
+
+    const planButton = screen.getByTestId("task-form-plan-button");
+    const subtaskButton = screen.getByTestId("task-form-subtask-button");
+
+    expect(planButton).toBeDisabled();
+    expect(subtaskButton).toBeDisabled();
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Ready to plan" } });
+
+    expect(planButton).not.toBeDisabled();
+    expect(subtaskButton).not.toBeDisabled();
   });
 
   it("shows More options toggle and reveals advanced fields when clicked", async () => {

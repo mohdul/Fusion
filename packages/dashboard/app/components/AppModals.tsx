@@ -52,6 +52,8 @@ interface AppModalsProps {
   modalManager: ModalManager;
   projectActions: Pick<UseProjectActionsResult, "handleAddProject" | "handleSetupComplete" | "handleModelOnboardingComplete">;
   taskHandlers: Pick<UseTaskHandlersResult, "handleModalCreate" | "handlePlanningTaskCreated" | "handlePlanningTasksCreated" | "handleSubtaskTasksCreated" | "handleGitHubImport">;
+  onPlanningMode?: (initialPlan: string, workflowId?: string | null) => void;
+  onSubtaskBreakdown?: (description: string, workflowId?: string | null) => void;
   taskOperations: {
     moveTask: (taskId: string, column: Column, optionsOrPosition?: { preserveProgress?: boolean } | number) => Promise<Task>;
     deleteTask: (taskId: string, options?: {
@@ -101,6 +103,8 @@ export function AppModals({
   modalManager,
   projectActions,
   taskHandlers,
+  onPlanningMode,
+  onSubtaskBreakdown,
   taskOperations,
   deepLink,
   settings,
@@ -429,6 +433,8 @@ export function AppModals({
           addToast={addToast}
           projectId={projectId}
           initialDescription={modalManager.newTaskInitialDescription ?? ""}
+          onPlanningMode={onPlanningMode}
+          onSubtaskBreakdown={onSubtaskBreakdown}
         />
       </ModalErrorBoundary>
 

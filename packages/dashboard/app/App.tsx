@@ -2255,6 +2255,8 @@ function AppInner() {
           handleSubtaskTasksCreated,
           handleGitHubImport,
         }}
+        onPlanningMode={openPlanningWithInitialPlanWithNav}
+        onSubtaskBreakdown={openSubtaskBreakdownWithNav}
         taskOperations={{ moveTask, deleteTask, mergeTask, archiveTask, retryTask, resetTask, duplicateTask }}
         deepLink={{ handleDetailClose }}
         settings={{ prAuthAvailable, autoMerge, themeMode, colorTheme, dashboardFontScalePct, shadcnCustomColors, resolvedThemeMode, setThemeMode, setColorTheme, setDashboardFontScalePct, setShadcnCustomColors }}
