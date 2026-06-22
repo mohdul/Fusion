@@ -15,6 +15,9 @@ vi.mock("lucide-react", () => ({
   Maximize2: () => null,
   Minimize2: () => null,
   Workflow: () => null,
+  Paperclip: () => null,
+  Flag: () => null,
+  Zap: () => null,
 }));
 
 // Mock the api module
@@ -136,15 +139,27 @@ describe("NewTaskModal", () => {
 
     expect(screen.getByText("New Task")).toBeTruthy();
     expect(screen.getByPlaceholderText("What needs to be done?")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Plan" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Subtask" })).toBeNull();
-    expect(screen.queryByTestId("task-form-description-actions")).toBeNull();
+    // Without AI-handoff callbacks there is no Plan/Subtask button…
+    expect(screen.queryByTestId("task-form-plan-button")).toBeNull();
+    expect(screen.queryByTestId("task-form-subtask-button")).toBeNull();
+    // …but FNXC:NewTask 2026-06-23-00:10: the inline quick-add action row still renders in create mode to host Attach/Fast/Priority.
+    expect(screen.getByTestId("task-form-description-actions")).toBeInTheDocument();
 
     // Dependencies and agent are in quick-fields — visible by default (no toggle needed)
     expect(screen.getByTestId("dep-trigger")).toBeInTheDocument();
     expect(screen.getByTestId("new-task-agent-button")).toBeInTheDocument();
 
+    // FNXC:NewTask 2026-06-23-00:10: The common quick-add buttons (Attach, Fast, Priority) are surfaced INLINE next to the actions row and visible immediately.
+    expect(screen.getByTestId("task-form-inline-attach")).toBeInTheDocument();
+    expect(screen.getByTestId("task-form-inline-fast")).toBeInTheDocument();
+    expect(screen.getByTestId("task-form-inline-priority")).toBeInTheDocument();
 
+    // FNXC:NewTask 2026-06-23-00:10: The DEEP/advanced options now sit behind the collapsed "Advanced" disclosure. Model Configuration / Attachments are NOT shown until the toggle is expanded.
+    const advancedToggle = screen.getByTestId("task-form-more-options-toggle");
+    expect(advancedToggle).toHaveTextContent(/Advanced/i);
+    expect(screen.getByTestId("task-form-more-options")).toHaveAttribute("hidden");
+
+    fireEvent.click(advancedToggle);
     await waitFor(() => {
       expect(screen.getByText(/Model Configuration/i)).toBeTruthy();
       expect(screen.getByText(/Attachments/i)).toBeTruthy();
@@ -287,42 +302,54 @@ describe("NewTaskModal", () => {
     expect(subtaskButton).not.toBeDisabled();
   });
 
-  // FNXC:NewTask 2026-06-22-20:30: The New Task dialog force-opens TaskForm's advanced controls (forceMoreOptionsOpen), so every quick-add control is visible by default with NO disclosure toggle and nothing hidden.
-  it("shows all advanced fields by default without a More options toggle", () => {
+  // FNXC:NewTask 2026-06-23-00:10: The New Task dialog NO LONGER force-opens TaskForm's advanced controls. The DEEP/advanced options (model selectors, workflow picker, etc.) are collapsed behind a disclosure relabeled "Advanced"; the common quick-add buttons (Attach/Fast/Priority) are surfaced inline next to Plan and are always visible.
+  it("keeps deep options behind a collapsed 'Advanced' disclosure while surfacing inline quick-add buttons", () => {
     renderNewTaskModal();
 
-    const moreOptions = screen.getByTestId("task-form-more-options");
-    // No collapse toggle is rendered in the force-open New Task context.
-    expect(screen.queryByTestId("task-form-more-options-toggle")).toBeNull();
-    // The advanced section is open (not hidden) from the start.
-    expect(moreOptions).not.toHaveAttribute("hidden");
+    // The disclosure toggle exists, reads "Advanced", and starts collapsed (section hidden).
+    const advancedToggle = screen.getByTestId("task-form-more-options-toggle");
+    expect(advancedToggle).toHaveTextContent(/Advanced/i);
+    expect(advancedToggle).toHaveAttribute("aria-expanded", "false");
+    // Deep options live inside the collapsed (hidden) section, so they are not shown to the user.
+    const advancedSection = screen.getByTestId("task-form-more-options");
+    expect(advancedSection).toHaveAttribute("hidden");
+    expect(advancedSection).toContainElement(screen.getByText(/Model Configuration/i));
+    expect(advancedSection).toContainElement(screen.getByText("Workflow"));
+
+    // Inline quick-add buttons (Attach/Fast/Priority) ARE visible without expanding (outside the hidden section).
+    expect(screen.getByTestId("task-form-inline-attach")).toBeInTheDocument();
+    expect(screen.getByTestId("task-form-inline-fast")).toBeInTheDocument();
+    expect(screen.getByTestId("task-form-inline-priority")).toBeInTheDocument();
     expect(screen.getByTestId("dep-trigger")).toBeInTheDocument();
 
-    // Model Configuration, Attachments, and the Workflow picker are all visible immediately.
+    // Expanding the disclosure reveals the deep options.
+    fireEvent.click(advancedToggle);
+    expect(advancedToggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("task-form-more-options")).not.toHaveAttribute("hidden");
     expect(screen.getByText(/Model Configuration/i)).toBeTruthy();
-    expect(screen.getByText(/Attachments/i)).toBeTruthy();
     expect(screen.getByText("Workflow")).toBeTruthy();
   });
 
   it("shows dependencies and agent picker by default", () => {
     renderNewTaskModal();
 
-    // Both dep-trigger and agent button should be visible by default
+    // Both dep-trigger and agent button should be visible by default (quick-fields).
     expect(screen.getByTestId("dep-trigger")).toBeInTheDocument();
     expect(screen.getByTestId("new-task-agent-button")).toBeInTheDocument();
-    // Advanced options are force-open: no collapse toggle exists.
-    expect(screen.queryByTestId("task-form-more-options-toggle")).toBeNull();
-    expect(screen.getByTestId("task-form-more-options")).not.toHaveAttribute("hidden");
+    // The "Advanced" disclosure is collapsed by default.
+    expect(screen.getByTestId("task-form-more-options-toggle")).toHaveTextContent(/Advanced/i);
+    expect(screen.getByTestId("task-form-more-options")).toHaveAttribute("hidden");
   });
 
-  it("renders dependencies before attachments in form order (quick-fields before More options)", () => {
+  it("renders dependencies before attachments in form order (quick-fields before Advanced)", () => {
     renderNewTaskModal();
 
     const dependenciesLabel = screen.getByText("Dependencies");
-    // Attachments is in the always-visible advanced section.
+    // Expand the Advanced disclosure so the Attachments group renders.
+    fireEvent.click(screen.getByTestId("task-form-more-options-toggle"));
     const attachmentsLabel = screen.getByText("Attachments");
 
-    // Dependencies (in quick-fields) appears before Attachments (in More options)
+    // Dependencies (in quick-fields) appears before Attachments (in the Advanced section).
     expect(
       dependenciesLabel.compareDocumentPosition(attachmentsLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);

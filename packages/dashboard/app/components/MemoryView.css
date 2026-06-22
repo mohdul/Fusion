@@ -113,6 +113,10 @@ Inside the working-tab editor section every block keeps its intrinsic height (fl
   min-height: 0;
 }
 
+/*
+FNXC:Memory 2026-06-23-00:20:
+The memory editor box is CAPPED to about a page (max-height: 60vh) so a long memory file does not push the page into endless scrolling — the box itself stays bounded and the CodeMirror editor SCROLLS INTERNALLY. cm-editor fills the capped container (height:100%) and cm-scroller owns the vertical scroll.
+*/
 .memory-editor-container {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -121,6 +125,16 @@ Inside the working-tab editor section every block keeps its intrinsic height (fl
   flex-direction: column;
   flex: 1 1 auto;
   min-height: calc(var(--space-xl) * 13 + var(--space-xs) * 2);
+  max-height: 60vh;
+}
+
+.memory-editor-container .cm-editor {
+  height: 100%;
+  min-height: 0;
+}
+
+.memory-editor-container .cm-scroller {
+  overflow: auto;
 }
 
 .memory-insights-editor-layout {

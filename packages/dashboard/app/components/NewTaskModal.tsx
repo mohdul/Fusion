@@ -850,7 +850,6 @@ export function NewTaskModal({ isOpen, onClose, projectId, tasks, onCreateTask, 
             renderBelowPrimary={quickFields}
             hideDependencies={true}
             autoExpandMoreOptionsOnSelection={false}
-            forceMoreOptionsOpen={true}
           />
 
         </div>
