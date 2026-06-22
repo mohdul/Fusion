@@ -178,6 +178,9 @@ import {
   createUpdateAgentConfigTool,
   createResearchTools,
   createSendMessageTool,
+  createArtifactListTool as sharedCreateArtifactListTool,
+  createArtifactRegisterTool as sharedCreateArtifactRegisterTool,
+  createArtifactViewTool as sharedCreateArtifactViewTool,
   createTaskCreateTool as sharedCreateTaskCreateTool,
   createTaskDocumentReadTool as sharedCreateTaskDocumentReadTool,
   createTaskDocumentWriteTool as sharedCreateTaskDocumentWriteTool,
@@ -1252,6 +1255,10 @@ You can save and retrieve named documents for this task. Use these to store plan
 - **List all documents:** \`fn_task_document_read()\` (no key)
 
 Documents are versioned — each write creates a new revision. Use meaningful keys like "plan", "notes", "research", "architecture".
+
+## Artifact Registry
+
+Use \`fn_artifact_register\` to register multi-type artifacts for discovery across agents and tasks, \`fn_artifact_list\` to find registered artifacts by type/author/task/search, and \`fn_artifact_view\` to inspect artifact metadata plus inline content or URI references. Artifact registration sends a best-effort system inbox notification to the dashboard user; notification failures do not make registration fail.
 
 **IMPORTANT — Save your deliverables as documents:** When your task produces written output (documentation, specifications, reports, API references, README updates, guides, or any other content), you MUST save that content as a task document using \`fn_task_document_write\`. Use a key that describes the deliverable (e.g., key="readme", key="api-docs", key="changelog"). Do this in addition to writing the file to disk — the document persists in the task for review even after the worktree is cleaned up.
 
@@ -8307,6 +8314,12 @@ export class TaskExecutor {
         this.createSpawnAgentTool(task.id, worktreePath, settings, taskEnv),
         this.createTaskDocumentWriteTool(task.id),
         this.createTaskDocumentReadTool(task.id),
+        // FNXC:ArtifactRegistry 2026-06-21-07:04: Artifact list/view are read-only discovery tools and must remain available even when the task has no assigned agent identity; only registration requires an authorId for persisted attribution and best-effort inbox notification.
+        this.createArtifactListTool(),
+        this.createArtifactViewTool(),
+        ...(assignedAgentId ? [
+          this.createArtifactRegisterTool(assignedAgentId),
+        ] : []),
         this.createWorkflowListTool(),
         this.createWorkflowGetTool(),
         this.createWorkflowSelectTool(task.id),
@@ -10278,6 +10291,18 @@ export class TaskExecutor {
 
   private createTaskDocumentReadTool(taskId: string): ToolDefinition {
     return sharedCreateTaskDocumentReadTool(this.store, taskId);
+  }
+
+  private createArtifactRegisterTool(authorId: string): ToolDefinition {
+    return sharedCreateArtifactRegisterTool(this.store, authorId, this.options.messageStore);
+  }
+
+  private createArtifactListTool(): ToolDefinition {
+    return sharedCreateArtifactListTool(this.store);
+  }
+
+  private createArtifactViewTool(): ToolDefinition {
+    return sharedCreateArtifactViewTool(this.store);
   }
 
   private createWorkflowListTool(): ToolDefinition {
