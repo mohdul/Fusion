@@ -75,9 +75,12 @@ The New Task CTA must occupy exactly the same box as a sidebar item highlight: s
   gap: var(--space-xs);
 }
 
+/*
+FNXC:Navigation 2026-06-22-00:00:
+The secondary section keeps its top spacing but drops the divider line before the first secondary entry (Goals/Evals); the rule reads as one continuous nav list instead of two bordered groups.
+*/
 .left-sidebar-nav__section--secondary {
   padding-top: var(--space-sm);
-  border-top: 1px solid var(--border);
 }
 
 .left-sidebar-nav__item {

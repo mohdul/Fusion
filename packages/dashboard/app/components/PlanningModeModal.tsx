@@ -1826,7 +1826,11 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
       aria-modal={isEmbedded ? undefined : "true"}
     >
       <div className={isEmbedded ? "modal modal-lg planning-modal planning-modal--embedded" : "modal modal-lg planning-modal"} ref={modalRef}>
-        <div className="modal-header">
+        {/*
+        FNXC:PlanningMode 2026-06-22-00:00:
+        Embedded planning is a main-content destination, not a dialog: it drops the modal close button and renders a plain common title (modal-header--embedded) matching other embedded views like Command Center. The mobile back affordance stays because it navigates the session list, not the view.
+        */}
+        <div className={isEmbedded ? "modal-header modal-header--embedded" : "modal-header"}>
           <div className="detail-title-row">
             {mobileShowDetail && (
               <button
@@ -1841,11 +1845,13 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
             <Lightbulb size={20} className="icon-triage" />
             <h3>{t("planning.title", "Planning Mode")}</h3>
           </div>
-          <div className="modal-header-actions">
-            <button className="modal-close" onClick={handleClose} aria-label={t("common.close", "Close")}>
-              <X size={20} />
-            </button>
-          </div>
+          {!isEmbedded && (
+            <div className="modal-header-actions">
+              <button className="modal-close" onClick={handleClose} aria-label={t("common.close", "Close")}>
+                <X size={20} />
+              </button>
+            </div>
+          )}
         </div>
 
         <div

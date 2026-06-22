@@ -12,15 +12,15 @@
   overscroll-behavior: contain;
 }
 
+/*
+FNXC:DevServer 2026-06-22-00:00:
+The Dev Server view header must read like other embedded views (Command Center cc-header): a plain title row with actions, not a bordered card. Drop the card border/background/padding so the heading sits flush with the view padding; the title font already matches the shared 1.125rem embedded-title size.
+*/
 .dev-server-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: var(--space-md);
-  padding: var(--space-md);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--card);
 }
 
 .dev-server-header-title {

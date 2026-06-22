@@ -72,6 +72,21 @@ FN-6886 promotes Planning Mode into the main app content area. The embedded shel
   box-shadow: none;
 }
 
+/*
+FNXC:PlanningMode 2026-06-22-00:00:
+The embedded planning title must read like other embedded-view titles (Command Center cc-header/cc-title): a plain heading with no tinted modal-header bar, no bottom divider, and no close button. Strip the modal-header background/border and align the title to the content edge; bump the heading to the shared 1.125rem embedded-title size.
+*/
+.planning-modal--embedded .modal-header--embedded {
+  padding: 0 0 var(--space-md);
+  background: transparent;
+  border-bottom: none;
+}
+
+.planning-modal--embedded .modal-header--embedded h3 {
+  font-size: 1.125rem;
+  letter-spacing: normal;
+}
+
 .planning-modal .modal-header {
   flex-shrink: 0;
 }
