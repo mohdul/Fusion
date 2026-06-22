@@ -2446,6 +2446,31 @@ export function apiFetchGitHubPullDetail(repo: string, number: number): Promise<
   });
 }
 
+/*
+FNXC:GitHubImport 2026-06-23-03:15:
+Per-issue detail for the Import Tasks issue preview pane. Mirrors apiFetchGitHubPullDetail: `gh issue list` has no comment thread, so the preview fetches the FULL comment thread ON SELECTION (never for the whole list).
+Issues have no checks rollup, so only `comments` is returned.
+*/
+export interface GitHubIssueDetail {
+  comments: Array<{ author: string; body: string; createdAt: string }>;
+}
+
+/** Fetch the full comment thread for a single GitHub issue (called on selection in the import preview). */
+export function apiFetchGitHubIssueDetail(repo: string, number: number): Promise<GitHubIssueDetail> {
+  return api<GitHubIssueDetail>("/github/issues/detail", {
+    method: "POST",
+    body: JSON.stringify({ repo, number }),
+  });
+}
+
+/** Close a GitHub issue (Close issue button in the import preview). */
+export async function apiCloseGitHubIssue(repo: string, number: number): Promise<void> {
+  await api<{ ok: boolean }>("/github/issues/close", {
+    method: "POST",
+    body: JSON.stringify({ repo, number }),
+  });
+}
+
 /** Import a specific GitHub pull request as a fn review task */
 export function apiImportGitHubPull(owner: string, repo: string, prNumber: number, projectId?: string): Promise<Task> {
   return api<Task>(withProjectId("/github/pulls/import", projectId), {

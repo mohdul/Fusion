@@ -3709,6 +3709,135 @@ export class GitHubClient {
     return { comments, checks };
   }
 
+  /*
+  FNXC:GitHubImport 2026-06-23-03:15:
+  Issues preview pane mirrors the PR preview: on selection it fetches the issue's full comment thread (issues have no checks rollup, so only comments).
+  `gh issue view --json comments` returns the conversation; REST `issues/{n}/comments` is the token fallback. 404 maps to "not found" upstream of the route.
+  */
+  async getIssueDetail(
+    owner: string,
+    repo: string,
+    number: number
+  ): Promise<{
+    comments: Array<{ author: string; body: string; createdAt: string }>;
+  }> {
+    if (this.hasGhAuth()) {
+      try {
+        return await this.getIssueDetailWithGh(owner, repo, number);
+      } catch (err) {
+        if (this.token) {
+          return this.getIssueDetailWithApi(owner, repo, number);
+        }
+        throw new Error(getGhErrorMessage(err));
+      }
+    }
+    if (this.token) {
+      return this.getIssueDetailWithApi(owner, repo, number);
+    }
+    throw new Error("GitHub CLI (gh) is not available or not authenticated, and no GITHUB_TOKEN provided. Run 'gh auth login' to authenticate.");
+  }
+
+  private async getIssueDetailWithGh(
+    owner: string,
+    repo: string,
+    number: number
+  ): Promise<{
+    comments: Array<{ author: string; body: string; createdAt: string }>;
+  }> {
+    const issue = await runGhJsonAsync<{
+      comments?: Array<{ author?: { login?: string } | null; body?: string; createdAt?: string }>;
+    }>([
+      "issue", "view", String(number),
+      "--repo", `${owner}/${repo}`,
+      "--json", "comments",
+    ]);
+
+    const comments = (issue.comments ?? []).map((c) => ({
+      author: c.author?.login ?? "unknown",
+      body: c.body ?? "",
+      createdAt: c.createdAt ?? "",
+    }));
+
+    return { comments };
+  }
+
+  private async getIssueDetailWithApi(
+    owner: string,
+    repo: string,
+    number: number
+  ): Promise<{
+    comments: Array<{ author: string; body: string; createdAt: string }>;
+  }> {
+    const headers = this.buildHeaders();
+
+    const commentsUrl = `${this.baseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}/comments?per_page=100`;
+    const commentsRes = await fetch(commentsUrl, { headers });
+    if (!commentsRes.ok) {
+      if (commentsRes.status === 404) {
+        throw new Error(`Issue #${number} not found in ${owner}/${repo}`);
+      }
+      throw new Error(`GitHub API error: ${commentsRes.status} ${commentsRes.statusText}`);
+    }
+    const commentData = (await commentsRes.json()) as Array<{
+      user?: { login?: string } | null;
+      body?: string;
+      created_at?: string;
+    }>;
+    const comments = commentData.map((c) => ({
+      author: c.user?.login ?? "unknown",
+      body: c.body ?? "",
+      createdAt: c.created_at ?? "",
+    }));
+
+    return { comments };
+  }
+
+  /*
+  FNXC:GitHubImport 2026-06-23-03:15:
+  Close-issue action for the Import Tasks issue preview pane. `gh issue close <n>` closes via CLI; REST PATCH state=closed is the token fallback.
+  Returns void; the route maps 404/401 like the detail route. The preview reflects the closed state locally without re-fetching.
+  */
+  async closeIssue(owner: string, repo: string, number: number): Promise<void> {
+    if (this.hasGhAuth()) {
+      try {
+        await runGhAsync([
+          "issue", "close", String(number),
+          "--repo", `${owner}/${repo}`,
+        ]);
+        return;
+      } catch (err) {
+        if (this.token) {
+          await this.closeIssueWithApi(owner, repo, number);
+          return;
+        }
+        throw new Error(getGhErrorMessage(err));
+      }
+    }
+    if (this.token) {
+      await this.closeIssueWithApi(owner, repo, number);
+      return;
+    }
+    throw new Error("GitHub CLI (gh) is not available or not authenticated, and no GITHUB_TOKEN provided. Run 'gh auth login' to authenticate.");
+  }
+
+  private async closeIssueWithApi(owner: string, repo: string, number: number): Promise<void> {
+    const response = await fetch(
+      `${this.baseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}`,
+      {
+        method: "PATCH",
+        headers: { ...this.buildHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ state: "closed" }),
+      }
+    );
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error(`Issue #${number} not found in ${owner}/${repo}`);
+      }
+      const error = await response.json().catch(() => ({ message: response.statusText }));
+      throw new Error(`GitHub API error: ${response.status} ${error.message || response.statusText}`);
+    }
+  }
+
   /**
    * Fetch a single pull request by number.
    * Uses gh CLI if available, otherwise falls back to REST API.

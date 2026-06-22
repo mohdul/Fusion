@@ -237,6 +237,40 @@ margin-left:auto keeps it pinned right even when the mobile Back button is absen
   gap: var(--space-xs);
 }
 
+/*
+FNXC:GitHubImport 2026-06-23-03:15:
+Close-issue action sits just left of the top Import action in the preview header. It is the lighter (non-primary) button; flex-shrink:0 keeps it on one line next to Import even on a narrow preview pane.
+*/
+.github-import-issue-close-top {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+/*
+FNXC:GitHubImport 2026-06-23-03:15:
+Transient inline toast confirming issue close. Sits directly under the preview header; success/error use theme tokens only. Auto-dismisses via component timer.
+*/
+.github-import-close-toast {
+  margin-bottom: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.github-import-close-toast--success {
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
+.github-import-close-toast--error {
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
 .github-import-pane-content {
   flex: 1;
   min-height: 0;

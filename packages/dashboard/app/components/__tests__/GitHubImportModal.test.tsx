@@ -6,6 +6,8 @@ import {
   apiImportGitHubIssue,
   apiFetchGitHubPulls,
   apiFetchGitHubPullDetail,
+  apiFetchGitHubIssueDetail,
+  apiCloseGitHubIssue,
   apiImportGitHubPull,
   fetchGitRemotes,
 } from "../../api";
@@ -23,6 +25,8 @@ vi.mock("../../api", async (importOriginal) => {
     apiImportGitHubIssue: vi.fn(),
     apiFetchGitHubPulls: vi.fn(),
     apiFetchGitHubPullDetail: vi.fn(),
+    apiFetchGitHubIssueDetail: vi.fn(),
+    apiCloseGitHubIssue: vi.fn(),
     apiImportGitHubPull: vi.fn(),
     fetchGitRemotes: vi.fn(),
   };
@@ -98,11 +102,15 @@ describe("GitHubImportModal", () => {
     vi.mocked(apiImportGitHubIssue).mockReset();
     vi.mocked(apiFetchGitHubPulls).mockReset();
     vi.mocked(apiFetchGitHubPullDetail).mockReset();
+    vi.mocked(apiFetchGitHubIssueDetail).mockReset();
+    vi.mocked(apiCloseGitHubIssue).mockReset();
     vi.mocked(apiImportGitHubPull).mockReset();
     // Set default mock for apiFetchGitHubIssues to return empty array (prevents undefined issues state)
     vi.mocked(apiFetchGitHubIssues).mockResolvedValue([]);
     vi.mocked(apiFetchGitHubPulls).mockResolvedValue([]);
     vi.mocked(apiFetchGitHubPullDetail).mockResolvedValue({ comments: [], checks: [] });
+    vi.mocked(apiFetchGitHubIssueDetail).mockResolvedValue({ comments: [] });
+    vi.mocked(apiCloseGitHubIssue).mockResolvedValue(undefined);
     onClose.mockReset();
     onImport.mockReset();
   });
@@ -985,6 +993,89 @@ describe("GitHubImportModal", () => {
 
       expect(await screen.findByTestId("github-import-pr-checks-empty")).toBeTruthy();
       expect(await screen.findByTestId("github-import-pr-comments-empty")).toBeTruthy();
+    });
+
+    // FNXC:GitHubImport 2026-06-23-03:15: Selecting an issue fetches its detail and renders the full comment thread below the body (mirrors the PR tab; issues have no checks).
+    it("renders the selected issue's comments from the detail fetch", async () => {
+      Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 1200 });
+
+      const issues = [
+        { number: 7, title: "Detail Issue", body: "Issue body text", html_url: "https://github.com/owner/repo/issues/7", labels: [], state: "open" as const, author: "carol" },
+      ];
+      vi.mocked(fetchGitRemotes).mockResolvedValueOnce(singleRemote);
+      vi.mocked(apiFetchGitHubIssues).mockResolvedValueOnce(issues);
+      vi.mocked(apiFetchGitHubIssueDetail).mockResolvedValueOnce({
+        comments: [
+          { author: "alice", body: "First issue comment", createdAt: "2024-01-01T00:00:00Z" },
+          { author: "bob", body: "Second issue comment", createdAt: "2024-01-02T00:00:00Z" },
+        ],
+      });
+
+      render(<GitHubImportModal isOpen={true} onClose={onClose} onImport={onImport} tasks={[]} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Detail Issue")).toBeTruthy();
+      });
+
+      fireEvent.click(screen.getByRole("radio", { name: /Select issue #7/i }));
+
+      // Detail fetch is scoped to the selected issue by "owner/repo" + number.
+      await waitFor(() => {
+        expect(vi.mocked(apiFetchGitHubIssueDetail)).toHaveBeenCalledWith("dustinbyrne/kb", 7);
+      });
+
+      const comments = await screen.findByTestId("github-import-issue-comments");
+
+      // Body still renders immediately, independent of detail.
+      expect(screen.getByTestId("github-import-preview-body").textContent).toContain("Issue body text");
+
+      // Full comment thread renders, chronological, with authors + bodies.
+      await waitFor(() => {
+        expect(comments.textContent).toContain("alice");
+        expect(comments.textContent).toContain("First issue comment");
+        expect(comments.textContent).toContain("bob");
+        expect(comments.textContent).toContain("Second issue comment");
+      });
+    });
+
+    // FNXC:GitHubImport 2026-06-23-03:15: The Close issue button calls the close API and reflects the closed state locally without dismissing the preview.
+    it("closes the selected issue via the close API and reflects the closed state", async () => {
+      Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 1200 });
+
+      const issues = [
+        { number: 5, title: "Closable Issue", body: "Body", html_url: "https://github.com/owner/repo/issues/5", labels: [], state: "open" as const, author: "dave" },
+      ];
+      vi.mocked(fetchGitRemotes).mockResolvedValueOnce(singleRemote);
+      vi.mocked(apiFetchGitHubIssues).mockResolvedValueOnce(issues);
+
+      render(<GitHubImportModal isOpen={true} onClose={onClose} onImport={onImport} tasks={[]} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Closable Issue")).toBeTruthy();
+      });
+
+      fireEvent.click(screen.getByRole("radio", { name: /Select issue #5/i }));
+
+      const closeButton = await screen.findByTestId("github-import-issue-close");
+      fireEvent.click(closeButton);
+
+      // Calls the close API scoped to "owner/repo" + number.
+      await waitFor(() => {
+        expect(vi.mocked(apiCloseGitHubIssue)).toHaveBeenCalledWith("dustinbyrne/kb", 5);
+      });
+
+      // Success toast surfaces without dismissing the preview.
+      expect(await screen.findByTestId("github-import-issue-close-toast")).toBeTruthy();
+
+      // Closed state reflects locally: badge flips to "closed" and the Close button is gone (only OPEN issues show it).
+      await waitFor(() => {
+        const previewCard = screen.getByTestId("github-import-preview-card");
+        expect(within(previewCard).getByText("closed")).toBeTruthy();
+        expect(screen.queryByTestId("github-import-issue-close")).toBeNull();
+      });
+
+      // Preview is NOT dismissed.
+      expect(onClose).not.toHaveBeenCalled();
     });
 
     // FNXC:GitHubImport 2026-06-22-18:30: Desktop preview must show the FULL issue/PR body (no 200-char clamp). The list response already carries the complete body, so no detail fetch is needed.

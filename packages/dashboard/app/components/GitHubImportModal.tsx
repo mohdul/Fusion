@@ -8,11 +8,14 @@ import {
   apiImportGitHubIssue,
   apiFetchGitHubPulls,
   apiFetchGitHubPullDetail,
+  apiFetchGitHubIssueDetail,
+  apiCloseGitHubIssue,
   apiImportGitHubPull,
   fetchGitRemotes,
   type GitHubIssue,
   type GitHubPull,
   type GitHubPullDetail,
+  type GitHubIssueDetail,
   type GitRemote,
 } from "../api";
 import { Loader2, RefreshCw, ArrowLeft, GitPullRequest, CircleDot } from "lucide-react";
@@ -108,6 +111,28 @@ export function GitHubImportModal({ isOpen, onClose, onImport, tasks, projectId,
   const [pullDetailError, setPullDetailError] = useState<string | null>(null);
   // Guards against a stale in-flight detail response overwriting a newer selection.
   const pullDetailRequestRef = useRef(0);
+
+  /*
+  FNXC:GitHubImport 2026-06-23-03:15:
+  The issue preview pane mirrors the PR preview: the SELECTED issue's full comment thread is fetched ON SELECTION (issues have no checks rollup, so comments only).
+  Cached by issue number in a ref so re-selecting does not refetch; the body renders immediately while comments stream in (loading/error tracked separately, never blocking the body).
+  */
+  const issueDetailCacheRef = useRef<Map<number, GitHubIssueDetail>>(new Map());
+  const [issueDetail, setIssueDetail] = useState<GitHubIssueDetail | null>(null);
+  const [issueDetailLoading, setIssueDetailLoading] = useState(false);
+  const [issueDetailError, setIssueDetailError] = useState<string | null>(null);
+  // Guards against a stale in-flight issue-detail response overwriting a newer selection.
+  const issueDetailRequestRef = useRef(0);
+
+  /*
+  FNXC:GitHubImport 2026-06-23-03:15:
+  Close-issue UX: clicking "Close issue" calls apiCloseGitHubIssue, then reflects the closed state locally (closedIssueNumbers set) WITHOUT dismissing the view.
+  A transient inline toast confirms success/failure (the modal has no toast prop). Only OPEN issues show the button; closing disables it and flips the local state badge to closed.
+  */
+  const [closedIssueNumbers, setClosedIssueNumbers] = useState<Set<number>>(new Set());
+  const [closingIssue, setClosingIssue] = useState(false);
+  const [closeToast, setCloseToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const closeToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [error, setError] = useState<string | null>(null);
   const [isIssuesEmptyState, setIsIssuesEmptyState] = useState(false);
@@ -602,8 +627,85 @@ export function GitHubImportModal({ isOpen, onClose, onImport, tasks, projectId,
       });
   }, [activeTab, selectedPullNumber, owner, repo]);
 
+  /*
+  FNXC:GitHubImport 2026-06-23-03:15:
+  Fetch the selected issue's comments on selection. Serves from the per-number cache on re-select; otherwise fetches and caches.
+  Body render is never blocked on this — the body shows immediately and comments populate when this resolves. Mirrors the PR detail effect.
+  */
+  useEffect(() => {
+    if (activeTab !== "issues" || selectedIssueNumber === null || !owner.trim() || !repo.trim()) {
+      setIssueDetail(null);
+      setIssueDetailLoading(false);
+      setIssueDetailError(null);
+      return;
+    }
+
+    const cached = issueDetailCacheRef.current.get(selectedIssueNumber);
+    if (cached) {
+      setIssueDetail(cached);
+      setIssueDetailLoading(false);
+      setIssueDetailError(null);
+      return;
+    }
+
+    const requestId = ++issueDetailRequestRef.current;
+    setIssueDetail(null);
+    setIssueDetailLoading(true);
+    setIssueDetailError(null);
+
+    apiFetchGitHubIssueDetail(`${owner.trim()}/${repo.trim()}`, selectedIssueNumber)
+      .then((detail) => {
+        issueDetailCacheRef.current.set(selectedIssueNumber, detail);
+        if (issueDetailRequestRef.current !== requestId) return;
+        setIssueDetail(detail);
+        setIssueDetailLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (issueDetailRequestRef.current !== requestId) return;
+        setIssueDetailError(getErrorMessage(err));
+        setIssueDetailLoading(false);
+      });
+  }, [activeTab, selectedIssueNumber, owner, repo]);
+
+  // FNXC:GitHubImport 2026-06-23-03:15: Clear the transient close toast timer on unmount.
+  useEffect(() => () => {
+    if (closeToastTimerRef.current) clearTimeout(closeToastTimerRef.current);
+  }, []);
+
+  /*
+  FNXC:GitHubImport 2026-06-23-03:15:
+  Close the selected issue: calls apiCloseGitHubIssue, marks the number closed locally (so the badge/button reflect it) WITHOUT dismissing the view, and shows a transient inline toast.
+  */
+  const handleCloseIssue = useCallback(async () => {
+    if (selectedIssueNumber === null || !owner.trim() || !repo.trim()) return;
+    const issueNumber = selectedIssueNumber;
+    setClosingIssue(true);
+    if (closeToastTimerRef.current) clearTimeout(closeToastTimerRef.current);
+    setCloseToast(null);
+    try {
+      await apiCloseGitHubIssue(`${owner.trim()}/${repo.trim()}`, issueNumber);
+      setClosedIssueNumbers((prev) => {
+        const next = new Set(prev);
+        next.add(issueNumber);
+        return next;
+      });
+      setCloseToast({ type: "success", message: t("git.issueClosedToast", "Issue #{{number}} closed", { number: issueNumber }) });
+    } catch (err: unknown) {
+      setCloseToast({ type: "error", message: getErrorMessage(err) });
+    } finally {
+      setClosingIssue(false);
+      closeToastTimerRef.current = setTimeout(() => setCloseToast(null), 4000);
+    }
+  }, [selectedIssueNumber, owner, repo, t]);
+
   const selectedIssue = issues.find((i) => i.number === selectedIssueNumber);
   const selectedPull = pulls.find((p) => p.number === selectedPullNumber);
+  /*
+  FNXC:GitHubImport 2026-06-23-03:15:
+  An issue counts as closed if the upstream state is closed OR we closed it locally this session. Only OPEN issues show the Close button.
+  */
+  const selectedIssueClosed =
+    !!selectedIssue && (selectedIssue.state === "closed" || closedIssueNumbers.has(selectedIssue.number));
 
   if (!isOpen) return null;
 
@@ -988,6 +1090,22 @@ export function GitHubImportModal({ isOpen, onClose, onImport, tasks, projectId,
                   </button>
                 )}
                 <h4 id="github-import-preview-heading">{t("git.previewHeading", "Preview")}</h4>
+                {/*
+                FNXC:GitHubImport 2026-06-23-03:15:
+                Close-issue action sits next to the top Import action and acts on the selected OPEN issue. Hidden for the PR tab and for already-closed issues; disabled while a close request is in flight.
+                Closing reflects locally (badge flips to closed) without dismissing the preview.
+                */}
+                {activeTab === "issues" && selectedIssue && !selectedIssueClosed && (
+                  <button
+                    className="btn github-import-issue-close-top"
+                    data-testid="github-import-issue-close"
+                    onClick={handleCloseIssue}
+                    disabled={closingIssue}
+                    title={t("git.closeIssueTitle", "Close issue #{{number}}", { number: selectedIssue.number })}
+                  >
+                    {closingIssue ? <Loader2 size={14} className="spin" /> : t("git.closeIssue", "Close issue")}
+                  </button>
+                )}
                 <button
                   className="btn btn-primary github-import-action-top"
                   data-testid="github-import-action-top"
@@ -999,6 +1117,19 @@ export function GitHubImportModal({ isOpen, onClose, onImport, tasks, projectId,
                   {importing ? <Loader2 size={14} className="spin" /> : t("git.import", "Import")}
                 </button>
               </div>
+              {/*
+              FNXC:GitHubImport 2026-06-23-03:15:
+              Transient inline toast confirms issue-close success/failure (the modal has no toast prop). Auto-dismisses; never blocks the preview.
+              */}
+              {closeToast && (
+                <div
+                  className={`github-import-close-toast github-import-close-toast--${closeToast.type}`}
+                  role="status"
+                  data-testid="github-import-issue-close-toast"
+                >
+                  {closeToast.message}
+                </div>
+              )}
 
               <div className="github-import-pane-content">
                 {/* Issue preview */}
@@ -1011,9 +1142,13 @@ export function GitHubImportModal({ isOpen, onClose, onImport, tasks, projectId,
                     <div className="preview-meta">{t("git.previewIssueMeta", "Issue #{{number}}", { number: selectedIssue.number })}</div>
                     <div className="preview-title">{selectedIssue.title}</div>
                     <div className="preview-metadata">
-                      {selectedIssue.state && (
-                        <span className={`preview-state-badge preview-state-badge--${selectedIssue.state}`}>{selectedIssue.state}</span>
-                      )}
+                      {/* FNXC:GitHubImport 2026-06-23-03:15: Badge reflects the local close (closedIssueNumbers) so closing the issue flips it to "closed" without a refetch. */}
+                      {(() => {
+                        const displayState = selectedIssueClosed ? "closed" : (selectedIssue.state ?? "open");
+                        return (
+                          <span className={`preview-state-badge preview-state-badge--${displayState}`}>{displayState}</span>
+                        );
+                      })()}
                       {selectedIssue.author && (
                         <span className="preview-author">{t("git.previewAuthor", "by {{author}}", { author: selectedIssue.author })}</span>
                       )}
@@ -1039,6 +1174,37 @@ export function GitHubImportModal({ isOpen, onClose, onImport, tasks, projectId,
                         {t("git.noDescription", "(no description)")}
                       </div>
                     )}
+                    {/*
+                    FNXC:GitHubImport 2026-06-23-03:15:
+                    Comments render BELOW the issue body inside the already-scrollable preview pane. They stream in after the per-issue detail fetch resolves and never block the body above.
+                    Mirrors the PR comments markup/classes; markdown via MailboxMessageContent with an empty state.
+                    */}
+                    <div className="github-import-pr-comments github-import-issue-comments" data-testid="github-import-issue-comments">
+                      <h5 className="preview-section-heading">{t("git.commentsHeading", "Comments")}</h5>
+                      {issueDetailLoading ? (
+                        <div className="preview-detail-loading" data-testid="github-import-issue-comments-loading">
+                          <Loader2 size={14} className="spin" aria-hidden="true" />
+                          <span>{t("git.loadingComments", "Loading comments…")}</span>
+                        </div>
+                      ) : issueDetailError ? (
+                        <div className="preview-detail-error" data-testid="github-import-issue-comments-error">{issueDetailError}</div>
+                      ) : issueDetail && issueDetail.comments.length > 0 ? (
+                        <ul className="github-import-pr-comments__list">
+                          {issueDetail.comments.map((comment, idx) => (
+                            <li key={idx} className="github-import-pr-comment">
+                              <div className="github-import-pr-comment__author">{comment.author}</div>
+                              <MailboxMessageContent
+                                className="github-import-pr-comment__body preview-body--markdown"
+                                content={comment.body || t("git.noCommentBody", "(empty comment)")}
+                                testId="github-import-issue-comment-body"
+                              />
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="preview-detail-empty" data-testid="github-import-issue-comments-empty">{t("git.noComments", "No comments")}</div>
+                      )}
+                    </div>
                   </div>
                 ) : activeTab === "issues" ? (
                   <div className="github-import-state github-import-state--idle" data-testid="github-import-preview-empty">
