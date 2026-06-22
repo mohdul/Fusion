@@ -9,6 +9,7 @@ import type {
   WorkflowHoldRelease,
   WorkflowForeachConfig,
   WorkflowLoopConfig,
+  WorkflowOptionalGroupConfig,
   WorkflowFieldDefinition,
   WorkflowFieldType,
   WorkflowSettingDefinition,
@@ -597,6 +598,108 @@ function validateLoop(
     if (topLevelNodeIds.has(id)) {
       throw new WorkflowIrError(
         `loop node '${node.id}' template node id '${id}' collides with a top-level node id`,
+      );
+    }
+  }
+}
+
+/*
+FNXC:WorkflowOptionalGroup 2026-06-21-11:00:
+Validate an `optional-group` container template, mirroring `validateLoop` minus the loop's exit/iteration config.
+The template runs once when enabled, so rework edges (and any cycles) are forbidden inside, single entry/exit is required, and nested foreach/loop groups are rejected — keeping the single-pass guarantee unambiguous.
+`defaultOn` must be boolean when present; `name` must be a string when present.
+*/
+function validateOptionalGroup(
+  node: WorkflowIrNode,
+  topLevelNodeIds: Set<string>,
+  columnIds: Set<string>,
+): void {
+  const cfg = node.config as Partial<WorkflowOptionalGroupConfig> | undefined;
+  const template = cfg?.template;
+  if (
+    !cfg ||
+    !template ||
+    !Array.isArray(template.nodes) ||
+    !Array.isArray(template.edges)
+  ) {
+    throw new WorkflowIrError(
+      `optional-group node '${node.id}' must declare a template with nodes and edges arrays`,
+    );
+  }
+  if (template.nodes.length === 0) {
+    throw new WorkflowIrError(`optional-group node '${node.id}' template must be non-empty`);
+  }
+  if (cfg.defaultOn !== undefined && typeof cfg.defaultOn !== "boolean") {
+    throw new WorkflowIrError(`optional-group node '${node.id}' defaultOn must be a boolean`);
+  }
+  if (cfg.name !== undefined && typeof cfg.name !== "string") {
+    throw new WorkflowIrError(`optional-group node '${node.id}' name must be a string`);
+  }
+
+  const templateNodes = template.nodes;
+  const templateIds = new Set(templateNodes.map((n) => n.id));
+  if (templateIds.size !== templateNodes.length) {
+    throw new WorkflowIrError(`optional-group node '${node.id}' template has duplicate node ids`);
+  }
+  for (const inner of templateNodes) {
+    if (inner.kind === "loop" || inner.kind === "foreach" || inner.kind === "optional-group") {
+      throw new WorkflowIrError(
+        `optional-group node '${node.id}' template may not contain nested loop/foreach/optional-group ('${inner.id}')`,
+      );
+    }
+    if (isStepExecuteNode(inner)) {
+      throw new WorkflowIrError(
+        `step-execute seam node '${inner.id}' is only legal inside a foreach template`,
+      );
+    }
+    if (inner.column !== undefined && !columnIds.has(inner.column)) {
+      throw new WorkflowIrError(
+        `Workflow node '${inner.id}' references undefined column '${inner.column}'`,
+      );
+    }
+  }
+  for (const edge of template.edges) {
+    const fromInside = templateIds.has(edge.from);
+    const toInside = templateIds.has(edge.to);
+    if (!fromInside || !toInside) {
+      throw new WorkflowIrError(
+        `optional-group node '${node.id}' template edge '${edge.from}' -> '${edge.to}' references a node outside the template`,
+      );
+    }
+    if (isReworkEdge(edge)) {
+      throw new WorkflowIrError(`optional-group node '${node.id}' template may not contain rework edges`);
+    }
+  }
+
+  const incoming = new Map<string, number>();
+  const outgoingCount = new Map<string, number>();
+  for (const edge of template.edges) {
+    incoming.set(edge.to, (incoming.get(edge.to) ?? 0) + 1);
+    outgoingCount.set(edge.from, (outgoingCount.get(edge.from) ?? 0) + 1);
+  }
+  const entries = templateNodes.filter((n) => (incoming.get(n.id) ?? 0) === 0);
+  const exits = templateNodes.filter((n) => (outgoingCount.get(n.id) ?? 0) === 0);
+  if (entries.length !== 1) {
+    throw new WorkflowIrError(
+      `optional-group node '${node.id}' template must have exactly one entry node (found ${entries.length})`,
+    );
+  }
+  if (exits.length !== 1) {
+    throw new WorkflowIrError(
+      `optional-group node '${node.id}' template must have exactly one exit node (found ${exits.length})`,
+    );
+  }
+
+  const templateById = new Map(templateNodes.map((n) => [n.id, n]));
+  const templateOutgoing = buildOutgoing(template.edges);
+  validateNoIllegalCycles(templateNodes, templateOutgoing);
+  validateParallelism(templateNodes, templateOutgoing, templateById);
+  validateStepReviewRouting(templateNodes, templateOutgoing, templateById, false);
+
+  for (const id of templateIds) {
+    if (topLevelNodeIds.has(id)) {
+      throw new WorkflowIrError(
+        `optional-group node '${node.id}' template node id '${id}' collides with a top-level node id`,
       );
     }
   }
@@ -1265,6 +1368,7 @@ function validateV2(ir: WorkflowIrV2): void {
   for (const node of ir.nodes) {
     if (node.kind === "foreach") validateForeach(node, topLevelIds, columnIds);
     if (node.kind === "loop") validateLoop(node, topLevelIds, columnIds);
+    if (node.kind === "optional-group") validateOptionalGroup(node, topLevelIds, columnIds);
   }
   validateStepReviewRouting(ir.nodes, outgoing, nodesById, false);
   validateParseStepsNodes(ir);

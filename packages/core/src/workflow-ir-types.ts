@@ -23,6 +23,7 @@ export type WorkflowIrNodeKind =
   | "join"
   | "foreach"
   | "loop"
+  | "optional-group"
   | "step-review"
   | "parse-steps"
   | "code"
@@ -158,6 +159,26 @@ export interface WorkflowLoopConfig {
   maxIterations?: number;
   timeoutMs?: number;
   exitWhen: WorkflowLoopExitCondition;
+  template: {
+    nodes: WorkflowIrNode[];
+    edges: WorkflowIrEdge[];
+  };
+}
+
+/*
+FNXC:WorkflowOptionalGroup 2026-06-21-11:00:
+An `optional-group` node is a container (mirroring `foreach`/`loop`) whose `template` subgraph the executor runs ONCE when the group is enabled for the task and passes through (skips) when disabled.
+Enable state reuses the per-task `enabledWorkflowSteps` facet keyed by the group node id, seeded from `defaultOn` at task creation — this replaces the execution-inert declaration-based optional-steps model (`WorkflowOptionalStep`/`optionalSteps`).
+Single pass only: no iteration, no rework budget. Rework edges are forbidden inside the template so the single-pass guarantee is unambiguous (validated in `validateOptionalGroup`).
+*/
+/** Config for an `optional-group` container node. `defaultOn` seeds the per-task
+ *  enable set at creation; the `template` is the subgraph run once when enabled.
+ *  Unlike `foreach`/`loop`, there is no iteration or rework — a single pass. */
+export interface WorkflowOptionalGroupConfig {
+  /** Workflow-author default for whether new tasks enable this group. */
+  defaultOn?: boolean;
+  /** Display name for the group (editor + per-task toggle surfaces). */
+  name?: string;
   template: {
     nodes: WorkflowIrNode[];
     edges: WorkflowIrEdge[];
