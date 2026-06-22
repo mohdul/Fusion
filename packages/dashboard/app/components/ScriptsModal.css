@@ -4243,18 +4243,32 @@ Refresh button pinned at the end of the section nav strip (replaces the removed 
     gap: var(--space-xs);
   }
 
+  /*
+  FNXC:GitManager 2026-06-22-19:35:
+  Mobile (<=768px) nav strip: ICON-ONLY compact tabs in one horizontally-scrolling row so multiple sections are visible at once. width:auto overrides the base .gm-nav-item width:100% that otherwise made each tab fill the row (one tab, swipe-only). Labels are sr-only (button title is the tooltip).
+  */
   .gm-nav-item {
     flex: 0 0 auto;
-    flex-direction: column;
-    gap: calc(var(--space-xs) / 2);
-    padding: var(--space-xs) var(--space-sm);
+    width: auto;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    padding: var(--space-xs);
     border-left: none;
     border-bottom: 2px solid transparent;
-    font-size: var(--font-size-xs);
-    min-width: calc(var(--space-2xl) + var(--space-xl));
-    min-height: calc(var(--space-xl) + var(--space-sm));
-    text-align: center;
-    justify-content: center;
+    min-width: calc(var(--space-xl) + var(--space-xs));
+  }
+
+  .gm-nav-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   .gm-nav-item.active {

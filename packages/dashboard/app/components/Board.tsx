@@ -375,7 +375,6 @@ export function Board({ tasks, projectId, maxConcurrent, onMoveTask, onPauseTask
     workflowMode,
     workflowOptions,
     selectedWorkflow,
-    selectedWorkflowId,
     setSelectedWorkflowId,
     refreshBoardWorkflows,
     setBoardWorkflowsState,
