@@ -1,6 +1,5 @@
 import { Suspense, lazy, type ComponentType, type ReactNode } from "react";
 import {
-  Activity,
   CheckSquare,
   Folder,
   GitBranch,
@@ -19,7 +18,6 @@ import type { DetailTaskTab, PluginDashboardViewContext } from "../plugins/types
 import { DockFilesView } from "./DockFilesView";
 import { PageErrorBoundary } from "./ErrorBoundary";
 import { getPluginNavIcon } from "./pluginNavIcon";
-import { UsageIndicator } from "./UsageIndicator";
 import { ActivityLogModal } from "./ActivityLogModal";
 import { GitManagerModal } from "./GitManagerModal";
 
@@ -123,15 +121,6 @@ export const STATIC_OVERFLOW_VIEW_ENTRIES: readonly OverflowViewEntry[] = [
     icon: Folder,
     testId: "right-dock-tab-files",
     render: (props) => wrapOverflowView(<DockFilesView projectId={props.projectId} openFile={props.openFile} />),
-  },
-  {
-    key: "usage",
-    label: "Activity",
-    icon: Activity,
-    testId: "right-dock-tab-usage",
-    render: (props) => wrapOverflowView(
-      <UsageIndicator isOpen={true} onClose={() => {}} projectId={props.projectId} presentation="embedded" />,
-    ),
   },
   {
     key: "activity-log",

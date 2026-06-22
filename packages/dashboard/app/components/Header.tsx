@@ -975,6 +975,22 @@ export function Header({
         <PluginSlot slotId="header-action" projectId={projectId} />
 
         {/*
+        FNXC:Navigation 2026-06-22-00:50:
+        Usage (Activity) lives in the top header to the left of the right-sidebar toggle and opens the UsageIndicator as a header-anchored modal (not inline in the dock). Non-mobile only; mobile keeps its own usage button in the bottom-nav layout.
+        */}
+        {!isMobile && onOpenUsage && (
+          <button
+            className="btn-icon"
+            onClick={(event) => onOpenUsage(event.currentTarget.getBoundingClientRect())}
+            title={t("header.viewUsage", "View usage")}
+            aria-label={t("header.viewUsage", "View usage")}
+            data-testid="header-usage-btn"
+          >
+            <Activity size={16} />
+          </button>
+        )}
+
+        {/*
         FNXC:Navigation 2026-06-22-00:00:
         Non-mobile surfaces (desktop + tablet) get a single right-sidebar show/hide toggle that owns the right dock visibility. It replaces the tablet three-dots overflow; the dock is fully hidden when closed and reopened from here. Mobile is intentionally excluded — it keeps its existing overflow menu untouched and has no right dock.
         */}

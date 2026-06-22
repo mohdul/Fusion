@@ -340,6 +340,16 @@ export function LeftSidebarNav({
       dot: view !== "mailbox" && mailboxPendingApprovalCount > 0 ? "pending" : view !== "mailbox" && mailboxUnreadCount > 0 ? "online" : undefined,
       onSelect: () => onChangeView("mailbox"),
     },
+    /*
+    FNXC:Navigation 2026-06-22-00:50:
+    Skills and Memory sit directly after Mailbox (still flag-gated by showSkillsTab / memoryView).
+    */
+    ...(showSkillsTab
+      ? [{ id: "skills", label: t("header.skillsView", "Skills"), view: "skills" as TaskView, isActive: view === "skills", icon: Zap, testId: "sidebar-nav-skills", onSelect: () => onChangeView("skills") }]
+      : []),
+    ...(experimentalFeatures?.memoryView
+      ? [{ id: "memory", label: t("header.memoryView", "Memory"), view: "memory" as TaskView, isActive: view === "memory", icon: Brain, testId: "sidebar-nav-memory", onSelect: () => onChangeView("memory") }]
+      : []),
     {
       id: "planning",
       /*
@@ -415,12 +425,6 @@ export function LeftSidebarNav({
       : []),
     ...(experimentalFeatures?.researchView
       ? [{ id: "research", label: t("header.researchView", "Research"), view: "research" as TaskView, isActive: view === "research", icon: Search, testId: "sidebar-nav-research", onSelect: () => onChangeView("research") }]
-      : []),
-    ...(showSkillsTab
-      ? [{ id: "skills", label: t("header.skillsView", "Skills"), view: "skills" as TaskView, isActive: view === "skills", icon: Zap, testId: "sidebar-nav-skills", onSelect: () => onChangeView("skills") }]
-      : []),
-    ...(experimentalFeatures?.memoryView
-      ? [{ id: "memory", label: t("header.memoryView", "Memory"), view: "memory" as TaskView, isActive: view === "memory", icon: Brain, testId: "sidebar-nav-memory", onSelect: () => onChangeView("memory") }]
       : []),
     ...(experimentalFeatures?.evalsView
       ? [{ id: "evals", label: t("header.evalsView", "Evals"), view: "evals" as TaskView, isActive: view === "evals", icon: Target, testId: "sidebar-nav-evals", onSelect: () => onChangeView("evals") }]

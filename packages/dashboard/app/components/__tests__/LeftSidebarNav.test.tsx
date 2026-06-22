@@ -208,20 +208,22 @@ describe("LeftSidebarNav", () => {
     for (const testId of [
       "sidebar-nav-board",
       "sidebar-nav-list",
-      "sidebar-nav-agents",
       "sidebar-nav-command-center",
+      "sidebar-nav-agents",
+      "sidebar-nav-chat",
+      "sidebar-nav-mailbox",
       "sidebar-nav-planning",
       "sidebar-nav-missions",
-      "sidebar-nav-chat",
       "sidebar-nav-documents",
-      "sidebar-nav-mailbox",
-      "sidebar-nav-evals",
       "sidebar-nav-goals",
-      "sidebar-nav-research",
+      "sidebar-nav-automations",
+      "sidebar-nav-import-tasks",
+      "sidebar-nav-workflows",
       "sidebar-nav-insights",
+      "sidebar-nav-research",
       "sidebar-nav-skills",
       "sidebar-nav-memory",
-      "sidebar-nav-devserver",
+      "sidebar-nav-evals",
       "sidebar-nav-plugin-fusion-plugin-primary-primary-view",
       "sidebar-nav-plugin-fusion-plugin-overflow-overflow-view",
       "sidebar-nav-settings",
@@ -231,11 +233,68 @@ describe("LeftSidebarNav", () => {
 
     expect(screen.getByTestId("sidebar-nav-documents")).toHaveTextContent("Artifacts");
     expect(screen.getByTestId("sidebar-nav-planning")).toHaveTextContent("Planning");
+    expect(screen.getByTestId("sidebar-nav-import-tasks")).toHaveTextContent("Import Tasks");
     expect(screen.queryByTestId("sidebar-nav-stash-recovery")).toBeNull();
 
+    /*
+    FNXC:Navigation 2026-06-22-12:00:
+    Import Tasks renders a custom GitHub octocat SVG (lucide-react has no Github export), not a lucide icon. The octocat path is the discriminator.
+    */
+    const importIconSvg = screen.getByTestId("sidebar-nav-import-tasks").querySelector("svg");
+    expect(importIconSvg).not.toBeNull();
+    expect(importIconSvg?.getAttribute("viewBox")).toBe("0 0 24 24");
+    expect(importIconSvg?.querySelector("path")?.getAttribute("d")).toContain("M12 2C6.477 2 2 6.484 2 12.017");
+
+    /*
+    FNXC:Navigation 2026-06-22-12:00:
+    Dev Server moved to the right dock; the sidebar no longer renders a devserver entry even when the devServerView flag is on.
+    */
+    expect(screen.queryByTestId("sidebar-nav-devserver")).toBeNull();
+
     const primaryNav = screen.getByRole("navigation", { name: "Primary navigation" });
+
+    /*
+    FNXC:Navigation 2026-06-22-12:00:
+    The sidebar collapsed its two placement sections into ONE explicitly-ordered list; the `--secondary` section is gone.
+    */
+    expect(primaryNav.querySelectorAll(".left-sidebar-nav__section")).toHaveLength(1);
+    expect(primaryNav.querySelector(".left-sidebar-nav__section--secondary")).toBeNull();
+
+    /*
+    FNXC:Navigation 2026-06-22-12:00:
+    Assert the intentional single-list order (top to bottom) for the entries present under the default render flags.
+    command-center precedes agents; skills/memory (flag-gated) sit immediately after mailbox and before planning; documents (Artifacts) follows missions; automations -> import-tasks -> workflows are contiguous after compound/goals.
+    */
     const primaryButtons = within(primaryNav).getAllByRole("button");
-    expect(primaryButtons.indexOf(screen.getByTestId("sidebar-nav-planning"))).toBe(primaryButtons.indexOf(screen.getByTestId("sidebar-nav-command-center")) + 1);
+    const orderedTestIds = [
+      "sidebar-nav-board",
+      "sidebar-nav-list",
+      "sidebar-nav-command-center",
+      "sidebar-nav-agents",
+      "sidebar-nav-chat",
+      "sidebar-nav-mailbox",
+      "sidebar-nav-skills",
+      "sidebar-nav-memory",
+      "sidebar-nav-planning",
+      "sidebar-nav-missions",
+      "sidebar-nav-documents",
+      "sidebar-nav-goals",
+      "sidebar-nav-automations",
+      "sidebar-nav-import-tasks",
+      "sidebar-nav-workflows",
+      "sidebar-nav-insights",
+      "sidebar-nav-research",
+      "sidebar-nav-evals",
+    ];
+    const orderedIndices = orderedTestIds.map((testId) => primaryButtons.indexOf(screen.getByTestId(testId)));
+    expect(orderedIndices).toEqual([...orderedIndices].sort((a, b) => a - b));
+    expect(orderedIndices.every((index) => index >= 0)).toBe(true);
+    expect(primaryButtons.indexOf(screen.getByTestId("sidebar-nav-command-center"))).toBeLessThan(primaryButtons.indexOf(screen.getByTestId("sidebar-nav-agents")));
+    expect(primaryButtons.indexOf(screen.getByTestId("sidebar-nav-documents"))).toBe(primaryButtons.indexOf(screen.getByTestId("sidebar-nav-missions")) + 1);
+    // Skills and Memory sit immediately after Mailbox and before Planning.
+    expect(primaryButtons.indexOf(screen.getByTestId("sidebar-nav-skills"))).toBe(primaryButtons.indexOf(screen.getByTestId("sidebar-nav-mailbox")) + 1);
+    expect(primaryButtons.indexOf(screen.getByTestId("sidebar-nav-memory"))).toBe(primaryButtons.indexOf(screen.getByTestId("sidebar-nav-skills")) + 1);
+    expect(primaryButtons.indexOf(screen.getByTestId("sidebar-nav-planning"))).toBe(primaryButtons.indexOf(screen.getByTestId("sidebar-nav-memory")) + 1);
 
     const sidebar = screen.getByTestId("left-sidebar-nav");
     const footer = screen.getByTestId("sidebar-nav-settings").closest(".left-sidebar-nav__footer");
@@ -292,8 +351,16 @@ describe("LeftSidebarNav", () => {
     expect(screen.queryByTestId("sidebar-nav-memory")).toBeNull();
     expect(screen.queryByTestId("sidebar-nav-evals")).toBeNull();
     expect(screen.queryByTestId("sidebar-nav-goals")).toBeNull();
-    expect(screen.queryByTestId("sidebar-nav-devserver")).toBeNull();
     expect(screen.queryByTestId("sidebar-nav-plugin-fusion-plugin-primary-primary-view")).toBeNull();
+
+    /*
+    FNXC:Navigation 2026-06-22-12:00:
+    Unconditional left-sidebar destinations survive empty flags/props: automations, import-tasks (Import Tasks), and workflows are always present; devserver never renders here (right dock).
+    */
+    expect(screen.getByTestId("sidebar-nav-automations")).toBeDefined();
+    expect(screen.getByTestId("sidebar-nav-import-tasks")).toBeDefined();
+    expect(screen.getByTestId("sidebar-nav-workflows")).toBeDefined();
+    expect(screen.queryByTestId("sidebar-nav-devserver")).toBeNull();
 
     const sidebar = screen.getByTestId("left-sidebar-nav");
     expect(screen.getByTestId("sidebar-nav-settings").closest(".left-sidebar-nav__footer")).not.toBeNull();
