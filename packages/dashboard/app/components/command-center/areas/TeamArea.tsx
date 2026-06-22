@@ -2,7 +2,8 @@
 FNXC:CommandCenter 2026-06-18-16:57:
 Team tab shows each agent's tokens/cost/files-changed/tasks-completed with live status and bar charts, reusing existing analytics primitives; GitHub-issue per-agent stats are FN-6653, not here.
 */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Pause, Play } from "lucide-react";
 import type { CostResult, OrgTreeNode, TeamAgentSummary, TeamAnalytics } from "@fusion/core";
@@ -21,6 +22,7 @@ import { formatCost, formatCount } from "./areaShared";
 
 const TEAM_LIVE_REFRESH_MS = 15_000;
 const EXECUTOR_STATUS_POLL_MS = 10_000;
+const ORG_CHART_DRAG_THRESHOLD = 4;
 type SortKey = "agent" | "tokens" | "cost" | "filesChanged" | "tasksCompleted" | "tasksInProgress";
 
 type AsyncState<T> =
@@ -33,6 +35,15 @@ type ExecutorStats = {
   enginePaused: boolean;
   maxConcurrent: number;
   lastActivityAt?: string;
+};
+
+type OrgChartDragState = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startScrollLeft: number;
+  startScrollTop: number;
+  isPanning: boolean;
 };
 
 function costSortValue(cost: CostResult): number {
@@ -156,6 +167,9 @@ export function TeamArea({ range, projectId }: { range: DateRange; projectId?: s
   const [orgTreeState, setOrgTreeState] = useState<AsyncState<OrgTreeNode[]>>({ status: "loading", data: null, error: null });
   const [executorStatsState, setExecutorStatsState] = useState<AsyncState<ExecutorStats>>({ status: "loading", data: null, error: null });
   const orgChartViewportRef = useRef<HTMLDivElement | null>(null);
+  const orgChartDragStateRef = useRef<OrgChartDragState | null>(null);
+  const orgChartDidPanRef = useRef(false);
+  const [isOrgChartDragging, setIsOrgChartDragging] = useState(false);
   const [orgChartViewportWidth, setOrgChartViewportWidth] = useState(0);
   const { data, isLoading, error } = useAnalyticsArea<TeamAnalytics>("/command-center/team", range, {
     pollMs: TEAM_LIVE_REFRESH_MS,
@@ -299,6 +313,59 @@ export function TeamArea({ range, projectId }: { range: DateRange; projectId?: s
 
   /*
   FNXC:CommandCenter 2026-06-21-00:00:
+  FN-6885 requires the Team-tab agent org chart to support mouse/pen click-and-drag panning along whichever native scroll axis overflows. Ignore touch pointers so mobile keeps native momentum scrolling, and only activate after the drag threshold so ordinary org-node clicks remain intact.
+  */
+  const endOrgChartDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const dragState = orgChartDragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    }
+    orgChartDragStateRef.current = null;
+    setIsOrgChartDragging(false);
+  }, []);
+
+  const handleOrgChartPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "touch" || event.button !== 0) return;
+    const viewport = event.currentTarget;
+    orgChartDidPanRef.current = false;
+    orgChartDragStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startScrollLeft: viewport.scrollLeft,
+      startScrollTop: viewport.scrollTop,
+      isPanning: false,
+    };
+    viewport.setPointerCapture?.(event.pointerId);
+  }, []);
+
+  const handleOrgChartPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const dragState = orgChartDragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - dragState.startX;
+    const deltaY = event.clientY - dragState.startY;
+    if (!dragState.isPanning && Math.hypot(deltaX, deltaY) < ORG_CHART_DRAG_THRESHOLD) return;
+    if (!dragState.isPanning) {
+      dragState.isPanning = true;
+      orgChartDidPanRef.current = true;
+      setIsOrgChartDragging(true);
+    }
+    event.preventDefault();
+    const viewport = event.currentTarget;
+    viewport.scrollLeft = dragState.startScrollLeft - deltaX;
+    viewport.scrollTop = dragState.startScrollTop - deltaY;
+  }, []);
+
+  const handleOrgChartClickCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!orgChartDidPanRef.current) return;
+    orgChartDidPanRef.current = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }, []);
+
+  /*
+  FNXC:CommandCenter 2026-06-21-00:00:
   Team org charts should become top-down horizontal trees only when the visible org container is wide enough; use the shared Agents view layout resolver so both surfaces agree on breakpoints and fallback to the established vertical list for unmeasured multi-root charts.
   */
   const orgChartLayoutMode: OrgChartLayoutMode = useMemo(() => {
@@ -327,7 +394,18 @@ export function TeamArea({ range, projectId }: { range: DateRange; projectId?: s
               <h3>{t("commandCenter.controls.orgChart.title", "Agent org chart")}</h3>
             </div>
           </div>
-          <div className="cc-team-org-scroll" data-layout={orgChartLayoutMode} ref={orgChartViewportRef} aria-live="polite">
+          <div
+            className={`cc-team-org-scroll${isOrgChartDragging ? " is-dragging" : ""}`}
+            data-layout={orgChartLayoutMode}
+            ref={orgChartViewportRef}
+            aria-live="polite"
+            onPointerDown={handleOrgChartPointerDown}
+            onPointerMove={handleOrgChartPointerMove}
+            onPointerUp={endOrgChartDrag}
+            onPointerCancel={endOrgChartDrag}
+            onPointerLeave={endOrgChartDrag}
+            onClickCapture={handleOrgChartClickCapture}
+          >
             {orgTreeState.status === "loading" ? (
               <p className="cc-team-muted"><LoadingSpinner label={t("commandCenter.controls.orgChart.loading", "Loading org chart…")} /></p>
             ) : orgTreeState.status === "error" ? (

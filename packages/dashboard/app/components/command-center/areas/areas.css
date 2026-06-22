@@ -311,10 +311,20 @@ Team owns the Agent org chart and Heartbeat control. Org nodes must be self-styl
   gap: var(--space-xs);
 }
 
+/*
+FNXC:CommandCenter 2026-06-21-00:00:
+FN-6885 adds a grab affordance to the Team org-chart scroll owner. Keep native overflow scrolling as the single pan mechanism and switch to non-selecting grabbing only while the mouse/pen drag handler is actively scrolling.
+*/
 .cc-team-org-scroll {
   max-block-size: calc(var(--space-2xl) * 13);
   overflow: auto;
   overscroll-behavior: contain;
+  cursor: grab;
+}
+
+.cc-team-org-scroll.is-dragging {
+  cursor: grabbing;
+  user-select: none;
 }
 
 .cc-team-org-roots,
