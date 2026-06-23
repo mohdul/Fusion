@@ -368,6 +368,33 @@ describe("ExecutorStatusBar", () => {
       expect(stateElement).toHaveTextContent("Idle");
     });
 
+    it("shows Stopped state in error color without running class on desktop and mobile", () => {
+      vi.mocked(mockUseExecutorStats).mockReturnValue({
+        stats: { ...defaultStats, executorState: "stopped", runningTaskCount: 0 },
+        loading: false,
+        error: null,
+        refresh: vi.fn(),
+      });
+
+      const { rerender } = render(<ExecutorStatusBar tasks={emptyTasks} />);
+
+      const desktopStatusBar = screen.getByRole("status");
+      const desktopStateElement = desktopStatusBar.querySelector(".executor-status-bar__state");
+      const desktopStateIcon = screen.getByTestId("executor-state-engine-control-trigger").querySelector("svg");
+      expect(desktopStateElement).toHaveTextContent("Stopped");
+      expect(desktopStateElement).toHaveStyle({ color: "var(--color-error)" });
+      expect(desktopStateIcon).toHaveStyle({ color: "var(--color-error)" });
+      expect(desktopStatusBar).not.toHaveClass("executor-status-bar--running");
+
+      viewportModeMock.value = "mobile";
+      rerender(<ExecutorStatusBar tasks={emptyTasks} />);
+
+      const mobileStatusBar = screen.getByRole("status");
+      const mobileStateElement = mobileStatusBar.querySelector(".executor-status-bar__state");
+      expect(mobileStateElement).toHaveTextContent("Stopped");
+      expect(mobileStatusBar).not.toHaveClass("executor-status-bar--running");
+    });
+
     it("applies running class when executor is running", () => {
       render(<ExecutorStatusBar tasks={emptyTasks} />);
 

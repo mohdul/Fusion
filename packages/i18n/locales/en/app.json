@@ -2316,6 +2316,7 @@
     "stateIdle": "Idle",
     "statePaused": "Paused",
     "stateRunning": "Running",
+    "stateStopped": "Stopped",
     "status": "Executor status",
     "stuck": "Stuck",
     "temporary": "Temporary",

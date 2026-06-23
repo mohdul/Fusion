@@ -6709,8 +6709,13 @@ export interface ProjectHealth {
   updatedAt: string;
 }
 
-/** Executor state values */
-export type ExecutorState = "idle" | "running" | "paused";
+/**
+ * Executor state values.
+ *
+ * FNXC:EngineControls 2026-06-22-00:00:
+ * A globally stopped AI engine (`globalPause`) is an operator action, not idleness; the footer must expose it as "Stopped" in error red with the stop-rectangle icon.
+ */
+export type ExecutorState = "idle" | "running" | "paused" | "stopped";
 
 /** Aggregated executor statistics for the status bar.
  * 
@@ -6721,7 +6726,8 @@ export type ExecutorState = "idle" | "running" | "paused";
  * lastActivityAt from the activity log.
  * 
  * The executorState is derived from:
- * - "idle": globalPause is true OR (enginePaused is true AND runningTaskCount is 0)
+ * - "stopped": globalPause is true
+ * - "idle": (enginePaused is true AND runningTaskCount is 0) OR not paused with nothing running
  * - "paused": enginePaused is true AND runningTaskCount > 0
  * - "running": globalPause is false AND enginePaused is false AND runningTaskCount > 0
  */
@@ -6736,7 +6742,7 @@ export interface ExecutorStats {
   queuedTaskCount: number;
   /** Number of tasks in "in-review" column */
   inReviewCount: number;
-  /** Derived executor state: "idle", "running", or "paused" */
+  /** Derived executor state: "idle", "running", "paused", or "stopped" */
   executorState: ExecutorState;
   /** Maximum concurrent tasks allowed from settings */
   maxConcurrent: number;
