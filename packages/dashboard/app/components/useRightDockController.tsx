@@ -4,6 +4,8 @@ import { isNearDuplicateCanonicalInactive } from "../../../core/src/near-duplica
 import type { ToastType } from "../hooks/useToast";
 import type { DetailTaskTab } from "../hooks/useModalManager";
 import { fetchTaskDetail } from "../api";
+import { getScopedItem } from "../utils/projectStorage";
+import { DOCK_FILES_CURRENT_KEY } from "./DockFilesView";
 import { TaskCard } from "./TaskCard";
 import { RightDock, persistRightDockOpen, readStoredRightDockOpen } from "./RightDock";
 import { RightDockExpandModal } from "./RightDockExpandModal";
@@ -70,12 +72,27 @@ export function useRightDockController(input: RightDockControllerInput): RightDo
   Popping a view out CLOSES the right dock but KEEPS the floating modal open. The modal is independent of dock open state (see expandedView note above), so collapsing the dock on pop-out gives the user the full-width app behind the movable, non-blocking modal. Clearing the pop-out (viewKey null) leaves the dock as-is.
   */
   const handleExpand = useCallback((viewKey: OverflowViewKey | null) => {
+    /*
+    FNXC:RightDockFiles 2026-06-23-23:38:
+    If Files is showing an individual file, Expand should open the existing FileBrowserModal at that file instead of the generic right-dock expanded panel. The file modal is the shared movable/resizable file surface and keeps its transparent, non-blurring FloatingWindow backdrop; an empty Files view still expands to the two-pane browser.
+    */
+    if (viewKey === "files") {
+      const currentFile = getScopedItem(DOCK_FILES_CURRENT_KEY, input.projectId);
+      if (currentFile) {
+        input.openFileInBrowser(currentFile, { workspace: "project" });
+        setOpen(false);
+        persistRightDockOpen(false);
+        setExpandedView(null);
+        return;
+      }
+    }
+
     setExpandedView(viewKey);
     if (viewKey) {
       setOpen(false);
       persistRightDockOpen(false);
     }
-  }, []);
+  }, [input]);
 
   useEffect(() => {
     if (!input.active) setExpandedView(null);

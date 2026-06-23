@@ -5,6 +5,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { RightDock, RIGHT_DOCK_VIEW_STORAGE_KEY, RIGHT_DOCK_WIDTH_STORAGE_KEY } from "../RightDock";
 import { RightDockExpandModal } from "../RightDockExpandModal";
 import { useRightDockController, type RightDockControllerInput } from "../useRightDockController";
+import { DOCK_FILES_CURRENT_KEY } from "../DockFilesView";
+import { setScopedItem } from "../../utils/projectStorage";
 
 vi.mock("../../api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../api")>();
@@ -70,6 +72,16 @@ describe("RightDock", () => {
     expect(rightDockCss).toContain("border-bottom-color: var(--right-dock-expand-header-divider-color, transparent);");
     expect(rightDockCss).not.toContain("border-left: thin solid var(--border);");
     expect(rightDockCss).not.toContain("border-bottom: thin solid var(--border);");
+  });
+
+  it("keeps the right-dock pop-out touch-draggable with theme-controlled shadow", () => {
+    const panelRule = rightDockCss.match(/\.right-dock-expand-modal--floating\s*\{([^}]*)\}/)?.[1] ?? "";
+    const headerRule = rightDockCss.match(/\.right-dock-expand-modal__header--draggable\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(panelRule).toContain("box-shadow: var(--floating-window-shadow, var(--shadow-lg));");
+    expect(headerRule).toContain("touch-action: none;");
+    expect(headerRule).toContain("min-height: 44px;");
+    expect(rightDockCss).not.toContain("var(--shadow-xl)");
   });
 
   it("renders Files by default and restores the persisted inline view on remount", () => {
@@ -411,6 +423,50 @@ describe("RightDock", () => {
 
     // Its own close button still dismisses it.
     fireEvent.click(screen.getByTestId("right-dock-expand-close"));
+    expect(screen.queryByTestId("right-dock-expand-modal")).toBeNull();
+  });
+
+  it("routes Files expand to the file browser modal when an individual file is selected", () => {
+    const openFileInBrowser = vi.fn();
+    setScopedItem(DOCK_FILES_CURRENT_KEY, "readme.md", "project-1");
+    const controllerInput = {
+      active: true,
+      projectId: "project-1",
+      addToast: vi.fn(),
+      settingsLoaded: true,
+      researchReadinessVersion: 0,
+      tasks: [],
+      workflowSteps: [],
+      subscribePluginEvents: () => () => {},
+      openDetailTask: vi.fn(),
+      openFileInBrowser,
+      openSettings: vi.fn(),
+      onSendSelectionToTask: vi.fn(),
+      onCreateTaskFromInsight: vi.fn(),
+      onNavigateToMission: vi.fn(),
+      onTaskCreated: vi.fn(),
+      workflowStepNameLookup: new Map<string, string>(),
+      prAuthAvailable: false,
+      autoMerge: false,
+      visibilityOptions: {},
+      footerVisible: false,
+    } as unknown as RightDockControllerInput;
+
+    function Harness() {
+      const controller = useRightDockController(controllerInput);
+      return (
+        <>
+          {controller.dock}
+          {controller.modal}
+        </>
+      );
+    }
+
+    render(<Harness />);
+
+    fireEvent.click(screen.getByTestId("right-dock-expand"));
+
+    expect(openFileInBrowser).toHaveBeenCalledWith("readme.md", { workspace: "project" });
     expect(screen.queryByTestId("right-dock-expand-modal")).toBeNull();
   });
 });

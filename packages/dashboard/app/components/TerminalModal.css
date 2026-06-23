@@ -83,6 +83,7 @@ Only the FLOATING terminal joins the shared cross-type floating stack. Reset the
 }
 
 .modal.terminal-modal.terminal-modal--docked {
+  --floating-window-shadow: var(--shadow-lg);
   position: fixed;
   left: 0;
   right: 0;
@@ -96,7 +97,7 @@ Only the FLOATING terminal joins the shared cross-type floating stack. Reset the
   resize: none;
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   pointer-events: auto;
-  box-shadow: var(--shadow-xl);
+  box-shadow: var(--floating-window-shadow, var(--shadow-lg));
 }
 
 /*
@@ -127,6 +128,7 @@ Larger grab target for the docked terminal top resize handle: it straddles the p
 }
 
 .modal.terminal-modal.terminal-modal--floating {
+  --floating-window-shadow: var(--shadow-lg);
   position: fixed;
   left: var(--terminal-float-x);
   top: var(--terminal-float-y);
@@ -138,7 +140,11 @@ Larger grab target for the docked terminal top resize handle: it straddles the p
   max-height: calc(100dvh - (var(--space-lg) * 2));
   resize: none;
   pointer-events: auto;
-  box-shadow: var(--shadow-xl);
+  /*
+  FNXC:FloatingWindow 2026-06-23-23:32:
+  Floating modals share a gentle theme-controlled elevation token. Use the app shadow fallback instead of undefined --shadow-xl so themes can opt out or tune shadow strength consistently across Terminal, New Task, Right Dock, and shared FloatingWindow panels.
+  */
+  box-shadow: var(--floating-window-shadow, var(--shadow-lg));
 }
 
 /*
@@ -149,6 +155,7 @@ The floating-mode header is the move grip. `touch-action: none` is required so a
   cursor: grab;
   user-select: none;
   touch-action: none;
+  min-height: 48px;
 }
 
 .terminal-header--draggable:active {

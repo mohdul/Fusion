@@ -286,6 +286,79 @@ describe("FileBrowserModal", () => {
     expect(screen.getByRole("button", { name: /toggle word wrap/i })).toBeInTheDocument();
   });
 
+  it("switches between mobile editor layout and two-pane layout from floating modal width", async () => {
+    const originalResizeObserver = globalThis.ResizeObserver;
+    const originalWindowResizeObserver = window.ResizeObserver;
+    const observedElements: Array<{ element: Element; callback: ResizeObserverCallback }> = [];
+    const MockResizeObserver = class ResizeObserver {
+      private callback: ResizeObserverCallback;
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+      }
+      observe(element: Element) {
+        observedElements.push({ element, callback: this.callback });
+      }
+      unobserve() {}
+      disconnect() {}
+    };
+    globalThis.ResizeObserver = MockResizeObserver;
+    window.ResizeObserver = MockResizeObserver;
+
+    try {
+      Object.defineProperty(window, "innerWidth", {
+        writable: true,
+        configurable: true,
+        value: 1024,
+      });
+
+      render(
+        <FileBrowserModal
+          initialWorkspace="project"
+          initialFile="file1.ts"
+          isOpen={true}
+          onClose={mockOnClose}
+        />,
+      );
+
+      const modal = document.querySelector(".file-browser-modal") as HTMLElement;
+      expect(modal).toBeInTheDocument();
+      await waitFor(() => expect(observedElements.some((entry) => entry.element === modal)).toBe(true));
+      Object.defineProperty(modal, "getBoundingClientRect", {
+        configurable: true,
+        value: () => ({ width: 420, height: 700, top: 0, left: 0, bottom: 700, right: 420, x: 0, y: 0, toJSON: () => ({}) }),
+      });
+
+      await act(async () => {
+        observedElements.find((entry) => entry.element === modal)?.callback([] as ResizeObserverEntry[], {} as ResizeObserver);
+      });
+
+      await waitFor(() => {
+        expect(modal).toHaveClass("file-browser-modal--narrow");
+      });
+      expect(document.querySelector(".file-browser-content.mobile.active")).not.toBeNull();
+      expect(document.querySelector(".file-browser-sidebar.mobile.active")).toBeNull();
+
+      Object.defineProperty(modal, "getBoundingClientRect", {
+        configurable: true,
+        value: () => ({ width: 980, height: 700, top: 0, left: 0, bottom: 700, right: 980, x: 0, y: 0, toJSON: () => ({}) }),
+      });
+
+      await act(async () => {
+        observedElements.find((entry) => entry.element === modal)?.callback([] as ResizeObserverEntry[], {} as ResizeObserver);
+      });
+
+      await waitFor(() => {
+        expect(modal).not.toHaveClass("file-browser-modal--narrow");
+      });
+      expect(document.querySelector(".file-browser-content.mobile")).toBeNull();
+      expect(document.querySelector(".file-browser-sidebar.mobile")).toBeNull();
+      expect(screen.getByRole("separator", { name: "Resize sidebar" })).toBeInTheDocument();
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver;
+      window.ResizeObserver = originalWindowResizeObserver;
+    }
+  });
+
   it("keeps mobile close button visible and clickable", async () => {
     Object.defineProperty(window, "innerWidth", {
       writable: true,
@@ -404,6 +477,48 @@ describe("FileBrowserModal", () => {
     expect(pathRules).toContain("white-space: nowrap");
     expect(pathRules).toContain("overflow: hidden");
     expect(pathRules).toContain("max-width: 50vw");
+  });
+
+  it("keeps the mobile file modal header easy to drag by touch", async () => {
+    const { loadAllAppCss } = await import("../../test/cssFixture");
+    const cssContent = loadAllAppCss();
+    const baseHeaderRules = cssContent.match(/\.file-browser-modal-header\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(baseHeaderRules).toContain("touch-action: none");
+    expect(baseHeaderRules).toContain("min-height: 48px");
+
+    function extractMobileMediaBlocks(content: string): string {
+      const blocks: string[] = [];
+      const regex = /@media[^{]*\(max-width: 768px\)[^{]*\{/g;
+      let match;
+
+      while ((match = regex.exec(content)) !== null) {
+        const startIdx = match.index + match[0].length;
+        let braceCount = 1;
+        let endIdx = startIdx;
+
+        while (braceCount > 0 && endIdx < content.length) {
+          if (content[endIdx] === "{") braceCount += 1;
+          if (content[endIdx] === "}") braceCount -= 1;
+          endIdx += 1;
+        }
+
+        if (braceCount === 0) {
+          blocks.push(content.slice(startIdx, endIdx - 1));
+        }
+      }
+
+      return blocks.join("\n");
+    }
+
+    const mobileBlock = extractMobileMediaBlocks(cssContent);
+    const mobileHeaderRules = mobileBlock.match(/\.file-browser-modal-header\s*\{([^}]*)\}/)?.[1] ?? "";
+    const mobileHandleRules = mobileBlock.match(/\.file-browser-modal-header::before\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(mobileHeaderRules).toContain("min-height: 56px");
+    expect(mobileHeaderRules).toContain("padding-block: calc(var(--space-md) + var(--space-xs)) var(--space-md)");
+    expect(mobileHandleRules).toContain("position: absolute");
+    expect(mobileHandleRules).toContain("background: color-mix(in srgb, var(--text-muted) 44%, transparent)");
   });
 
   it("closes on Escape and saves on Cmd+S", () => {

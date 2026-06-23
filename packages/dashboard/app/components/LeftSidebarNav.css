@@ -17,6 +17,7 @@ The border between left sidebar and main content should be invisible while the s
   min-height: 0;
   background: var(--surface);
   color: var(--text);
+  font-family: var(--font-primary);
 }
 
 /*
@@ -142,8 +143,17 @@ The secondary section has no divider and no extra top padding, so the gap across
   background: transparent;
   border: none;
   border-radius: var(--radius-md);
-  color: var(--text-muted);
-  font: inherit;
+  color: var(--text);
+  /*
+  FNXC:NavigationTypography 2026-06-23-23:43:
+  Sidebar destinations should read like app chrome instead of light body copy, but not as bold labels.
+  Use the same base text color as headers with medium-normal weight so the nav matches the app theme without looking heavy.
+  */
+  font-family: var(--font-primary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: var(--line-height-tight);
+  letter-spacing: 0;
   text-align: left;
   cursor: pointer;
   transition:

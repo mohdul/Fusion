@@ -29,6 +29,7 @@ FNXC:NewTask 2026-06-22-20:30:
 Floating panel positioned by state-driven inline left/top/width/height. min/max keep content usable and the panel on-screen; `resize: none` because the corner/edge handles own resizing (the native grip conflicts with the pointer handlers). `pointer-events: auto` re-enables interaction on the panel only. Desktop only — mobile keeps the full-screen keyboard-aware sheet.
 */
 .new-task-modal--floating {
+  --floating-window-shadow: var(--shadow-lg);
   position: fixed;
   display: flex;
   flex-direction: column;
@@ -38,7 +39,11 @@ Floating panel positioned by state-driven inline left/top/width/height. min/max 
   max-height: calc(100dvh - (var(--space-lg) * 2));
   resize: none;
   pointer-events: auto;
-  box-shadow: var(--shadow-xl);
+  /*
+  FNXC:FloatingWindow 2026-06-23-23:32:
+  Floating modals share a gentle theme-controlled elevation token. Use the app shadow fallback instead of undefined --shadow-xl so themes can opt out or tune shadow strength consistently across New Task, Terminal, Right Dock, and shared FloatingWindow panels.
+  */
+  box-shadow: var(--floating-window-shadow, var(--shadow-lg));
 }
 
 .new-task-modal--floating .modal-body {
@@ -53,6 +58,7 @@ Header is the drag handle. `touch-action: none` (matching the resize handles) ha
   cursor: grab;
   user-select: none;
   touch-action: none;
+  min-height: 48px;
 }
 
 .new-task-modal__header--draggable:active {

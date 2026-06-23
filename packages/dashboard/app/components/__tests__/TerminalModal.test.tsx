@@ -2,6 +2,7 @@
 FNXC:DashboardTests 2026-06-14-08:31:
 FN-6441 rescued this orphaned component test after standalone dashboard-app execution passed without assertion, timeout, or source-code changes. Keep the terminal modal coverage in app backfill because keyboard, session, and mobile terminal regressions are user-facing and should not remain skip-listed.
 */
+import { readFileSync } from "node:fs";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { TerminalModal, _resetInitialViewportHeight, ctrlChar, altChar } from "../TerminalModal";
@@ -16,6 +17,8 @@ import {
 import * as useTerminalModule from "../../hooks/useTerminal";
 import * as useTerminalSessionsModule from "../../hooks/useTerminalSessions";
 import * as apiModule from "../../api";
+
+const terminalModalCss = readFileSync("app/components/TerminalModal.css", "utf8");
 
 function splitFontFamilies(stack: string): string[] {
   return stack
@@ -338,6 +341,16 @@ describe("TerminalModal", () => {
     await waitFor(() => {
       expect(window.localStorage.getItem(`fusion:terminal-float-pos-${projectId}`)).toBeTruthy();
     });
+  });
+
+  it("keeps the floating terminal touch-draggable with theme-controlled shadow", () => {
+    const panelRule = terminalModalCss.match(/\.modal\.terminal-modal\.terminal-modal--floating\s*\{([^}]*)\}/)?.[1] ?? "";
+    const headerRule = terminalModalCss.match(/\.terminal-header--draggable\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(panelRule).toContain("box-shadow: var(--floating-window-shadow, var(--shadow-lg));");
+    expect(headerRule).toContain("touch-action: none;");
+    expect(headerRule).toContain("min-height: 48px;");
+    expect(terminalModalCss).not.toContain("var(--shadow-xl)");
   });
 
   it("keeps mobile terminal on the full-screen modal path without docked or floating controls", async () => {

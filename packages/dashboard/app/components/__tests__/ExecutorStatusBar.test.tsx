@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import fs from "fs";
+import path from "path";
 import { ExecutorStatusBar } from "../ExecutorStatusBar";
 
 const viewportModeMock = vi.hoisted(() => ({ value: "desktop" as "desktop" | "tablet" | "mobile" }));
@@ -43,6 +45,13 @@ import { useExecutorStats } from "../../hooks/useExecutorStats";
 import type { ExecutorStats } from "../../api";
 
 const mockUseExecutorStats = useExecutorStats as ReturnType<typeof vi.fn>;
+const executorStatusBarCss = fs.readFileSync(path.join(__dirname, "../ExecutorStatusBar.css"), "utf-8");
+
+function getCssRuleBlock(selector: string): string {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = executorStatusBarCss.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`));
+  return match?.[1] ?? "";
+}
 
 /** Minimal empty task list used by tests that mock the hook. */
 const emptyTasks: any[] = [];
@@ -225,6 +234,16 @@ describe("ExecutorStatusBar", () => {
       await user.click(screen.getByTestId("executor-quick-chat-launcher"));
 
       expect(onOpenQuickChat).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps Quick Chat and Terminal footer launchers on the same font and color tokens", () => {
+      const launcherRule = getCssRuleBlock(".executor-status-bar__footer-launcher");
+
+      expect(launcherRule).toContain("color: inherit");
+      expect(launcherRule).toContain("font-family: var(--font-primary)");
+      expect(launcherRule).toContain("font-size: inherit");
+      expect(launcherRule).toContain("font-weight: 500");
+      expect(launcherRule).not.toMatch(/#|rgb\(/i);
     });
 
     it("omits the Quick Chat footer launcher for floating, off, and mobile modes", () => {

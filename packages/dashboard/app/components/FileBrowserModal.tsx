@@ -83,7 +83,7 @@ export function FileBrowserModal({
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const [viewportMobile, setViewportMobile] = useState(false);
-  const [modalNarrow, setModalNarrow] = useState(false);
+  const [modalWidth, setModalWidth] = useState<number | null>(null);
   const [mobileView, setMobileView] = useState<"list" | "editor">("list");
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
   const [showLineNumbers, setShowLineNumbers] = useState(false);
@@ -128,25 +128,33 @@ export function FileBrowserModal({
   /*
   FNXC:FileBrowser 2026-06-22-17:25:
   The Files floating window can be resized narrower than the desktop two-pane layout while the browser viewport is still desktop-sized. Mirror Chat's ResizeObserver-driven responsive mode: once the modal itself is at mobile width, switch to the list/editor single-pane flow and hide the sidebar after a file opens.
+
+  FNXC:FileBrowser 2026-06-23-23:45:
+  The Files modal layout should be responsive to its own floating-window width: wide modals show the two-pane browser/editor split, narrow modals show the mobile list/editor flow. Viewport width is only a pre-measurement fallback so a widened modal can always return to the split view.
   */
   useLayoutEffect(() => {
     const element = modalRef.current;
-    if (!element || typeof ResizeObserver === "undefined") {
+    if (!element) {
       return;
     }
 
     const update = () => {
       const measuredWidth = element.getBoundingClientRect().width || element.clientWidth || window.innerWidth;
-      setModalNarrow(measuredWidth <= MOBILE_BREAKPOINT);
+      setModalWidth(measuredWidth);
     };
 
     update();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", update);
+      return () => window.removeEventListener("resize", update);
+    }
+
     const observer = new ResizeObserver(update);
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
 
-  const isMobile = viewportMobile || modalNarrow;
+  const isMobile = modalWidth === null ? viewportMobile : modalWidth <= MOBILE_BREAKPOINT;
 
   useEffect(() => {
     if (!selectedFile) {

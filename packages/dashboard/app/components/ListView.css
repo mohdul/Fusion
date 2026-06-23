@@ -17,7 +17,9 @@
   background: var(--surface);
 }
 
-/* FNXC:ListView 2026-06-23-20:15: No divider between the controls and quick-add. The controls row carries actions-count-action layout; quick-add directly follows it as one continuous surface. */
+/* FNXC:ListView 2026-06-23-23:42: No divider between the controls and quick-add. The controls row now carries action groups only; the aggregate top task count was removed while contextual section counts remain lower in the list.
+FNXC:ListView 2026-06-23-23:55: Bulk Edit, View, and New Task are one no-wrap action cluster so the primary list actions stay visually together instead of splitting across opposite edges or separate wrapped lines.
+FNXC:ListView 2026-06-23-00:25: The primary action cluster must stay on one physical row even when the list pane narrows; preserve max-content width and let the cluster scroll horizontally instead of wrapping individual actions onto separate lines. */
 .list-sidebar-controls {
   display: flex;
   flex-direction: column;
@@ -27,42 +29,42 @@
   border-bottom: 0;
 }
 
-/*
-FNXC:ListView 2026-06-23-20:15:
-The list toolbar uses a stable three-part row: left controls, centered filtered task count, and right create action. Equal flex groups keep the count visually between button groups while flex-wrap prevents overflow on narrow split-pane widths.
-*/
 .list-sidebar-controls__toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: var(--space-sm);
   flex-wrap: wrap;
 }
 
+.list-action-cluster,
 .list-sidebar-controls__actions {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  flex: 1 1 0;
-  flex-wrap: wrap;
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
   gap: var(--space-xs);
+  inline-size: max-content;
+  min-width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+
+.list-action-cluster::-webkit-scrollbar,
+.list-sidebar-controls__actions::-webkit-scrollbar {
+  display: none;
+}
+
+.list-action-cluster > .btn,
+.list-sidebar-controls__actions > .btn {
+  flex: 0 0 auto;
 }
 
 .list-sidebar-controls__actions--end {
   justify-content: flex-end;
-}
-
-.list-sidebar-controls__count {
-  flex: 0 1 auto;
-  min-width: 0;
-  color: var(--text-muted);
-  font-size: 0.8125rem;
-  font-weight: 500;
-  line-height: 1.2;
-  overflow: hidden;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /*
@@ -88,6 +90,11 @@ View options was oversized (full-width stacked button). Render it as a compact i
 
 .list-toolbar .list-new-task-action {
   margin-left: auto;
+}
+
+.list-action-cluster .list-new-task-action,
+.list-sidebar-controls__actions .list-new-task-action {
+  margin-left: 0;
 }
 
 .list-sidebar-summary-chips {
@@ -128,25 +135,6 @@ View options was oversized (full-width stacked button). Render it as a compact i
   gap: var(--space-xs);
 }
 
-.list-stats {
-  font-size: calc(var(--space-sm) + var(--space-xs) * 0.75);
-  color: var(--text-muted);
-}
-
-/*
-FNXC:ListView 2026-06-22-23:30:
-Compact count for the single header row: smaller, dimmer, and non-dominant so the action group reads as primary. min-width:0 lets it truncate before forcing the row to wrap.
-*/
-.list-stats--compact {
-  margin: 0;
-  min-width: 0;
-  font-size: calc(var(--space-xs) * 2.5);
-  color: var(--text-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* Section expand/collapse controls */
 .list-section-controls {
   display: flex;
@@ -156,11 +144,6 @@ Compact count for the single header row: smaller, dimmer, and non-dominant so th
 
 .list-section-controls .btn {
   white-space: nowrap;
-}
-
-.list-stats-hidden {
-  color: var(--text-dim);
-  font-style: italic;
 }
 
 .list-clear-column-filter-btn {
@@ -968,10 +951,6 @@ In the split sidebar the title cell must allow the title to wrap to two lines (h
     padding: var(--space-sm) var(--space-md);
   }
 
-  .list-stats {
-    order: 1;
-  }
-
   .list-column-toggle {
     order: 3;
     margin-left: auto;
@@ -1174,14 +1153,6 @@ In the split sidebar the title cell must allow the title to wrap to two lines (h
     padding: var(--space-sm) var(--space-md);
     flex-wrap: wrap;
     gap: var(--space-sm);
-  }
-
-  .list-stats {
-    width: 100%;
-    order: 10;
-    text-align: center;
-    margin-left: 0;
-    font-size: 11px;
   }
 
   .list-selection-stats {

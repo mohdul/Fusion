@@ -1962,6 +1962,16 @@ queries already apply (the container-query rule above also fires and produces th
    ══════════════════════════════════════════════════════════════════ */
 
 /* Modal size override - flex layout for sidebar + content */
+/*
+FNXC:GitManager 2026-06-23-23:52:
+Sidebar-launched floating modals should not dim, blur, or block the app behind them. Match the Files/RightDock floating-window model: the overlay is transparent and click-through, while the Git Manager panel remains interactive. Dismissal stays on Escape/close button instead of backdrop click.
+*/
+.modal-overlay.git-manager-modal-overlay {
+  background: transparent;
+  backdrop-filter: none;
+  pointer-events: none;
+}
+
 .modal.gm-modal {
   width: min(95vw, 1400px);
   max-width: 95vw;
@@ -1973,6 +1983,7 @@ queries already apply (the container-query rule above also fires and produces th
   flex-direction: column;
   overflow: hidden;
   resize: both;
+  pointer-events: auto;
 }
 
 /*

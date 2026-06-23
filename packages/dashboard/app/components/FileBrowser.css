@@ -32,8 +32,10 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-lg);
+  min-height: 48px;
   cursor: grab;
   user-select: none;
+  touch-action: none;
 }
 
 .file-browser-modal-header:active {
@@ -585,9 +587,28 @@ Narrow Files windows use the same single-pane list/editor behavior as mobile eve
   }
 
   .file-browser-modal-header {
+    position: relative;
     flex-wrap: wrap;
     align-items: flex-start;
     gap: var(--space-sm);
+    min-height: 56px;
+    padding-block: calc(var(--space-md) + var(--space-xs)) var(--space-md);
+  }
+
+  /*
+  FNXC:FileBrowser 2026-06-23-23:25:
+  On phones the full-screen Files modal still uses the header as its drag handle, but the title row can wrap and the action controls consume much of the top bar. Preserve a large touch-safe grab area with touch-action:none and add a subtle handle marker so dragging is discoverable without adding a second toolbar.
+  */
+  .file-browser-modal-header::before {
+    content: "";
+    position: absolute;
+    top: var(--space-xs);
+    left: 50%;
+    width: calc(var(--space-xl) + var(--space-sm));
+    height: calc(var(--space-xs) * 0.75);
+    transform: translateX(-50%);
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--text-muted) 44%, transparent);
   }
 
   .file-browser-header-title {

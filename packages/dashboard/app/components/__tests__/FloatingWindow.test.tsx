@@ -45,6 +45,14 @@ describe("FloatingWindow", () => {
     }
   });
 
+  it("uses a theme-overridable gentle shadow token instead of an undefined shadow", () => {
+    const windowRule = floatingWindowCss.match(/\.floating-window\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(windowRule).toContain("--floating-window-shadow: var(--shadow-lg);");
+    expect(windowRule).toContain("box-shadow: var(--floating-window-shadow, var(--shadow-lg));");
+    expect(floatingWindowCss).not.toContain("var(--shadow-xl)");
+  });
+
   it("can hide generic chrome and delegate dragging to a child header", () => {
     render(
       <FloatingWindow

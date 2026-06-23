@@ -15,6 +15,7 @@ FNXC:FloatingWindow 2026-06-22-20:45:
 Floating panel positioned by state-driven inline `left/top/width/height` and stacked by inline `z-index`. min/max keep the panel usable and on-screen. `resize: none` because resizing is handled by the corner/edge handles. `pointer-events: auto` re-enables interaction on the panel only.
 */
 .floating-window {
+  --floating-window-shadow: var(--shadow-lg);
   position: fixed;
   display: flex;
   flex-direction: column;
@@ -26,7 +27,11 @@ Floating panel positioned by state-driven inline `left/top/width/height` and sta
   background: var(--surface);
   border: thin solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xl);
+  /*
+  FNXC:FloatingWindow 2026-06-23-23:25:
+  Floating modals need a gentle, theme-controlled drop shadow. Use a local token with the app's existing shadow fallback instead of the undefined --shadow-xl so themes can soften, strengthen, or remove modal elevation intentionally.
+  */
+  box-shadow: var(--floating-window-shadow, var(--shadow-lg));
   color: var(--text);
   resize: none;
   pointer-events: auto;

@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
+import { readFileSync } from "node:fs";
 import { NewTaskModal } from "../NewTaskModal";
 import type { Task, Column } from "@fusion/core";
 import { checkDuplicateTasks, type BoardWorkflowsPayload } from "../../api";
 import { writeBoardWorkflowsCache } from "../../utils/boardWorkflowsCache";
 import { writeLastSelectedWorkflowId } from "../../utils/lastSelectedWorkflow";
+
+const newTaskModalCss = readFileSync("app/components/NewTaskModal.css", "utf8");
 
 // Mock lucide-react
 vi.mock("lucide-react", () => ({
@@ -1475,6 +1478,16 @@ describe("NewTaskModal", () => {
       // The floating panel is the fixed-positioned window.
       const panel = document.querySelector(".new-task-modal--floating");
       expect(panel).not.toBeNull();
+    });
+
+    it("keeps the floating window touch-draggable with theme-controlled shadow", () => {
+      const panelRule = newTaskModalCss.match(/\.new-task-modal--floating\s*\{([^}]*)\}/)?.[1] ?? "";
+      const headerRule = newTaskModalCss.match(/\.new-task-modal__header--draggable\s*\{([^}]*)\}/)?.[1] ?? "";
+
+      expect(panelRule).toContain("box-shadow: var(--floating-window-shadow, var(--shadow-lg));");
+      expect(headerRule).toContain("touch-action: none;");
+      expect(headerRule).toContain("min-height: 48px;");
+      expect(newTaskModalCss).not.toContain("var(--shadow-xl)");
     });
 
     it("still closes via the header close button (X)", async () => {

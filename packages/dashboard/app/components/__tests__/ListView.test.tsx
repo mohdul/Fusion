@@ -1586,21 +1586,31 @@ describe("ListView", () => {
     expect(mockOnNewTask).toHaveBeenCalled();
   });
 
-  it("renders + New Task as the trailing desktop sidebar control", () => {
+  it("keeps Bulk Edit, View, and + New Task together in the desktop sidebar controls", () => {
     renderListView({}, { openViewOptions: false });
 
-    const actions = document.querySelector(".list-sidebar-controls__actions");
-    const actionButtons = Array.from(actions?.querySelectorAll("button") ?? []);
-    expect(actionButtons.at(-1)?.textContent).toContain("+ New Task");
+    const actions = document.querySelector(".list-sidebar-controls .list-action-cluster");
+    const actionButtons = Array.from(actions?.querySelectorAll("button") ?? []).map((button) => button.textContent);
+    expect(actionButtons).toEqual(["Bulk Edit", "View", "+ New Task"]);
   });
 
-  it("renders + New Task as the trailing mobile toolbar control", () => {
+  it("keeps the primary list action cluster on one physical row when the pane narrows", () => {
+    const css = readFileSync("app/components/ListView.css", "utf8");
+    const actionClusterRule = css.match(/\.list-action-cluster,\s*\n\.list-sidebar-controls__actions\s*\{[^}]*\}/)?.[0] ?? "";
+
+    expect(actionClusterRule).toContain("flex-wrap: nowrap");
+    expect(actionClusterRule).toContain("inline-size: max-content");
+    expect(actionClusterRule).toContain("min-width: max-content");
+    expect(actionClusterRule).toContain("overflow-x: auto");
+  });
+
+  it("keeps Bulk Edit, View, and + New Task together in the mobile toolbar controls", () => {
     const viewportSpy = mockMobileViewport();
     renderListView({}, { openViewOptions: false });
 
-    const toolbar = document.querySelector(".list-toolbar");
-    const toolbarButtons = Array.from(toolbar?.querySelectorAll("button") ?? []);
-    expect(toolbarButtons.at(-1)?.textContent).toContain("+ New Task");
+    const actions = document.querySelector(".list-toolbar .list-action-cluster");
+    const actionButtons = Array.from(actions?.querySelectorAll("button") ?? []).map((button) => button.textContent);
+    expect(actionButtons).toEqual(["Bulk Edit", "View", "+ New Task"]);
 
     viewportSpy.mockRestore();
   });

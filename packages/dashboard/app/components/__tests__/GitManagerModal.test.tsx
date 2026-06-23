@@ -313,6 +313,17 @@ describe("GitManagerModal", () => {
     expect(container.querySelector(".modal-overlay.git-manager-modal-overlay")).toBeTruthy();
   });
 
+  it("keeps the sidebar-launched Git Manager overlay transparent and click-through like Files", () => {
+    const css = loadAllAppCss();
+    const overlayRule = css.match(/\.modal-overlay\.git-manager-modal-overlay\s*\{([^}]*)\}/)?.[1] ?? "";
+    const panelRule = css.match(/\.modal\.gm-modal\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(overlayRule).toContain("background: transparent");
+    expect(overlayRule).toContain("backdrop-filter: none");
+    expect(overlayRule).toContain("pointer-events: none");
+    expect(panelRule).toContain("pointer-events: auto");
+  });
+
   it("applies mobile keyboard CSS variables to gm-modal when keyboard is open", async () => {
     mockUseViewportMode.mockReturnValue("mobile");
     mockUseMobileKeyboard.mockReturnValue({

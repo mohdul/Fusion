@@ -33,14 +33,14 @@ export interface NewAgentDialogProps {
   onPrefillDraft?: (draft: AgentOnboardingSummary | null) => void;
 }
 
-const AGENT_ROLES: { value: AgentCapability; icon: string }[] = [
-  { value: "triage", icon: "⊕" },
-  { value: "executor", icon: "▶" },
-  { value: "reviewer", icon: "⊙" },
-  { value: "merger", icon: "⊞" },
-  { value: "scheduler", icon: "◷" },
-  { value: "engineer", icon: "⎔" },
-  { value: "custom", icon: "✦" },
+const AGENT_ROLES: { value: AgentCapability }[] = [
+  { value: "triage" },
+  { value: "executor" },
+  { value: "reviewer" },
+  { value: "merger" },
+  { value: "scheduler" },
+  { value: "engineer" },
+  { value: "custom" },
 ];
 
 interface RuntimeConfig {
@@ -170,6 +170,11 @@ export function NewAgentDialog({
   const selectedModel = runtimeConfig.model.includes("/")
     ? runtimeConfig.model
     : "";
+  /*
+   * FNXC:AgentRoles 2026-06-23-00:19:
+   * Role selection should feel professional and model-aware, not cartoony. Use the selected model provider mark on each role card and a neutral default mark before selection; role identity stays in text labels.
+   */
+  const selectedModelProvider = selectedModel ? selectedModel.split("/")[0] : "default";
 
   const handleGenerated = useCallback((spec: AgentGenerationSpec) => {
     // Map generated role to AgentCapability, default to "custom" if unrecognized
@@ -556,7 +561,9 @@ export function NewAgentDialog({
                             className={`agent-role-option${role === r.value ? " selected" : ""}`}
                             onClick={() => setRole(r.value)}
                           >
-                            <span className="agent-role-option-icon">{r.icon}</span>
+                            <span className="agent-role-option-icon" aria-hidden="true">
+                              <ProviderIcon provider={selectedModelProvider} size="sm" />
+                            </span>
                             <span className="agent-role-option-label">{getRoleLabel(r.value)}</span>
                           </button>
                         ))}
@@ -740,7 +747,7 @@ export function NewAgentDialog({
                 </div>
                 <div className="agent-dialog-summary-row">
                   <span className="agent-dialog-summary-row-label">{t("agents.fieldRole", "Role")}</span>
-                  <span>{selectedRole?.icon} {selectedRole ? getRoleLabel(selectedRole.value) : ""}</span>
+                  <span>{selectedRole ? getRoleLabel(selectedRole.value) : ""}</span>
                 </div>
                 {selectedReportsToId && (
                   <div className="agent-dialog-summary-row">

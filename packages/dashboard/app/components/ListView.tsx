@@ -1810,6 +1810,28 @@ export function ListView({
     </div>
   );
 
+  const renderPrimaryActionCluster = () => (
+    <div className="list-action-cluster" data-testid="list-primary-action-cluster">
+      <button className="btn btn-sm" onClick={toggleBulkEdit} aria-pressed={bulkEditEnabled}>
+        {bulkEditEnabled ? t("listView.doneEditing", "Done Editing") : t("listView.bulkEdit", "Bulk Edit")}
+      </button>
+      <button
+        className="btn btn-sm list-view-options-toggle"
+        onClick={() => setViewOptionsOpen((prev) => !prev)}
+        aria-expanded={viewOptionsOpen}
+        aria-controls={isMobile ? "list-view-options-panel-mobile" : "list-view-options-panel"}
+      >
+        <Columns3 size={14} />
+        {t("listView.viewOptions", "View")}
+      </button>
+      {onNewTask ? (
+        <button className="btn btn-task-create btn-sm list-new-task-action" onClick={onNewTask}>
+          {t("listView.newTask", "+ New Task")}
+        </button>
+      ) : null}
+    </div>
+  );
+
   const renderBulkEditToolbars = () => (
     <>
       <div className="bulk-edit-toolbar">
@@ -1904,29 +1926,8 @@ export function ListView({
       {isMobile && (
         <>
           <div className="list-toolbar">
-            <button className="btn btn-sm" onClick={toggleBulkEdit} aria-pressed={bulkEditEnabled}>
-              {bulkEditEnabled ? t("listView.doneEditing", "Done Editing") : t("listView.bulkEdit", "Bulk Edit")}
-            </button>
             {renderWorkflowSelector()}
-            <button
-              className="btn btn-sm list-view-options-toggle"
-              onClick={() => setViewOptionsOpen((prev) => !prev)}
-              aria-expanded={viewOptionsOpen}
-              aria-controls="list-view-options-panel-mobile"
-            >
-              <Columns3 size={14} />
-              {t("listView.viewOptions", "View")}
-            </button>
-            {onNewTask ? (
-              <button className="btn btn-task-create btn-sm list-new-task-action" onClick={onNewTask}>
-                {t("listView.newTask", "+ New Task")}
-              </button>
-            ) : null}
-            <div className="list-stats">
-              {selectedColumn
-                ? t("listView.statsInColumn", "{{count}} of {{total}} tasks in {{column}}", { count: filteredCount, total: tasks.length, column: getListColumnLabel(selectedColumn) })
-                : t("listView.stats", "{{count}} of {{total}} tasks", { count: filteredCount, total: tasks.length })}
-            </div>
+            {renderPrimaryActionCluster()}
           </div>
           {viewOptionsOpen ? (
             <div className="list-toolbar-mobile-options">{renderViewOptionsPanel("list-view-options-panel-mobile")}</div>
@@ -1957,38 +1958,13 @@ export function ListView({
             {!isMobile && (
               <aside className="list-sidebar-controls" aria-label={t("listView.listControlsLabel", "List controls")}>
                 {/*
-                FNXC:ListView 2026-06-23-20:15:
-                Desktop list controls keep one compact row above quick-add: Bulk Edit/View on the left, the filtered task count centered between button groups, and New Task on the right. The quick-add area directly follows this row with no dividing line above it.
+                FNXC:ListView 2026-06-23-23:42:
+                The List view top controls should not show the aggregate task count. Keep only action groups and state chips near quick-add; section/drop-zone counts remain lower in the list where they are contextual.
                 */}
                 <div className="list-sidebar-controls__header">
                   {renderWorkflowSelector()}
                   <div className="list-sidebar-controls__toolbar">
-                    <div className="list-sidebar-controls__actions">
-                      <button className="btn btn-sm" onClick={toggleBulkEdit} aria-pressed={bulkEditEnabled}>
-                        {bulkEditEnabled ? t("listView.doneEditing", "Done Editing") : t("listView.bulkEdit", "Bulk Edit")}
-                      </button>
-                      <button
-                        className="btn btn-sm list-view-options-toggle"
-                        onClick={() => setViewOptionsOpen((prev) => !prev)}
-                        aria-expanded={viewOptionsOpen}
-                        aria-controls="list-view-options-panel"
-                      >
-                        <Columns3 size={14} />
-                        {t("listView.viewOptions", "View")}
-                      </button>
-                    </div>
-                    <span className="list-sidebar-controls__count">
-                      {selectedColumn
-                        ? t("listView.statsInColumn", "{{count}} of {{total}} tasks in {{column}}", { count: filteredCount, total: tasks.length, column: getListColumnLabel(selectedColumn) })
-                        : t("listView.stats", "{{count}} of {{total}} tasks", { count: filteredCount, total: tasks.length })}
-                    </span>
-                    <div className="list-sidebar-controls__actions list-sidebar-controls__actions--end">
-                      {onNewTask ? (
-                        <button className="btn btn-task-create btn-sm list-new-task-action" onClick={onNewTask}>
-                          {t("listView.newTask", "+ New Task")}
-                        </button>
-                      ) : null}
-                    </div>
+                    {renderPrimaryActionCluster()}
                   </div>
                   <div className="list-sidebar-summary-chips">
                     {selectedColumn ? (

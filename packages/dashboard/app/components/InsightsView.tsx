@@ -487,6 +487,9 @@ export function InsightsView({ projectId, addToast, onClose, onCreateTask, model
 
       FNXC:Insights 2026-06-23-19:20:
       The refresh action must be icon-only in the Insights header. Keeping the visible label out of this button preserves room for the title and neighboring controls while aria-label/title retain the accessible command name.
+
+      FNXC:Insights 2026-06-23-00:23:
+      Insights header filter chips need compact visible labels. Keep the descriptive accessibility copy, but show Backlog instead of Backlog Health and Archived instead of Show Archived/Hide Archived.
       */}
       <ViewHeader
         icon={Sparkles}
@@ -504,7 +507,7 @@ export function InsightsView({ projectId, addToast, onClose, onCreateTask, model
               title={BACKLOG_HEALTH_TITLE_PREFIXES.join(", ")}
             >
               <Activity size={14} />
-              {backlogHealthOnly ? t("insights.allInsights", "All Insights") : t("insights.backlogHealth", "Backlog Health")} <span>({backlogHealthCount})</span>
+              {backlogHealthOnly ? t("insights.allInsights", "All Insights") : t("insights.backlogHealth", "Backlog")} <span>({backlogHealthCount})</span>
             </button>
           )}
           {onClose && (
@@ -525,7 +528,7 @@ export function InsightsView({ projectId, addToast, onClose, onCreateTask, model
               data-testid="toggle-archived-insights"
             >
               <Archive size={14} />
-              {showArchived ? t("insights.hideArchivedLabel", "Hide Archived") : t("insights.showArchivedLabel", "Show Archived ({{count}})", { count: archivedCount })}
+              {showArchived ? t("insights.hideArchivedLabel", "Archived") : t("insights.showArchivedLabel", "Archived ({{count}})", { count: archivedCount })}
             </button>
           )}
           <button

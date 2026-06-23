@@ -527,7 +527,7 @@ describe("LeftSidebarNav", () => {
     const itemRule = getCssRuleBlock(leftSidebarNavCss, ".left-sidebar-nav__item");
     expect(itemRule).toContain("gap: var(--space-sm)");
     expect(itemRule).toContain("border-radius: var(--radius-md)");
-    expect(itemRule).toContain("color: var(--text-muted)");
+    expect(itemRule).toContain("color: var(--text)");
     expect(itemRule).not.toMatch(/#|rgb\(/i);
   });
 

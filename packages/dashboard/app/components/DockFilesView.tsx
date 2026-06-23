@@ -26,7 +26,7 @@ FNXC:RightDockFiles 2026-06-22-23:30:
 The compact dock Files view and the popped-out (expand) Files view are SEPARATE component instances (one renders in the dock body, the other inside RightDockExpandModal). The currently-viewed file lived in each instance's local `selectedFile` state, so popping out always opened with no file selected.
 Share the current-file path through scoped localStorage (`kb-dashboard-dock-files-current`, keyed per project via projectStorage). Selecting/clearing a file writes the key; on mount each instance reads it so the expand opens the SAME file the dock was showing. A `storage` listener keeps both instances live-synced when the other tab/instance changes selection.
 */
-const DOCK_FILES_CURRENT_KEY = "kb-dashboard-dock-files-current";
+export const DOCK_FILES_CURRENT_KEY = "kb-dashboard-dock-files-current";
 
 /*
 FNXC:RightDockFiles 2026-06-22-00:00:
