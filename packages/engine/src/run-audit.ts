@@ -443,6 +443,10 @@ export type DatabaseMutationType =
   | "mergeQueue:auto-cleanup-stale-row"
   | "task:auto-recover-already-merged"
   | "task:auto-recover-finalize-already-on-main"
+  /** Metadata: { taskId, previousColumn, targetColumn, commitSha, status, blockedBy, overlapBlockedBy, reason } */
+  | "task:auto-merge-finalize-column-mismatch-reconciled"
+  /** Metadata: { taskId, previousColumn, targetColumn, commitSha, status, blockedBy, overlapBlockedBy, reason } */
+  | "task:auto-merge-finalize-column-mismatch-no-action"
   | "task:auto-merge-skipped-already-done"
   /** Metadata: { taskId, commitSha, failedCommand, exitCode, errorTail } */
   | "task:post-finalize-verification-no-op"

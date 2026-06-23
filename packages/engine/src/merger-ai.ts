@@ -70,6 +70,7 @@ import { installWorktreeDependencies } from "./merge-dependency-sync.js";
 import { activeSessionRegistry } from "./active-session-registry.js";
 import { MIN_TEMP_WORKTREE_REAP_AGE_MS } from "./self-healing.js";
 import { resolveAiMergeRootPath, resolveLegacyAiMergeRootPath } from "./worktree-paths.js";
+import { finalizeProvenAutoMergeTask } from "./auto-merge-finalization.js";
 
 const execFileAsync = promisify(execFile);
 const aiMergeLog = createLogger("merger-ai");
@@ -1379,29 +1380,37 @@ async function finalizeMerged(
     branchDeleted,
   };
   await audit.git({ type: "merge:ai-landed", target: integrationBranch, metadata: { taskId, landedSha, empty: opts.empty } }).catch(() => undefined);
+  await log(opts.empty ? `AI merge: finalized ${taskId} (no-op), finalizing task row` : `AI merge: landed ${short(landedSha)}, finalizing task row`);
+  const finalized = await finalizeTask(store, taskId, result, audit, log);
   await log(opts.empty ? `AI merge: finalized ${taskId} (no-op) → done` : `AI merge: landed ${short(landedSha)}, task → done`);
-  return await finalizeTask(store, taskId, result);
+  return finalized;
 }
 
 /** Move the task to done and emit, mirroring the legacy completeTask. */
-async function finalizeTask(store: TaskStore, taskId: string, result: MergeResult): Promise<MergeResult> {
-  const mergedAt = new Date().toISOString();
-  const mergeDetails: MergeDetails = {
-    ...result.task.mergeDetails,
-    ...(result.commitSha ? { commitSha: result.commitSha } : {}),
-    ...(result.rebaseBaseSha ? { rebaseBaseSha: result.rebaseBaseSha } : {}),
-    ...(result.landedFiles ? { landedFiles: result.landedFiles } : {}),
-    ...(typeof result.filesChanged === "number" ? { filesChanged: result.filesChanged } : {}),
-    ...(typeof result.insertions === "number" ? { insertions: result.insertions } : {}),
-    ...(typeof result.deletions === "number" ? { deletions: result.deletions } : {}),
-    ...(result.mergeCommitMessage ? { mergeCommitMessage: result.mergeCommitMessage } : {}),
-    mergedAt,
-    mergeConfirmed: result.mergeConfirmed === true,
-    ...(result.noOp ? { noOpMerge: true, noOpReason: result.reason } : {}),
-  };
-  await store.updateTask(taskId, { status: null, mergeDetails }).catch(() => undefined);
-  const task = await store.moveTask(taskId, "done");
-  result.task = task;
+async function finalizeTask(
+  store: TaskStore,
+  taskId: string,
+  result: MergeResult,
+  audit?: RunAuditor,
+  log?: (message: string) => Promise<void>,
+): Promise<MergeResult> {
+  const finalization = await finalizeProvenAutoMergeTask({
+    store,
+    taskId,
+    result,
+    audit,
+    auditAgentId: "merger",
+    auditPhase: "direct-ai-merge-finalize",
+    source: "direct-ai-merge",
+    log,
+  });
+  if (finalization.outcome === "blocked") {
+    throw new Error(`AI merge finalization blocked for ${taskId}: ${finalization.reason ?? "unknown"}`);
+  }
+  if (!finalization.task) {
+    throw new Error(`AI merge finalization could not find task ${taskId}`);
+  }
+  result.task = finalization.task;
   store.emit("task:merged", result);
   return result;
 }

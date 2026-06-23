@@ -255,7 +255,7 @@ describe("runAiMerge", () => {
         mergeDetails: expect.objectContaining({ mergeConfirmed: true }),
       }),
     );
-    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "done");
+    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "done", expect.objectContaining({ moveSource: "engine", preserveProgress: true }));
     expect(emitted.some((e) => e.event === "task:merged")).toBe(true);
   });
 
@@ -418,7 +418,7 @@ describe("runAiMerge", () => {
     expect(result.noOp).toBe(true);
     expect(result.ok).toBe(true);
     expect(task.column).toBe("done");
-    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "done");
+    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "done", expect.objectContaining({ moveSource: "engine", preserveProgress: true }));
   });
 
   it("fails loudly when an executed, never-merged task has no branch (possible lost work)", async () => {
@@ -440,7 +440,7 @@ describe("runAiMerge", () => {
       mergeAgent: vi.fn(), reviewAgent: vi.fn(),
     });
     expect(result.noOp).toBe(true);
-    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "done");
+    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "done", expect.objectContaining({ moveSource: "engine", preserveProgress: true }));
   });
 
   it("finalizes as a no-op when a never-executed task has no branch", async () => {
@@ -451,7 +451,7 @@ describe("runAiMerge", () => {
       mergeAgent: vi.fn(), reviewAgent: vi.fn(),
     });
     expect(result.noOp).toBe(true);
-    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "done");
+    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "done", expect.objectContaining({ moveSource: "engine", preserveProgress: true }));
   });
 
   it("throws a clear error when the task's target branch has no local ref", async () => {
