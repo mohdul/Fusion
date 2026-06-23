@@ -2631,6 +2631,8 @@ export function SettingsModal({
             favoriteModels={favoriteModels}
             onToggleFavorite={handleToggleFavorite}
             onToggleModelFavorite={handleToggleModelFavorite}
+            addToast={addToast}
+            projectId={projectId}
           />
         );
 

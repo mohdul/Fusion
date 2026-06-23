@@ -1425,6 +1425,31 @@ describe("TaskStore", () => {
       expect(settings.defaultModelId).toBe("gpt-4o");
     });
 
+    it("round-trips model pricing settings through global scope", async () => {
+      await harness.store().updateGlobalSettings({
+        modelPricingOverrides: {
+          "openai:gpt-4o": {
+            inputPer1M: 1,
+            outputPer1M: 2,
+            cacheReadPer1M: 0.5,
+            cacheWritePer1M: 1,
+            source: "test",
+          },
+        },
+        modelPricingFetchedAt: "2026-06-22T00:00:00.000Z",
+        modelPricingSource: "litellm/model_prices_and_context_window.json",
+      });
+
+      const settings = await harness.store().getSettings();
+      expect(settings.modelPricingOverrides?.["openai:gpt-4o"]?.outputPer1M).toBe(2);
+      expect(settings.modelPricingFetchedAt).toBe("2026-06-22T00:00:00.000Z");
+      expect(settings.modelPricingSource).toBe("litellm/model_prices_and_context_window.json");
+
+      const { global, project } = await harness.store().getSettingsByScope();
+      expect(global.modelPricingOverrides).toEqual(settings.modelPricingOverrides);
+      expect(project.modelPricingOverrides).toBeUndefined();
+    });
+
     it("updateGlobalSettings emits settings:updated event", async () => {
       const events: Array<{ settings: any; previous: any }> = [];
       harness.store().on("settings:updated", (data) => events.push(data));

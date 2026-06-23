@@ -1,4 +1,5 @@
 import type { InReviewStallSignal } from "./in-review-stall.js";
+import type { ModelPricing } from "./model-pricing.js";
 import type { InReviewStalledSignal } from "./in-review-stalled.js";
 import type { StalePausedReviewSignal } from "./stale-paused-review.js";
 import type { StalePausedTodoSignal } from "./stale-paused-todo.js";
@@ -2978,6 +2979,17 @@ export interface GlobalSettings {
    *  of per-task or per-lane overrides. No network calls, zero token cost.
    *  Project `testMode` takes precedence over the global value. */
   testMode?: boolean;
+  /**
+   * User-edited or one-click-fetched pricing entries keyed by lowercased `provider:model`.
+   *
+   * FNXC:CommandCenter 2026-06-22-00:00:
+   * Global pricing overrides let Command Center cost estimates reflect user-maintained or LiteLLM-refreshed rates while preserving the built-in MODEL_PRICING fallback for unedited models.
+   */
+  modelPricingOverrides?: Record<string, ModelPricing>;
+  /** ISO timestamp for the last successful pricing refresh from the configured source. */
+  modelPricingFetchedAt?: string;
+  /** Source label or URL for the current global pricing override set. */
+  modelPricingSource?: string;
   /** Fusion Model Router opt-in (U17/KTD9). When true, a conservative selection
    *  layer may down-route an allowlist of mechanical steps (dependabot bumps,
    *  lint-only fixes) to a cheap model tier before a session starts; everything

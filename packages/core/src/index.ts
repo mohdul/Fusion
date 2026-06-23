@@ -546,12 +546,16 @@ export type {
 export {
   costFor,
   lookupPricing,
+  parseLiteLLMPricing,
   MODEL_PRICING,
+  LITELLM_PRICING_SOURCE_LABEL,
+  LITELLM_PRICING_SOURCE_URL,
   pricingAsOf,
   PRICING_STALE_AFTER_MS,
 } from "./model-pricing.js";
 export type {
   ModelPricing,
+  ModelPricingOverrides,
   ModelRef,
   UsageForCost,
   CostResult,
