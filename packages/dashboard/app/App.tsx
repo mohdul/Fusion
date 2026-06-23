@@ -556,8 +556,12 @@ function AppInner() {
   /*
   FNXC:Navigation 2026-06-22-00:00:
   Snapshot of the task whose detail is shown in the main panel (Board card click → full-panel detail). Kept as a snapshot so the view survives a tasks revalidation; renderMainContent prefers the live row from `tasks` by id and falls back to this snapshot.
+
+  FNXC:TaskDetail 2026-06-23-00:41:
+  Board task-card secondary actions can deep-link into the inline main-panel task detail. Files-changed must land on the embedded Changes tab instead of reopening the task in the modal path.
   */
   const [mainPanelDetailTask, setMainPanelDetailTask] = useState<Task | TaskDetail | null>(null);
+  const [mainPanelDetailInitialTab, setMainPanelDetailInitialTab] = useState<DetailTaskTab>("chat");
   const boardScrollSnapshotRef = useRef<BoardScrollSnapshot | null>(null);
   const pendingBoardScrollRestoreRef = useRef(false);
 
@@ -1113,7 +1117,8 @@ function AppInner() {
     previousCapacityRiskTodoThresholdRef.current = capacityRiskTodoThreshold;
   }, [settingsLoaded, capacityRiskBannerEnabled, capacityRiskTodoThreshold, currentProject?.id]);
 
-  const skillsEnabled = experimentalFeatures.skillsView === true;
+  /* FNXC:DefaultNavigation 2026-06-23-01:26: Skills graduated from Experimental and should remain visible on upgrades even when stale `experimentalFeatures.skillsView=false` is present. */
+  const skillsEnabled = true;
   const nodesEnabled = experimentalFeatures.nodesView === true;
   const researchEnabled = experimentalFeatures.researchView === true;
   const evalsEnabled = experimentalFeatures.evalsView === true;
@@ -1276,15 +1281,6 @@ function AppInner() {
     addToast,
   });
 
-  const handleOpenDetailWithTab = useCallback((task: Task | TaskDetail, initialTab: "changes" | "retries" | "workflow") => {
-    if (initialTab === "changes") {
-      modalManager.openDetailWithChangesTab(task);
-    } else {
-      modalManager.openDetailTask(task, initialTab);
-    }
-    pushNav({ type: "modal", close: modalManager.closeDetailTask });
-  }, [modalManager, pushNav]);
-
   const handleOpenTaskLogs = useCallback(async (taskId: string) => {
     try {
       const task = await fetchTaskDetail(taskId, currentProject?.id);
@@ -1332,9 +1328,10 @@ function AppInner() {
   FNXC:Navigation 2026-06-22-00:00:
   Board card clicks open task detail as a full main-content view that replaces the board (design: "Full main panel (replaces board)"), instead of the TaskDetailModal overlay. We store a snapshot of the clicked task and navigate to the registered `task-detail` view; renderMainContent renders TaskDetailContent embedded with a Back-to-board button. Only the Board uses this handler — list-view split-detail, right-dock cards, and other openDetail callers keep the modal behavior.
   */
-  const openTaskDetailInMainPanel = useCallback((task: Task | TaskDetail) => {
+  const openTaskDetailInMainPanel = useCallback((task: Task | TaskDetail, initialTab: DetailTaskTab = "chat") => {
     captureCurrentBoardScrollSnapshot();
     setMainPanelDetailTask(task);
+    setMainPanelDetailInitialTab(initialTab);
     handleTaskViewChange("task-detail");
   }, [captureCurrentBoardScrollSnapshot, handleTaskViewChange]);
 
@@ -1342,8 +1339,18 @@ function AppInner() {
   const closeTaskDetailMainPanel = useCallback(() => {
     pendingBoardScrollRestoreRef.current = true;
     setMainPanelDetailTask(null);
+    setMainPanelDetailInitialTab("chat");
     handleTaskViewChange("board");
   }, [handleTaskViewChange]);
+
+  const handleOpenDetailWithTab = useCallback((task: Task | TaskDetail, initialTab: "changes" | "retries" | "workflow") => {
+    if (initialTab === "changes") {
+      openTaskDetailInMainPanel(task, "changes");
+      return;
+    }
+    modalManager.openDetailTask(task, initialTab);
+    pushNav({ type: "modal", close: modalManager.closeDetailTask });
+  }, [modalManager, openTaskDetailInMainPanel, pushNav]);
 
   /*
   FNXC:Settings 2026-06-22-00:00:
@@ -2117,6 +2124,7 @@ function AppInner() {
                 projectId={currentProject?.id}
                 tasks={tasks}
                 embedded
+                initialTab={mainPanelDetailInitialTab}
                 /*
                 FNXC:TaskDetail 2026-06-22-18:40:
                 Board-card detail (full main panel) renders its "Back to board" affordance inside TaskDetailContent's gray header (far right, across from the task id) instead of a separate back-row above the content. The prop only renders the header back button when both embedded and onBackToBoard are present, so ListView split-pane and modal usages stay unaffected.
@@ -2124,7 +2132,10 @@ function AppInner() {
                 onBackToBoard={closeTaskDetailMainPanel}
                 /* FNXC:FloatingWindow 2026-06-22-21:10: Popping out from the board's full-panel detail also returns the main panel to the board, so the board (not the emptied detail) sits behind the floating window. */
                 onPopOut={(task) => { popOutTaskDetail(task); closeTaskDetailMainPanel(); }}
-                onOpenDetail={(value) => setMainPanelDetailTask(value)}
+                onOpenDetail={(value) => {
+                  setMainPanelDetailTask(value);
+                  setMainPanelDetailInitialTab("chat");
+                }}
                 onMoveTask={moveTask}
                 onDeleteTask={deleteTask}
                 onMergeTask={mergeTask}

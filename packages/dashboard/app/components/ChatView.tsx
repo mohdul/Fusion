@@ -986,7 +986,7 @@ const ChatMessageItem = memo(function ChatMessageItem({
   );
 });
 
-export function ChatView({ projectId, addToast, experimentalFeatures, floating = false, onPopOut, onMaximize, onMinimize, onClose }: ChatViewProps) {
+export function ChatView({ projectId, addToast, floating = false, onPopOut, onMaximize, onMinimize, onClose }: ChatViewProps) {
   const { t } = useTranslation("app");
   useEffect(() => {
     recordResumeEvent({
@@ -1035,7 +1035,8 @@ export function ChatView({ projectId, addToast, experimentalFeatures, floating =
   } = useChat(projectId, addToast);
 
   const [showNewDialog, setShowNewDialog] = useState(false);
-  const chatRoomsEnabled = experimentalFeatures?.chatRooms === true;
+  /* FNXC:ChatRooms 2026-06-23-01:28: Chat Rooms graduated from Experimental; stale false flags should not hide rooms in the main view, popout modal, or quick-chat surfaces. */
+  const chatRoomsEnabled = true;
   const [chatScope, setChatScope] = useState<"direct" | "rooms">(() => {
     try {
       const persistedScope = localStorage.getItem(CHAT_SCOPE_STORAGE_KEY);

@@ -3566,12 +3566,12 @@ describe("Direct/Rooms scope toggle", () => {
     localStorage.clear();
   });
 
-  it("hides rooms UI when chatRooms experimental flag is off", async () => {
+  it("shows rooms UI when chatRooms experimental flag is missing", async () => {
     setupMockChat({ sessions: [], filteredSessions: [] });
 
     await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} experimentalFeatures={{}} />);
 
-    expect(screen.queryByTestId("chat-sidebar-scope-rooms")).not.toBeInTheDocument();
+    expect(screen.getByTestId("chat-sidebar-scope-rooms")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-sidebar-rooms")).not.toBeInTheDocument();
   });
 
@@ -3668,14 +3668,14 @@ describe("Direct/Rooms scope toggle", () => {
     });
   });
 
-  it("forces direct scope when localStorage persisted rooms but chatRooms is off", async () => {
+  it("restores persisted rooms scope when chatRooms experimental flag is missing", async () => {
     setupMockChat({ sessions: [], filteredSessions: [] });
     localStorage.setItem("fusion:chat-scope", "rooms");
 
     await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} experimentalFeatures={{}} />);
 
-    expect(screen.queryByTestId("chat-sidebar-scope-rooms")).not.toBeInTheDocument();
-    expect(screen.getByTestId("chat-search-input")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-sidebar-scope-rooms")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("chat-sidebar-rooms-empty")).toBeInTheDocument();
   });
 
   it("persists scope in localStorage and restores Rooms on next mount", async () => {

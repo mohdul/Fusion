@@ -146,12 +146,27 @@ vi.mock("../../components/model-onboarding-state", () => ({
 }));
 
 vi.mock("../../components/Board", () => ({
-  Board: ({ tasks, onOpenDetail }: { tasks: Task[]; onOpenDetail: (task: Task) => void }) => (
+  Board: ({
+    tasks,
+    onOpenDetail,
+    onOpenDetailWithTab,
+  }: {
+    tasks: Task[];
+    onOpenDetail: (task: Task) => void;
+    onOpenDetailWithTab?: (task: Task, initialTab: "changes" | "retries" | "workflow") => void;
+  }) => (
     <div data-testid="board-view">
       {tasks.map((task) => (
-        <button key={task.id} type="button" data-testid={`open-task-${task.id}`} onClick={() => onOpenDetail(task)}>
-          {task.title}
-        </button>
+        <div key={task.id}>
+          <button type="button" data-testid={`open-task-${task.id}`} onClick={() => onOpenDetail(task)}>
+            {task.title}
+          </button>
+          {task.modifiedFiles && task.modifiedFiles.length > 0 ? (
+            <button type="button" data-testid={`open-task-changes-${task.id}`} onClick={() => onOpenDetailWithTab?.(task, "changes")}>
+              Files changed
+            </button>
+          ) : null}
+        </div>
       ))}
     </div>
   ),
@@ -171,9 +186,11 @@ vi.mock("../../components/TaskDetailModal", () => ({
   TaskDetailContent: ({
     task,
     onBackToBoard,
+    initialTab,
   }: {
     task: { id: string; title?: string };
     onBackToBoard?: () => void;
+    initialTab?: string;
   }) => (
     <div data-testid="task-detail-main-panel-content">
       {onBackToBoard && (
@@ -181,6 +198,7 @@ vi.mock("../../components/TaskDetailModal", () => ({
           Back to board
         </button>
       )}
+      <p>tab:{initialTab ?? "chat"}</p>
       <h2>{task.title ?? task.id}</h2>
     </div>
   ),
@@ -650,6 +668,44 @@ describe("Navigation history integration", () => {
 
     dispatchPopState({ navIndex: 0 });
 
+    await waitFor(() => {
+      expect(screen.queryByTestId("task-detail-main-panel-content")).toBeNull();
+      expect(screen.getByTestId("board-view")).toBeTruthy();
+    });
+  });
+
+  it("opens board files-changed actions inline on the changes tab instead of in a modal", async () => {
+    const task = {
+      ...makeTask("FN-1", "Inline Changes Detail"),
+      modifiedFiles: ["packages/dashboard/app/App.tsx"],
+    };
+    mockUseTasks.mockImplementation(() => ({
+      tasks: [task],
+      createTask: mockCreateTask,
+      moveTask: vi.fn(),
+      deleteTask: vi.fn(),
+      mergeTask: vi.fn(),
+      retryTask: vi.fn(),
+      updateTask: vi.fn(),
+      duplicateTask: vi.fn(),
+      archiveTask: vi.fn(),
+      unarchiveTask: vi.fn(),
+      archiveAllDone: vi.fn(),
+      refreshTasks: vi.fn(),
+    }));
+
+    await renderMobileAppAndWait();
+
+    // FNXC:TaskDetail 2026-06-23-00:41: Board files-changed chips must deep-link to the embedded main-panel Changes tab. They should not open the TaskDetailModal, otherwise the board loses the inline changes-page flow.
+    fireEvent.click(screen.getByTestId("open-task-changes-FN-1"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("task-detail-main-panel-content")).toBeTruthy();
+      expect(screen.getByText("tab:changes")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("task-detail-modal")).toBeNull();
+
+    dispatchPopState({ navIndex: 0 });
     await waitFor(() => {
       expect(screen.queryByTestId("task-detail-main-panel-content")).toBeNull();
       expect(screen.getByTestId("board-view")).toBeTruthy();

@@ -62,11 +62,11 @@ export function useAppSettings(projectId?: string): UseAppSettingsResult {
   const [prAuthAvailable, setPrAuthAvailable] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [experimentalFeatures, setExperimentalFeatures] = useState<Record<string, boolean>>({});
-  const [insightsEnabled, setInsightsEnabled] = useState(false);
-  const [memoryEnabled, setMemoryEnabled] = useState(false);
+  const [insightsEnabled, setInsightsEnabled] = useState(true);
+  const [memoryEnabled, setMemoryEnabled] = useState(true);
   const [devServerEnabled, setDevServerEnabled] = useState(false);
-  const [todosEnabled, setTodosEnabled] = useState(false);
-  const [goalsEnabled, setGoalsEnabled] = useState(false);
+  const [todosEnabled, setTodosEnabled] = useState(true);
+  const [goalsEnabled, setGoalsEnabled] = useState(true);
   const [autoReloadOnVersionChange, setAutoReloadOnVersionChangeState] = useState(true);
   const autoMergeRef = useRef(autoMerge);
 
@@ -112,11 +112,15 @@ export function useAppSettings(projectId?: string): UseAppSettingsResult {
       setCapacityRiskTodoThreshold(settings.capacityRiskTodoThreshold ?? 20);
       setExperimentalFeatures(settings.experimentalFeatures ?? {});
       const features = settings.experimentalFeatures ?? {};
-      setInsightsEnabled(features.insights === true);
-      setMemoryEnabled(features.memoryView === true);
+      /*
+      FNXC:DefaultNavigation 2026-06-23-01:24:
+      Insights, Memory, Todo, and Goals graduated from experimental navigation. Keep them enabled regardless of missing or stale false experimental flags so upgrades keep the sidebar/header surfaces visible.
+      */
+      setInsightsEnabled(true);
+      setMemoryEnabled(true);
       setDevServerEnabled(features.devServerView === true || features.devServer === true);
-      setTodosEnabled(features.todoView === true);
-      setGoalsEnabled(features.goalsView === true);
+      setTodosEnabled(true);
+      setGoalsEnabled(true);
       // Sync the module-level auto-reload guard with the persisted setting
       const autoReload = settings.autoReloadOnVersionChange !== false;
       setAutoReloadOnVersionChangeState(autoReload);
@@ -129,11 +133,11 @@ export function useAppSettings(projectId?: string): UseAppSettingsResult {
   useEffect(() => {
     setSettingsLoaded(false);
     setExperimentalFeatures({});
-    setInsightsEnabled(false);
-    setMemoryEnabled(false);
+    setInsightsEnabled(true);
+    setMemoryEnabled(true);
     setDevServerEnabled(false);
-    setTodosEnabled(false);
-    setGoalsEnabled(false);
+    setTodosEnabled(true);
+    setGoalsEnabled(true);
     void refresh();
   }, [refresh]);
 

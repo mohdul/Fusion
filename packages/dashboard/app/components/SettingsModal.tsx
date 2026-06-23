@@ -297,10 +297,19 @@ The Roadmaps dashboard view and experiment were removed from the product surface
 
 FNXC:SettingsExperimental 2026-06-22-18:00:
 Right Dock Panel is no longer experimental: keep honoring the dock as always-on in App, but hide any stale persisted `rightDock` setting from the Experimental list.
+
+FNXC:SettingsExperimental 2026-06-23-01:31:
+Chat Rooms, Goals, Memory, Insights, Skills, and Todo graduated from Experimental. Hide stale persisted flags so users cannot accidentally disable now-default dashboard surfaces during upgrades.
 */
 const HIDDEN_EXPERIMENTAL_FEATURE_KEYS = new Set<string>([
+  "chatRooms",
+  "goalsView",
+  "insights",
+  "memoryView",
   "roadmap",
   "rightDock",
+  "skillsView",
+  "todoView",
   "workflowColumns",
   "workflowGraphExecutor",
   "workflowInterpreterDualObserve",

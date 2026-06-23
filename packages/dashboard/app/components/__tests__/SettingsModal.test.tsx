@@ -3842,8 +3842,8 @@ describe("SettingsModal", () => {
       renderModal();
       await openExperimentalFeaturesSection();
 
-      // Known features are always shown even with no custom features configured.
-      expect(screen.getByText("Insights")).toBeInTheDocument();
+      // Known features that remain experimental are shown even with no custom features configured.
+      expect(screen.queryByText("Insights")).not.toBeInTheDocument();
       // FNXC:SettingsExperimental 2026-06-22-18:50: Roadmaps was removed from Experimental and must not render as a known or stale toggle.
       expect(screen.queryByText("Roadmaps")).not.toBeInTheDocument();
 
@@ -3851,7 +3851,6 @@ describe("SettingsModal", () => {
         "Research View",
         "Evals View",
         "Subtask Breakdown",
-        "Chat Rooms",
         "Sandbox (command isolation)",
         "Planning-style Agent Onboarding",
       ]) {
@@ -4047,12 +4046,13 @@ describe("SettingsModal", () => {
     it("does not emit legacy alias null deletes when canonical key is absent", async () => {
       mockFetchSettings.mockResolvedValue({
         ...defaultSettings,
-        experimentalFeatures: { insights: true },
+        experimentalFeatures: { "my-feature": false },
       });
 
       renderModal();
 
       await openExperimentalFeaturesSection();
+      await userEvent.click(screen.getByLabelText("my-feature"));
 
       await userEvent.click(screen.getByText("Save"));
 
@@ -4061,7 +4061,7 @@ describe("SettingsModal", () => {
       });
 
       const payload = mockUpdateGlobalSettings.mock.calls[0][0];
-      expect(payload.experimentalFeatures).toEqual({ insights: true });
+      expect(payload.experimentalFeatures).toEqual({ "my-feature": true });
       expect(payload.experimentalFeatures.devServer).toBeUndefined();
     });
 
@@ -4073,6 +4073,7 @@ describe("SettingsModal", () => {
           workflowGraphExecutor: false,
           workflowInterpreterDualObserve: true,
           insights: true,
+          "my-feature": false,
         },
       });
 
@@ -4083,6 +4084,9 @@ describe("SettingsModal", () => {
       expect(screen.queryByText("workflowColumns")).not.toBeInTheDocument();
       expect(screen.queryByText("workflowGraphExecutor")).not.toBeInTheDocument();
       expect(screen.queryByText(/dual-observe parity/i)).not.toBeInTheDocument();
+      expect(screen.queryByText("Insights")).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByLabelText("my-feature"));
 
       await userEvent.click(screen.getByText("Save"));
 
@@ -4099,6 +4103,7 @@ describe("SettingsModal", () => {
         workflowGraphExecutor: false,
         workflowInterpreterDualObserve: true,
         insights: true,
+        "my-feature": true,
       });
     });
 
@@ -4245,8 +4250,9 @@ describe("SettingsModal", () => {
 
       await openExperimentalFeaturesSection();
 
-      // Known features should always be shown regardless of settings
-      expect(screen.getByText("Insights")).toBeInTheDocument();
+      // Known features that remain experimental should always be shown regardless of settings.
+      expect(screen.getByText("Dev Server")).toBeInTheDocument();
+      expect(screen.queryByText("Insights")).not.toBeInTheDocument();
       expect(screen.queryByText("Roadmaps")).not.toBeInTheDocument();
     });
 

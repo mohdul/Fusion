@@ -147,7 +147,7 @@ function getModelForRole(
   return getExplicitModelForRole(task, role) ?? getRuntimeModelForRole(entries, role) ?? getEffectiveModelForRole(effectiveModels, role);
 }
 
-function TaskChatAgentIcon({ label, modelInfo, role }: { label: string; modelInfo: TaskChatModelInfo | null; role: AgentLogRole }) {
+function TaskChatAgentIcon({ label, modelInfo }: { label: string; modelInfo: TaskChatModelInfo | null }) {
   if (modelInfo?.provider) {
     const title = modelInfo.modelId ? `${label}: ${modelInfo.provider}/${modelInfo.modelId}` : `${label}: ${modelInfo.provider}`;
     return (
@@ -889,7 +889,7 @@ export function TaskChatTab({ task, projectId, active, addToast, sessionLive, on
             return (
               <section className="task-chat-group" key={`${item.role ?? "agent"}-${itemIndex}`} aria-label={t("taskChat.agentMessages", "{{label}} messages", { label: item.label })}>
                 <header className="task-chat-group-header">
-                  <TaskChatAgentIcon label={item.label} modelInfo={modelInfo} role={item.role} />
+                  <TaskChatAgentIcon label={item.label} modelInfo={modelInfo} />
                   <div>
                     <div className="task-chat-role-label">{item.label}</div>
                     <div className="task-chat-group-meta">
