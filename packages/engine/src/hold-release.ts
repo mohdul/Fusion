@@ -37,7 +37,6 @@
  */
 
 import {
-  isWorkflowColumnsEnabled,
   resolveColumnCapacity,
   resolveColumnFlags,
   resolveColumnAdjacency,
@@ -299,7 +298,10 @@ export async function runHoldReleaseSweep(
   const result: HoldReleaseResult = { released: [], held: [] };
 
   const settings = await store.getSettings();
-  if (!isWorkflowColumnsEnabled(settings)) return result;
+  /*
+  FNXC:WorkflowScheduling 2026-06-22-00:00:
+  Hold/release is the active workflow runtime even when an older persisted settings row still says workflowColumns=false. Do not let stale experimental flags strand default-workflow cards in held columns during scheduler or recovery sweeps.
+  */
 
   const allTasks = await store.listTasks({ includeArchived: false });
 

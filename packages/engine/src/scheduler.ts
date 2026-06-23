@@ -37,6 +37,14 @@ import { createRunAuditor, generateSyntheticRunId } from "./run-audit.js";
 import { isWorkflowColumnsEnabled, DEFAULT_WORKFLOW_POOL_ID } from "@fusion/core";
 import { runHoldReleaseSweep, type SlotReservation } from "./hold-release.js";
 
+function shouldRunWorkflowColumnScheduler(_settings: Settings): boolean {
+  /*
+  FNXC:WorkflowScheduling 2026-06-22-00:00:
+  Workflow columns are the scheduler runtime after cutover. Persisted workflowColumns=false values are stale compatibility data and must not reactivate the legacy todo dispatcher or bypass workflow hold/release gates.
+  */
+  return true;
+}
+
 /**
  * Check whether two sets of file scope paths overlap.
  * Paths overlap if they are identical, or if one is a directory prefix of the other.
@@ -1224,7 +1232,7 @@ export class Scheduler {
       FNXC:WorkflowScheduling 2026-06-23-10:32:
       Workflow columns graduated from Experimental and are now the scheduler's only dispatch model. The hold/release sweep owns todo→in-progress pickup, so do not fall through into the legacy pull-from-todo dispatcher after the sweep runs.
       */
-      if (isWorkflowColumnsEnabled(settings)) {
+      if (shouldRunWorkflowColumnScheduler(settings)) {
         await this.runHoldReleaseSweepPass(tasks, settings);
         tasks = await this.store.listTasks({ slim: true, includeArchived: false, startupMemo: false });
         settings = await this.store.getSettings();

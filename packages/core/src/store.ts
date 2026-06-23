@@ -16,8 +16,15 @@ import {
 } from "./moved-settings.js";
 import { parseWorkflowIr, serializeWorkflowIr, downgradeIrToV1IfPure } from "./workflow-ir.js";
 import { stepsToWorkflowIr, stepToFragmentIr, layoutForIr } from "./workflow-steps-to-ir.js";
-import { isWorkflowColumnsEnabled } from "./workflow-columns-settings.js";
 import { resolveAllowedColumns, workflowHasColumn } from "./workflow-transitions.js";
+
+function isWorkflowColumnsCompatibilityFlagEnabled(settings: Pick<Settings, "experimentalFeatures"> | undefined): boolean {
+  /*
+  FNXC:WorkflowColumns 2026-06-22-00:00:
+  TaskStore still needs the raw compatibility flag for legacy movement characterization, v1 workflow-IR rollback persistence, and ON→OFF custom-column evacuation tests. This is narrower than the public runtime helper, which treats stale false values as enabled after workflow-column cutover.
+  */
+  return settings?.experimentalFeatures?.workflowColumns === true;
+}
 import {
   type PluginGateVerdict,
   findWorkflowColumn,
@@ -1967,7 +1974,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     // no-op for the common case). Idempotent; non-fatal — never blocks startup.
     try {
       const settings = await this.getSettingsFast();
-      if (isWorkflowColumnsEnabled(settings)) {
+      if (isWorkflowColumnsCompatibilityFlagEnabled(settings)) {
         await this.runWorkflowColumnsIntegrityPass();
         // #1401: recover any transitionPending markers stranded by a crash
         // between the in-txn write and the post-commit clear (they otherwise
@@ -3845,7 +3852,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
       // #1409: if this update flipped workflowColumns ON→OFF, evacuate any card
       // stranded in a custom (non-legacy) column back to a legacy column so the
       // board stays listable / movable on the legacy path.
-      if (isWorkflowColumnsEnabled(previousMerged) && !isWorkflowColumnsEnabled(updatedMerged)) {
+      if (isWorkflowColumnsCompatibilityFlagEnabled(previousMerged) && !isWorkflowColumnsCompatibilityFlagEnabled(updatedMerged)) {
         try {
           await this.evacuateCustomColumnsToLegacy("flag-toggled-off");
         } catch (err) {
@@ -3965,7 +3972,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
     // #1409: workflowColumns lives in experimentalFeatures (a global key), so the
     // ON→OFF toggle flows through here. Evacuate any card stranded in a custom
     // column when the flag flips off.
-    if (isWorkflowColumnsEnabled(previous) && !isWorkflowColumnsEnabled(merged)) {
+    if (isWorkflowColumnsCompatibilityFlagEnabled(previous) && !isWorkflowColumnsCompatibilityFlagEnabled(merged)) {
       try {
         await this.evacuateCustomColumnsToLegacy("flag-toggled-off");
       } catch (err) {
@@ -6875,9 +6882,10 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
     moveSource: NonNullable<MoveTaskOptions["moveSource"]>,
     options?: MoveTaskOptions,
   ): boolean {
+    void moveSource;
     return options?.recoveryRehome === true ||
       (options?.bypassGuards ??
-        (moveSource === "engine" || moveSource === "scheduler" || options?.skipMergeBlocker === true));
+        (options?.moveSource === "engine" || options?.moveSource === "scheduler" || options?.skipMergeBlocker === true));
   }
 
   private shouldSkipWorkflowMovePolicies(params: {
@@ -6901,7 +6909,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
     const task = await this.readTaskForMove(id);
     const moveSource = options?.moveSource ?? "engine";
     const mergedSettingsForMove = await this.getSettingsFast();
-    if (!isWorkflowColumnsEnabled(mergedSettingsForMove)) return undefined;
+    if (!isWorkflowColumnsCompatibilityFlagEnabled(mergedSettingsForMove)) return undefined;
     if (task.column === toColumn) return undefined;
 
     const workflowIr = this.resolveTaskWorkflowIrSync(id);
@@ -7000,11 +7008,17 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
   ): Promise<Task> {
     const dir = this.taskDir(id);
     const task = currentTask ?? await this.readTaskForMove(id);
+    /*
+    FNXC:TaskMovement 2026-06-22-18:20:
+    Public moveTask calls without an explicit source keep the legacy emitted source of "engine", but they do not inherit workflow guard bypass. Engine, scheduler, handoff, and recovery call sites opt into bypass semantics with an explicit moveSource or skipMergeBlocker.
+    */
     const moveSource = options?.moveSource ?? "engine";
 
     // ── U4: flag-gated workflow-resolved transition path (KTD-8) ─────────────
     // Flag OFF (default): the legacy `VALID_TRANSITIONS` / inline-side-effect
     // path below runs byte-identical (proven by the characterization suite).
+    // FNXC:WorkflowColumns 2026-06-22-18:22:
+    // The flag-OFF path is still an active compatibility contract for changed-test recovery: it must throw bare Error for invalid legacy moves, persist v1 workflow IR, and support ON→OFF evacuation. Do not route flag-OFF callers through typed workflow-column rejections until the legacy path is intentionally removed.
     // Flag ON: validate against the task's resolved workflow column graph, run
     // sync trait guards (unless bypassed), and route the legacy per-column side
     // effects through the default-workflow trait hooks.
@@ -7013,7 +7027,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
     // project) via getSettingsFast(). This is an async read taken before the
     // lock-sensitive transaction; it does not touch the task lock.
     const mergedSettingsForMove = await this.getSettingsFast();
-    const useWorkflow = isWorkflowColumnsEnabled(mergedSettingsForMove);
+    const useWorkflow = isWorkflowColumnsCompatibilityFlagEnabled(mergedSettingsForMove);
     // bypassGuards (KTD-9): engine-sourced moves + the existing skipMergeBlocker
     // call sites map onto it. Capacity (KTD-10) is NEVER bypassed by this — the
     // capacity check is not a guard (U6 fills the enforcement; U4 leaves a
@@ -14979,9 +14993,9 @@ ${stepsSection}`;
   // (a recovery-class move, KTD-9) — never a raw column write — so capacity
   // (KTD-10) and the single transition authority (KTD-3) are honored.
 
-  /** True when the `workflowColumns` flag is ON (merged global + project). */
+  /** True when the raw `workflowColumns` compatibility flag is ON (merged global + project). */
   private async workflowColumnsFlagOn(): Promise<boolean> {
-    return isWorkflowColumnsEnabled(await this.getSettingsFast());
+    return isWorkflowColumnsCompatibilityFlagEnabled(await this.getSettingsFast());
   }
 
   /** The active (non-deleted) task ids currently selecting `workflowId`. A
