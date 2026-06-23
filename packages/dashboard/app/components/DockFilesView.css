@@ -66,7 +66,11 @@ Hidden until a file is selected; when selected it overlays the tree as the singl
   align-items: center;
   gap: var(--space-xs);
   padding: var(--space-xs) var(--space-sm);
-  border-bottom: 1px solid var(--border);
+  /*
+  FNXC:RightDockChrome 2026-06-23-19:10:
+  Files is the default right-sidebar view, so its own header and tree/viewer split follow the right-dock divider token contract: invisible by default, theme-restorable via --right-dock-view-divider-color.
+  */
+  border-bottom: var(--chrome-divider-width, 1px) solid var(--right-dock-view-divider-color, transparent);
   flex: 0 0 auto;
 }
 
@@ -134,13 +138,13 @@ Both panes are always visible; data-selected no longer toggles visibility here.
     flex-direction: row;
   }
 
-  /* Tree pinned left: clamped, scrollable, with a divider against the viewer. */
+  /* Tree pinned left: clamped, scrollable, with a tokenized divider against the viewer. */
   .dock-files-view__tree {
     display: flex;
     flex: 0 0 clamp(220px, 32%, 360px);
     min-width: 0;
     overflow: auto;
-    border-right: 1px solid var(--border);
+    border-right: var(--chrome-divider-width, 1px) solid var(--right-dock-view-divider-color, transparent);
   }
 
   /* Viewer fills the remaining width; always visible (empty-state until a file is selected). */
@@ -165,7 +169,7 @@ Both panes are always visible; data-selected no longer toggles visibility here.
 /*
 FNXC:RightDockFiles 2026-06-22-15:00:
 DETERMINISTIC two-pane layout for the RightDockExpandModal pop-out. Driven by the `.dock-files-view--two-pane` modifier (DockFilesView layout="two-pane"), NOT by any @container width, so it always renders LEFT|RIGHT regardless of how the modal body measures the root's inline-size. Mirrors the @container rules above but unconditionally.
-- Tree pinned LEFT: clamped/resizable-feel fixed width, scrolls independently, divider against the viewer.
+- Tree pinned LEFT: clamped/resizable-feel fixed width, scrolls independently, tokenized divider against the viewer.
 - Viewer fills the RIGHT, scrolls independently, empty-state until a file is selected.
 - data-selected never toggles pane visibility here (both panes always visible); BACK is hidden because the tree never disappears.
 */
@@ -179,7 +183,7 @@ DETERMINISTIC two-pane layout for the RightDockExpandModal pop-out. Driven by th
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  border-right: 1px solid var(--border);
+  border-right: var(--chrome-divider-width, 1px) solid var(--right-dock-view-divider-color, transparent);
 }
 
 .dock-files-view--two-pane .dock-files-view__viewer,

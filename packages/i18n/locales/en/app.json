@@ -8167,7 +8167,7 @@
     "agent": "Column agent",
     "agentBadgeDefer": "Column agent (defer)",
     "agentBadgeOverride": "Column agent (override)",
-    "agentFlagHint": "Enable both experimentalFeatures.workflowColumns and experimentalFeatures.workflowGraphExecutor to staff columns with agents",
+    "agentFlagHint": "Workflow columns are available by default",
     "agentLabel": "Column agent",
     "agentMode": "Agent mode",
     "agentModeDefer": "Defer",

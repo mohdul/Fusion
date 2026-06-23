@@ -355,7 +355,7 @@ export function ListView({
       return;
     }
     setHeaderWorkflowSlot(document.getElementById("header-workflow-slot"));
-  }, [workflowControlsInHeader]);
+  }, [workflowControlsInHeader, viewportMode]);
 
   // Column visibility state - initialize from localStorage or reduced default columns
   const [visibleColumns, setVisibleColumns] = useState<Set<ListColumn>>(() => readVisibleColumns(projectId));
@@ -1957,16 +1957,11 @@ export function ListView({
             {!isMobile && (
               <aside className="list-sidebar-controls" aria-label={t("listView.listControlsLabel", "List controls")}>
                 {/*
-                FNXC:ListView 2026-06-22-23:30:
-                Desktop list header was too tall/spread: a standalone count line, a separate actions row, and a full-width "View options" button stacked vertically.
-                Collapse them into ONE compact flex toolbar row: secondary count on the left (small, muted, non-dominant), with Bulk Edit + View options + New Task grouped on the right at a consistent btn-sm height.
-                View options moves into this row as a compact icon+label btn-sm (no longer full-width).
-                Workflow selector keeps its own row above to avoid crowding the single action row.
-                Theme tokens only; handlers/data-testids/aria intact.
+                FNXC:ListView 2026-06-23-20:15:
+                Desktop list controls keep one compact row above quick-add: Bulk Edit/View on the left, the filtered task count centered between button groups, and New Task on the right. The quick-add area directly follows this row with no dividing line above it.
                 */}
                 <div className="list-sidebar-controls__header">
                   {renderWorkflowSelector()}
-                  {/* FNXC:ListView 2026-06-23-00:00: The "X of Y tasks" count is removed from the sidebar toolbar per user request — the Bulk Edit / View options / New Task actions are the sole content of this row. */}
                   <div className="list-sidebar-controls__toolbar">
                     <div className="list-sidebar-controls__actions">
                       <button className="btn btn-sm" onClick={toggleBulkEdit} aria-pressed={bulkEditEnabled}>
@@ -1981,6 +1976,13 @@ export function ListView({
                         <Columns3 size={14} />
                         {t("listView.viewOptions", "View")}
                       </button>
+                    </div>
+                    <span className="list-sidebar-controls__count">
+                      {selectedColumn
+                        ? t("listView.statsInColumn", "{{count}} of {{total}} tasks in {{column}}", { count: filteredCount, total: tasks.length, column: getListColumnLabel(selectedColumn) })
+                        : t("listView.stats", "{{count}} of {{total}} tasks", { count: filteredCount, total: tasks.length })}
+                    </span>
+                    <div className="list-sidebar-controls__actions list-sidebar-controls__actions--end">
                       {onNewTask ? (
                         <button className="btn btn-task-create btn-sm list-new-task-action" onClick={onNewTask}>
                           {t("listView.newTask", "+ New Task")}

@@ -1998,8 +1998,6 @@ describe("TaskStore", () => {
 
   describe("experimentalFeatures settings", () => {
     const defaultExperimentalFeatures = {
-      workflowColumns: true,
-      workflowGraphExecutor: true,
       workflowInterpreterDualObserve: false,
     };
 

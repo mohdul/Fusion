@@ -9,7 +9,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { fetchWorkflowSteps, promoteTask, type ModelInfo, type BoardWorkflowsPayload } from "../api";
 import { useBlockerFanout } from "../hooks/useBlockerFanout";
-import { MOBILE_MEDIA_QUERY } from "../hooks/useViewportMode";
+import { MOBILE_MEDIA_QUERY, useViewportMode } from "../hooks/useViewportMode";
 import { recordResumeEvent } from "../utils/resumeInstrumentation";
 import { getBoardCanDropTaskRejection } from "./boardCanDropTask";
 import { WorkflowSwitcher } from "./WorkflowSwitcher";
@@ -154,6 +154,7 @@ export function Board({ tasks, projectId, maxConcurrent, onMoveTask, onPauseTask
     if (typeof document === "undefined") return null;
     return document.getElementById("header-workflow-slot");
   });
+  const viewportMode = useViewportMode();
   const blockerFanoutMap = useBlockerFanout(tasks, {
     staleHighFanoutAgeThresholdMs: staleHighFanoutBlockerAgeThresholdMs,
   });
@@ -174,7 +175,7 @@ export function Board({ tasks, projectId, maxConcurrent, onMoveTask, onPauseTask
       return;
     }
     setHeaderWorkflowSlot(document.getElementById("header-workflow-slot"));
-  }, [workflowControlsInHeader]);
+  }, [workflowControlsInHeader, viewportMode]);
 
   useEffect(() => {
     recordResumeEvent({

@@ -290,9 +290,7 @@ function countCapacitySlot(
 // ── The sweep ─────────────────────────────────────────────────────────────────
 
 /**
- * Run one hold/release sweep pass. No-op (returns empty) when the workflowColumns
- * flag is OFF — flag-OFF scheduler behavior is byte-identical (the legacy
- * pull-from-todo loop is untouched).
+ * Run one hold/release sweep pass for the default workflow-column runtime.
  */
 export async function runHoldReleaseSweep(
   store: TaskStore,

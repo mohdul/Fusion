@@ -49,7 +49,7 @@ embedded view.
 
 /*
 FNXC:WorkflowEditorEmbedding 2026-06-22-01:00:
-Align the embedded workflows header to the shared ViewHeader/Insights metric — var(--surface) background, --view-header-min-height, --space-lg/--space-xl padding, a single divider, and a 20px todo-tinted icon + 1.125rem title — so Workflows reads the same size and color as Insights.
+Align the embedded workflows header to the shared ViewHeader/Insights metric — var(--surface) background, --view-header-min-height, --space-lg/--space-xl padding, no bottom divider, and a 20px todo-tinted icon + 1.125rem title — so Workflows reads the same size and color as Insights.
 */
 .wf-editor-header {
   box-sizing: border-box;
@@ -61,7 +61,7 @@ Align the embedded workflows header to the shared ViewHeader/Insights metric —
   min-height: var(--view-header-min-height);
   padding: var(--space-lg) var(--space-xl);
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  border-bottom: none;
 }
 
 .wf-editor-header h2 {

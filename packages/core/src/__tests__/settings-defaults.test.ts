@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_MAX_AUTO_MERGE_RETRIES, resolveMaxAutoMergeRetries } from "../in-review-stall.js";
 import { isExperimentalFeatureEnabled } from "../experimental-features.js";
 import { DEFAULT_GLOBAL_SETTINGS, DEFAULT_PROJECT_SETTINGS } from "../settings-schema.js";
+import { isWorkflowColumnsEnabled } from "../workflow-columns-settings.js";
 import {
   __resetLegacyCwdMainWarningForTests,
   normalizeMergeIntegrationWorktreeMode,
@@ -27,15 +28,14 @@ describe("settings defaults invariants", () => {
     expect(DEFAULT_PROJECT_SETTINGS.worktreesDir).toBeUndefined();
   });
 
-  it("defaults workflow runtime flags on but dual-observe diagnostics off", () => {
-    expect(DEFAULT_GLOBAL_SETTINGS.experimentalFeatures.workflowColumns).toBe(true);
-    expect(DEFAULT_GLOBAL_SETTINGS.experimentalFeatures.workflowGraphExecutor).toBe(true);
+  it("graduates workflow runtime defaults out of experimental flags", () => {
+    expect(DEFAULT_GLOBAL_SETTINGS.experimentalFeatures.workflowColumns).toBeUndefined();
+    expect(DEFAULT_GLOBAL_SETTINGS.experimentalFeatures.workflowGraphExecutor).toBeUndefined();
     expect(DEFAULT_GLOBAL_SETTINGS.experimentalFeatures.workflowInterpreterDualObserve).toBe(false);
-    expect(isExperimentalFeatureEnabled(undefined, "workflowColumns")).toBe(true);
-    expect(isExperimentalFeatureEnabled(undefined, "workflowGraphExecutor")).toBe(true);
+    expect(isExperimentalFeatureEnabled(undefined, "workflowColumns")).toBe(false);
+    expect(isExperimentalFeatureEnabled(undefined, "workflowGraphExecutor")).toBe(false);
     expect(isExperimentalFeatureEnabled(undefined, "workflowInterpreterDualObserve")).toBe(false);
-    expect(isExperimentalFeatureEnabled({ experimentalFeatures: { workflowColumns: false } }, "workflowColumns")).toBe(false);
-    expect(isExperimentalFeatureEnabled({ experimentalFeatures: { workflowGraphExecutor: false } }, "workflowGraphExecutor")).toBe(false);
+    expect(isWorkflowColumnsEnabled({ experimentalFeatures: { workflowColumns: false } })).toBe(true);
   });
 
   it("defaults maxAutoMergeRetries to the historical project-scoped cap", () => {

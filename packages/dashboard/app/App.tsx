@@ -1050,29 +1050,13 @@ function AppInner() {
 
   const pluginDashboardViews = useMemo<PluginDashboardViewEntry[]>(() => {
     /*
-    FNXC:RoadmapsNavigation 2026-06-22-18:00:
-    Enabling the Roadmaps experiment must make Roadmaps appear under Missions even when the plugin dashboard-view endpoint has not returned the bundled roadmap plugin. Synthesize the bundled view client-side as a fallback; API-provided plugin views still win when present.
+    FNXC:RoadmapsNavigation 2026-06-22-18:50:
+    The roadmap app view and experimental toggle were removed from the dashboard surface. Filter any plugin-provided Roadmaps dashboard view here so an installed/persisted plugin cannot reintroduce the sidebar destination.
     */
-    if (experimentalFeatures.roadmap !== true) return rawPluginDashboardViews;
-    const hasRoadmaps = rawPluginDashboardViews.some(
-      (entry) => entry.pluginId === "fusion-plugin-roadmap" && entry.view.viewId === "roadmaps",
+    return rawPluginDashboardViews.filter(
+      (entry) => !(entry.pluginId === "fusion-plugin-roadmap" && entry.view.viewId === "roadmaps"),
     );
-    if (hasRoadmaps) return rawPluginDashboardViews;
-    return [
-      ...rawPluginDashboardViews,
-      {
-        pluginId: "fusion-plugin-roadmap",
-        view: {
-          viewId: "roadmaps",
-          label: "Roadmaps",
-          componentPath: "./dashboard-view",
-          icon: "Map",
-          placement: "primary",
-          order: 30,
-        },
-      },
-    ];
-  }, [experimentalFeatures.roadmap, rawPluginDashboardViews]);
+  }, [rawPluginDashboardViews]);
 
   const { stats: agentStats } = useAgents(currentProject?.id);
 
@@ -2117,9 +2101,9 @@ function AppInner() {
               prAuthAvailable={prAuthAvailable}
               onOpenWorkflowEditor={openWorkflowEditorWithNav}
               onCreateWorkflow={openCreateWorkflowWithNav}
-              workflowColumnsEnabled={experimentalFeatures.workflowColumns === true}
+              workflowColumnsEnabled
               settingsLoaded={settingsLoaded}
-              workflowControlsInHeader={sidebarActive}
+              workflowControlsInHeader={sidebarActive || isMobile}
             />
           </PageErrorBoundary>
         );
@@ -2211,9 +2195,9 @@ function AppInner() {
             prAuthAvailable={prAuthAvailable}
             onOpenWorkflowEditor={openWorkflowEditorWithNav}
             onCreateWorkflow={openCreateWorkflowWithNav}
-            workflowColumnsEnabled={experimentalFeatures.workflowColumns === true}
+            workflowColumnsEnabled
             settingsLoaded={settingsLoaded}
-            workflowControlsInHeader={sidebarActive}
+            workflowControlsInHeader={sidebarActive || isMobile}
           />
         </PageErrorBoundary>
       );
@@ -2254,9 +2238,9 @@ function AppInner() {
           autoMerge={autoMerge}
           onOpenWorkflowEditor={openWorkflowEditorWithNav}
           onCreateWorkflow={openCreateWorkflowWithNav}
-          workflowColumnsEnabled={experimentalFeatures.workflowColumns === true}
+          workflowColumnsEnabled
           settingsLoaded={settingsLoaded}
-          workflowControlsInHeader={sidebarActive}
+          workflowControlsInHeader={sidebarActive || isMobile}
         />
       </PageErrorBoundary>
     );
@@ -2598,10 +2582,10 @@ function AppInner() {
           persistGeometryKey="kb-dashboard-chat-floating-window"
           defaultSize={{ width: 980, height: 680 }}
           /*
-          FNXC:ChatModal 2026-06-22-16:05:
-          The full Chat pop-out must be resizable into a narrower desktop utility window. ChatView already switches to its mobile one-pane layout at narrow widths, so allow the FloatingWindow to shrink below the old two-pane desktop minimum while preserving enough width for composer controls.
+          FNXC:ChatModal 2026-06-23-22:14:
+          The full Chat pop-out must be resizable into a very narrow desktop utility window. ChatView already switches to its mobile one-pane layout at narrow widths, so allow the FloatingWindow to shrink below the old two-pane desktop minimum while preserving enough width for composer controls.
           */
-          minSize={{ width: 360, height: 420 }}
+          minSize={{ width: 300, height: 420 }}
         >
           <Suspense fallback={null}>
             <ChatView

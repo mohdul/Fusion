@@ -484,6 +484,9 @@ export function InsightsView({ projectId, addToast, onClose, onCreateTask, model
       {/*
       FNXC:Insights 2026-06-22-01:00:
       Migrated to the shared ViewHeader for consistency with other main-content views. The insight count and action buttons live in the actions slot; ViewHeader already provides the --space-lg side/top padding and --space-md bottom gap, so the view body must not repeat the top padding.
+
+      FNXC:Insights 2026-06-23-19:20:
+      The refresh action must be icon-only in the Insights header. Keeping the visible label out of this button preserves room for the title and neighboring controls while aria-label/title retain the accessible command name.
       */}
       <ViewHeader
         icon={Sparkles}
@@ -526,14 +529,14 @@ export function InsightsView({ projectId, addToast, onClose, onCreateTask, model
             </button>
           )}
           <button
-            className="btn btn-sm"
+            className="btn btn-icon btn-sm insights-refresh-btn"
             onClick={() => void refresh()}
             disabled={loading}
             aria-label={t("actions.refreshInsights", "Refresh insights")}
+            title={t("actions.refreshInsights", "Refresh insights")}
             data-testid="refresh-insights"
           >
             <RefreshCw size={14} className={loading ? "spin" : ""} />
-            {t("actions.refresh", "Refresh")}
           </button>
           <button
             className="btn btn-sm insights-model-toggle"

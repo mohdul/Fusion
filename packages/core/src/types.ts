@@ -22,29 +22,26 @@ export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhig
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 
 /**
- * The legacy default-workflow column set. Under
- * `experimentalFeatures.workflowColumns` a task's valid columns are resolved
- * from its workflow definition (the default workflow's column IDs are
- * byte-identical to these — KTD-1). New flag-aware code should prefer the
+ * The legacy default-workflow column set. Workflow-aware task movement resolves
+ * valid columns from each task's workflow definition (the default workflow's
+ * column IDs are byte-identical to these — KTD-1). New code should prefer the
  * workflow-resolved path (`resolveAllowedColumns` / `workflowHasColumn` in
- * `workflow-transitions.ts`) and trait-flag predicates over string equality;
- * this enum remains the canonical id set for the built-in default workflow.
+ * `workflow-transitions.ts`) and trait predicates over string equality; this
+ * enum remains the canonical id set for the built-in default workflow.
  */
 export const COLUMNS = ["triage", "todo", "in-progress", "in-review", "done", "archived"] as const;
 /**
  * The closed legacy column union — still the correct type for default-workflow
- * column ids and the flag-OFF path. Movement entry points accept the wider
- * {@link ColumnId}; flag-ON code validates ids against the task's resolved
- * workflow at runtime.
+ * column ids. Movement entry points accept the wider {@link ColumnId}; runtime
+ * code validates ids against the task's resolved workflow.
  */
 export type Column = (typeof COLUMNS)[number];
 
 /**
  * Column identifier accepted at task-movement entry points (KTD-1).
  * Equals the legacy `Column` union for autocomplete purposes, but admits
- * workflow-defined custom column ids; flag-ON paths validate the id against
- * the task's resolved workflow at runtime, flag-OFF paths reject non-legacy
- * ids exactly as before.
+ * workflow-defined custom column ids; runtime paths validate the id against the
+ * task's resolved workflow.
  */
 export type ColumnId = Column | (string & {});
 
@@ -3353,9 +3350,10 @@ export interface GlobalSettings {
    *    "another-experiment": false
    *  }
    *
-   *  Default: workflow columns and graph executor enabled; dual-observe remains
-   *  disabled because it runs diagnostic shadow parity observation. Operators may
-   *  explicitly set individual rollout flags false while controls remain available.
+   *  Default: only dual-observe is emitted and remains disabled because it runs
+   *  diagnostic shadow parity observation. Workflow columns and graph execution
+   *  have graduated from this map; stale persisted values are ignored by their
+   *  runtime helpers.
    *
    *  `claudeCliAcp` (default ON): routes the Claude CLI provider through the
    *  `claude-code-cli-acp` ACP bridge instead of `claude -p`. Effective only when
@@ -4571,12 +4569,10 @@ export const COLUMN_DESCRIPTIONS: Record<Column, string> = {
 
 /**
  * @deprecated (workflowColumns, U12) The hardcoded legacy transition graph.
- * Under `experimentalFeatures.workflowColumns`, transition validity is resolved
- * from the task's workflow column graph (`resolveAllowedColumns` in
- * `workflow-transitions.ts`) plus trait guards in `moveTaskInternal` — this
- * constant is now only the flag-OFF authority and the parity oracle the default
- * workflow is machine-checked against (transition-parity suite). Retained while
- * the flag exists; do NOT remove until graduation + legacy-path deletion.
+ * Transition validity is resolved from the task's workflow column graph
+ * (`resolveAllowedColumns` in `workflow-transitions.ts`) plus trait guards in
+ * `moveTaskInternal` — this constant remains the default-workflow parity oracle
+ * while legacy call sites are retired.
  */
 export const VALID_TRANSITIONS: Record<Column, Column[]> = {
   // FN-4892: intake-side heuristics may cold-archive tasks before execution starts.

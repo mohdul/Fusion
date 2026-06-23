@@ -350,6 +350,22 @@ The floating-mode header is the move grip. `touch-action: none` is required so a
   background: var(--card-hover);
 }
 
+/*
+FNXC:Terminal 2026-06-23-22:12:
+The terminal header pop-out/dock affordance is an icon-only utility control. It should not carry button background or border chrome; keep hover/focus feedback only through color/focus ring so it reads like the surrounding header utility icons.
+*/
+.terminal-clear-btn.terminal-clear-btn--icon[data-testid="terminal-popout-toggle"] {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.terminal-clear-btn.terminal-clear-btn--icon[data-testid="terminal-popout-toggle"]:hover {
+  background: transparent;
+  border: none;
+  color: var(--text);
+}
+
 .terminal-content {
   flex: 1;
   display: flex;
@@ -1319,4 +1335,3 @@ Footer reads left-to-right: text-size control, then the relocated Clear/Shortcut
     min-height: 36px;
   }
 }
-

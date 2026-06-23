@@ -267,7 +267,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
  *  is treated as a legacy alias and must never render as a second row. */
 const KNOWN_EXPERIMENTAL_FEATURES: Record<string, string> = {
   insights: "Insights",
-  roadmap: "Roadmaps",
   memoryView: "Memory Editor",
   remoteAccess: "Remote Access",
   skillsView: "Skills View",
@@ -283,18 +282,24 @@ const KNOWN_EXPERIMENTAL_FEATURES: Record<string, string> = {
   sandbox: "Sandbox (command isolation)",
   chatRooms: "Chat Rooms",
   agentOnboarding: "Planning-style Agent Onboarding",
-  workflowGraphExecutor: "Workflow Graph Engine (run custom workflows)",
   workflowInterpreterDualObserve: "Workflow Graph Engine — dual-observe parity (diagnostic)",
 };
 
 /*
 FNXC:SettingsExperimental 2026-06-22-17:55:
-Workflow rollout flags remain supported in persisted settings and engine code, but they are no longer normal user-facing Experimental toggles. Hide workflowColumns, workflowGraphExecutor, and dual-observe from the settings list so operators do not accidentally flip the custom-workflow/runtime diagnostic switches from the product UI.
+Workflow rollout diagnostics remain supported in persisted settings and engine code, but they are no longer normal user-facing Experimental toggles. Hide dual-observe from the settings list so operators do not accidentally flip runtime diagnostic switches from the product UI.
+
+FNXC:SettingsExperimental 2026-06-22-18:00:
+workflowGraphExecutor and workflowColumns graduated from Experimental. They are intentionally absent from the known-label registry, but remain in the hidden registry so stale persisted values never render as resurrected unknown settings while runtime code ignores them.
+
+FNXC:SettingsExperimental 2026-06-22-18:50:
+The Roadmaps dashboard view and experiment were removed from the product surface. Hide stale persisted `roadmap` values so Settings does not expose a dead toggle.
 
 FNXC:SettingsExperimental 2026-06-22-18:00:
 Right Dock Panel is no longer experimental: keep honoring the dock as always-on in App, but hide any stale persisted `rightDock` setting from the Experimental list.
 */
 const HIDDEN_EXPERIMENTAL_FEATURE_KEYS = new Set<string>([
+  "roadmap",
   "rightDock",
   "workflowColumns",
   "workflowGraphExecutor",

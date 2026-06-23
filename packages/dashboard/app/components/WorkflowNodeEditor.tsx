@@ -52,7 +52,6 @@ FN-6770 localizes this workflow surface through t() and authored en catalog keys
 */
 import { useModalResizePersist } from "../hooks/useModalResizePersist";
 import { useEmbeddedPresentation, type ModalPresentation } from "../hooks/useEmbeddedPresentation";
-import { useAppSettings } from "../hooks/useAppSettings";
 import { isMobileViewport, useViewportMode } from "../hooks/useViewportMode";
 import { workflowNodeTypes, type WorkflowFlowNodeData, type WorkflowEditorNodeKind } from "./nodes/WorkflowNodeTypes";
 import { WorkflowEditorCatalogContext } from "./nodes/WorkflowEditorCatalogContext";
@@ -963,13 +962,11 @@ function InnerEditor({
     return !nodes.some((n) => USER_NODE_KINDS.has(n.data.kind));
   }, [activeWorkflow, isBuiltin, nodes]);
 
-  // Column-agent authoring requires BOTH flags (R10). When either is off, the
-  // picker is disabled (not hidden) and bound columns are inert at execution
-  // time; config still round-trips (flags gate execution, not storage).
-  const { experimentalFeatures } = useAppSettings(projectId);
-  const columnAgentsEnabled =
-    experimentalFeatures?.workflowColumns === true &&
-    experimentalFeatures?.workflowGraphExecutor === true;
+  // FNXC:WorkflowColumns 2026-06-22-18:00:
+  // Workflow columns and the graph engine graduated from Experimental. Column
+  // agent authoring is available by default; stale persisted flag values do not
+  // disable the picker or make bindings inert.
+  const columnAgentsEnabled = true;
 
   // Trait catalog (for client-side composition validation; the panel fetches its
   // own copy for the picker, but the editor needs the flags to validate).

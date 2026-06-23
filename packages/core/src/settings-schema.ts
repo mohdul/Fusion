@@ -236,11 +236,12 @@ export const DEFAULT_GLOBAL_SETTINGS = {
   owningNodeHandoffPolicy: "reassign-to-local",
   /*
   FNXC:WorkflowSettings 2026-06-22-18:05:
-  New installs default to workflow columns + graph execution enabled, while dual-observe parity diagnostics are explicitly off unless an operator opts in outside the normal Settings UI.
+  New installs default dual-observe parity diagnostics explicitly off unless an operator opts in outside the normal Settings UI.
+
+  FNXC:WorkflowSettings 2026-06-22-18:00:
+  workflowGraphExecutor and workflowColumns are no longer experimental settings. The workflow graph engine and workflow-defined columns are the default runtime paths; stale persisted values are tolerated but no default flags are emitted.
   */
   experimentalFeatures: {
-    workflowColumns: true,
-    workflowGraphExecutor: true,
     workflowInterpreterDualObserve: false,
   },
   cliAgents: {},

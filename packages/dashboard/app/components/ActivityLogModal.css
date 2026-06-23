@@ -7,20 +7,28 @@ Activity Log embedded (right-dock) styles live here with the ActivityLogModal co
 FNXC:RightDockEmbedded 2026-06-22-00:00:
 Right-dock redesign renders the activity log inline inside the dock container instead of as a fixed popup overlay.
 The embedded root is a plain flow box that fills the dock; the inner panel sheds overlay chrome (fixed sizing, shadow, radius, resize) and fills 100% of the host so the dock owns the frame and its own header/close.
+
+FNXC:RightDockEmbedded 2026-06-23-20:45:
+When Activity Log is popped out into the resizable right-dock window, the floating shell owns resizing and borders. The embedded Activity Log must stay min-size:0 and borderless so the window can remain at the user's resized dimensions and no extra right-side border appears inside the expanded panel.
 */
 .activity-log-embedded.right-dock-embedded-view {
   display: flex;
   width: 100%;
   height: 100%;
+  min-width: 0;
   min-height: 0;
 }
 
 .activity-log-modal--embedded {
+  flex: 1 1 auto;
   width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
   max-width: none;
   max-height: none;
   box-shadow: none;
+  border: 0;
   border-radius: 0;
   resize: none;
   /*

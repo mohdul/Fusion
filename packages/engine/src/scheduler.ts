@@ -1258,10 +1258,9 @@ export class Scheduler {
       const inProgressTaskIds = inProgress.map((task) => task.id);
       const computeDispatchCapacityDiagnostic = (startedThisTick: number): ConcurrencyGateDiagnostic => {
         const started = Math.max(0, Math.floor(startedThisTick));
-        // U6 (KTD-10): when the workflowColumns flag is ON, report the default
-        // workflow's in-progress capacity as a per-column gate — the generalization
-        // of the legacy maxConcurrent gate (which reads through to the same value).
-        // Additive: omitted flag-OFF so the three-gate report shape is unchanged.
+        // U6 (KTD-10): report the default workflow's in-progress capacity as a
+        // per-column gate — the generalization of the legacy maxConcurrent gate
+        // (which reads through to the same value).
         const perColumnGates = isWorkflowColumnsEnabled(settings)
           ? [{
             workflowId: DEFAULT_WORKFLOW_POOL_ID,

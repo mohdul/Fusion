@@ -102,7 +102,7 @@ Embedded planning must blend into the main content like Command Center: no panel
 FNXC:Planning 2026-06-23-03:00:
 The embedded planning header must be a visual SIBLING of MissionManager's inline header (mission-manager__header--inline). Matched values, copied exactly from MissionManager.css:
 - background: var(--surface), padding: var(--space-lg) var(--space-xl) (= 16px 24px)
-- a single bottom divider border-bottom: 1px solid var(--border) — Missions renders exactly ONE divider under its header (verified: only .mission-manager__header carries it; the split/sidebar add none), so Planning matches that single clean line. Previously Planning had NO divider, which read inconsistently next to Missions.
+- no bottom divider — app headers are seamless against their content while preserving shared surface background and spacing.
 - title: 1.125rem / 600 / var(--text) via the h3 rule below (font-weight/color come from the base .modal-header h3).
 - icon: var(--todo) tint + flex-shrink:0, identical to .mission-manager__header-icon (the shared icon-triage tint was a different brown, so it is overridden here).
 - gap icon<->title: var(--space-sm) (= 8px), identical to .mission-manager__header-title. Scoped to the embedded planning header so the shared .detail-title-row (TaskDetailModal) keeps its own 10px gap.
@@ -114,7 +114,7 @@ The embedded planning header must be a visual SIBLING of MissionManager's inline
   min-height: var(--view-header-min-height);
   padding: var(--space-lg) var(--space-xl);
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  border-bottom: none;
 }
 
 .planning-modal--embedded .modal-header--embedded .detail-title-row {

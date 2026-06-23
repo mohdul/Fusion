@@ -10,7 +10,7 @@ import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import type { TaskStore, Task, TaskDetail, TaskTokenUsage, StepStatus, Settings, WorkflowStep, MissionStore, Slice, AgentState, AgentCapability, RunMutationContext, AgentHeartbeatConfig, Agent, AgentMemoryInclusionMode, ProjectSettings, MergeResult, WorkflowIrNode, WorkflowIrNodeKind } from "@fusion/core";
 import { getUnmetSchedulingDependencies } from "./scheduler.js";
-import { RetryStormError, TaskDeletedError, serializeRetryStormError, isExperimentalFeatureEnabled, isWorkflowColumnsEnabled, resolveWorkflowIrForTask, resolveColumnAgentBinding, resolveEffectiveAgent, instanceNodeId, getWorkflowExtensionRegistry, getBuiltinWorkflow, parseNoOpCompletionMarker, allowsAutoMergeProcessing, isSharedBranchGroupMemberIntegration, resolveMaxAutoMergeRetries } from "@fusion/core";
+import { RetryStormError, TaskDeletedError, serializeRetryStormError, isExperimentalFeatureEnabled, resolveWorkflowIrForTask, resolveColumnAgentBinding, resolveEffectiveAgent, instanceNodeId, getWorkflowExtensionRegistry, getBuiltinWorkflow, parseNoOpCompletionMarker, allowsAutoMergeProcessing, isSharedBranchGroupMemberIntegration, resolveMaxAutoMergeRetries } from "@fusion/core";
 import { mergeEffectiveSettings } from "./effective-settings.js";
 import type { TaskStep, WorkflowIr, WorkflowFieldDefinition, WorkflowColumnAgent, EffectiveAgentInput, WorkflowWorkEngineDispatchResult } from "@fusion/core";
 import {
@@ -3814,10 +3814,9 @@ export class TaskExecutor {
       }
     }
 
-    // Pass 2: tasks whose EFFECTIVE column agent resolves to `agentId`. Only
-    // experimental graph-executor tasks can carry a column binding; the IR resolve
-    // is best-effort and skipped for tasks already dispatched/executing.
-    if (!isExperimentalFeatureEnabled(settings, "workflowGraphExecutor")) return;
+    // Pass 2: tasks whose EFFECTIVE column agent resolves to `agentId`. The graph
+    // engine is the default runtime; the IR resolve is best-effort and skipped
+    // for tasks already dispatched/executing.
     for (const task of tasks) {
       if (dispatched.has(task.id) || !isDispatchable(task)) continue;
       // Skip tasks the assigned-agent filter already covers — a redundant column
@@ -3839,11 +3838,10 @@ export class TaskExecutor {
    *  `resumeTaskForAgent` second pass to re-dispatch column-bound tasks the
    *  `assignedAgentId` filter misses. Best-effort: an unresolvable IR yields false. */
   private async taskEffectiveAgentMatches(task: Task, agentId: string): Promise<boolean> {
-    // R10 kill-switch (PR #1432 review): this path resolves the IR directly (it
-    // does not go through the per-run resolver map), so it needs its own flag
-    // guard — resume pass 2 must be inert when workflowColumns is off.
-    const settings = await this.store.getSettings();
-    if (!isWorkflowColumnsEnabled(settings)) return false;
+    /*
+    FNXC:WorkflowColumns 2026-06-22-18:00:
+    Workflow columns are the default runtime, so resume pass 2 always resolves the task workflow IR. Persisted experimentalFeatures.workflowColumns=false values must not make column-agent dispatch inert.
+    */
     const ir = await resolveWorkflowIrForTask(this.store, task.id);
     if (!ir || ir.version !== "v2") return false;
 
@@ -4021,12 +4019,11 @@ export class TaskExecutor {
    */
   // ── Workflow graph interpreter (cutover M-B/M-C) ─────────────────────────
   //
-  // When `experimentalFeatures.workflowGraphExecutor` is enabled and a task has
-  // a selected custom workflow, the graph runner owns lifecycle SEQUENCING:
+  // The workflow graph runner owns lifecycle SEQUENCING for every task:
   // custom prompt/script/gate nodes run via the WorkflowStep machinery, and the
-  // planning/execute/review/merge seam nodes delegate to the legacy engine
-  // implementations. Any interpreter-level error falls back to the legacy
-  // pipeline — a task is never stranded by interpreter bugs.
+  // planning/execute/review/merge seam nodes delegate to the engine primitives.
+  // Interpreter-level failure parks the task as a workflow failure rather than
+  // falling through to a second runtime path.
 
   /** Completion interceptors for graph-driven tasks: when present for a task,
    *  execute() stops at the implementation-complete boundary (no workflow
@@ -4126,19 +4123,11 @@ export class TaskExecutor {
         });
         return true;
       }
-      const explicitlyEnabled = isExperimentalFeatureEnabled(settings, "workflowGraphExecutor");
       /*
       FNXC:WorkflowExecution 2026-06-22-18:00:
-      workflowGraphExecutor is default-on, but explicit false remains the runtime kill switch for legacy executor paths and tests that verify legacy executor behavior.
+      workflowGraphExecutor graduated from Experimental. Every task routes through the graph runner by default, and stale persisted experimentalFeatures.workflowGraphExecutor=false values are ignored so the product no longer has a user-facing or runtime graph-engine kill switch.
       */
-      if (!explicitlyEnabled) return false;
-      settings = {
-        ...settings,
-        experimentalFeatures: {
-          ...(settings.experimentalFeatures ?? {}),
-          workflowGraphExecutor: true,
-        },
-      };
+      settings = { ...settings };
       let selection: { workflowId: string; stepIds: string[] } | undefined;
       try {
         selection = this.store.getTaskWorkflowSelection?.(task.id);
@@ -4177,19 +4166,15 @@ export class TaskExecutor {
       // node callback. Resolve the IR ONCE per run (never an uncached per-node
       // fetch — mirrors the hold-release.ts irCache posture); best-effort, so a
       // resolution failure simply yields no bindings (R8 graceful degradation).
-      // R10 kill-switch (PR #1432 review): column agents require BOTH flags. The
-      // graph executor gate above covers workflowGraphExecutor; this guard makes
-      // disabling workflowColumns alone actually render bindings inert at
-      // execution time (the documented rollback) — no resolver installed means
-      // every downstream consumer (custom nodes, seams, watcher) sees no binding.
-      const columnAgentsEnabled = isWorkflowColumnsEnabled(settings);
+      /*
+      FNXC:WorkflowColumns 2026-06-22-18:00:
+      Column-agent binding now participates in every graph run. The former workflowColumns kill switch was removed, so stale persisted false values cannot silently disable custom-node, seam, or watcher bindings.
+      */
       let columnAgentIr: WorkflowIr | undefined;
-      if (columnAgentsEnabled) {
-        try {
-          columnAgentIr = await resolveWorkflowIrForTask(this.store, task.id);
-        } catch {
-          columnAgentIr = undefined;
-        }
+      try {
+        columnAgentIr = await resolveWorkflowIrForTask(this.store, task.id);
+      } catch {
+        columnAgentIr = undefined;
       }
       const resolveBindingForNode = (nodeId: string): WorkflowColumnAgent | undefined =>
         columnAgentIr ? resolveColumnAgentBinding(columnAgentIr, nodeId) : undefined;
@@ -4197,9 +4182,7 @@ export class TaskExecutor {
       // execute / step-execute seams (which key off a governing node id stamped
       // into context), so the coding/step session runs as the column agent under
       // the SAME binding lookup the custom-node seam uses (KTD-2 single resolver).
-      if (columnAgentsEnabled) {
-        this.graphColumnAgentResolver.set(task.id, resolveBindingForNode);
-      }
+      this.graphColumnAgentResolver.set(task.id, resolveBindingForNode);
 
       // (U3) Genuinely-unattended run signal. This is an EXPLICIT opt-in, not an
       // inferred heuristic: a run is unattended only when an entrypoint that

@@ -5,13 +5,10 @@ const LEGACY_EXPERIMENTAL_FEATURE_ALIASES: Record<string, string> = {
 };
 
 /*
-FNXC:WorkflowSettings 2026-06-22-18:05:
-workflowColumns and workflowGraphExecutor are now default-on rollout flags, while workflowInterpreterDualObserve remains default-off because it runs diagnostic shadow parity observation. Explicit false stays a kill switch for the two default-on runtime paths.
+FNXC:WorkflowSettings 2026-06-22-18:00:
+workflowGraphExecutor and workflowColumns graduated from Experimental. Runtime graph execution and workflow-defined columns are always on; stale persisted values are ignored by runtime helpers instead of acting as kill switches.
 */
-const DEFAULT_ON_EXPERIMENTAL_FEATURES = new Set([
-  "workflowColumns",
-  "workflowGraphExecutor",
-]);
+const DEFAULT_ON_EXPERIMENTAL_FEATURES = new Set<string>();
 
 export function isExperimentalFeatureEnabled(
   settings: Pick<Settings, "experimentalFeatures"> | undefined,

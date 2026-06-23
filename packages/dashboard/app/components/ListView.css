@@ -17,24 +17,24 @@
   background: var(--surface);
 }
 
-/* FNXC:ListView 2026-06-23-00:00: No border below the controls — the toolbar (Bulk Edit / View / New Task) flows straight into the quick-add box with no divider between them.
-   FNXC:ListView 2026-06-23-04:00: Tight bottom padding so the toolbar sits close to the quick-add box below (paired with the quick-add's reduced top padding). */
+/* FNXC:ListView 2026-06-23-20:15: No divider between the controls and quick-add. The controls row carries actions-count-action layout; quick-add directly follows it as one continuous surface. */
 .list-sidebar-controls {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
-  padding: var(--space-md) var(--space-xl) var(--space-xs);
+  padding: var(--space-md) var(--space-xl) 0;
   background: var(--surface);
+  border-bottom: 0;
 }
 
 /*
-FNXC:ListView 2026-06-23-02:45:
-The action buttons (Bulk Edit / View / New Task) are the sole content of this toolbar row and must be horizontally CENTERED in the view, not pushed to one side. justify-content:center centers the action group; the prior margin-left:auto right-push (and the New Task margin-left:auto far-push) are removed so the three controls stay a tight centered cluster. align-items:center keeps them a consistent height; flex-wrap is a last-resort overflow guard that keeps them centered when they wrap on narrow widths.
+FNXC:ListView 2026-06-23-20:15:
+The list toolbar uses a stable three-part row: left controls, centered filtered task count, and right create action. Equal flex groups keep the count visually between button groups while flex-wrap prevents overflow on narrow split-pane widths.
 */
 .list-sidebar-controls__toolbar {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   gap: var(--space-sm);
   flex-wrap: wrap;
 }
@@ -42,9 +42,27 @@ The action buttons (Bulk Edit / View / New Task) are the sole content of this to
 .list-sidebar-controls__actions {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  flex: 1 1 0;
   flex-wrap: wrap;
   gap: var(--space-xs);
+}
+
+.list-sidebar-controls__actions--end {
+  justify-content: flex-end;
+}
+
+.list-sidebar-controls__count {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.2;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /*
@@ -66,7 +84,7 @@ View options was oversized (full-width stacked button). Render it as a compact i
   min-width: 0;
 }
 
-/* FNXC:ListView 2026-06-23-02:45: New Task no longer pushes to the far right of the centered action group — the three buttons stay tightly grouped and centered together. */
+/* FNXC:ListView 2026-06-23-20:15: New Task owns the right action group; do not apply the old toolbar auto-margin behavior in the sidebar controls. */
 
 .list-toolbar .list-new-task-action {
   margin-left: auto;
@@ -269,12 +287,12 @@ Compact count for the single header row: smaller, dimmer, and non-dominant so th
 }
 
 /* New class for QuickEntryBox positioned above the table in list view.
-   FNXC:ListView 2026-06-23-04:00: Reduced top padding so the quick-add box sits close to the toolbar above it.
-   FNXC:ListView 2026-06-22-18:00: Remove the divider between quick add and the table title/columns so quick-create flows into the list header without an extra horizontal rule. */
+   FNXC:ListView 2026-06-23-20:15: Remove the divider above quick-add by eliminating top padding; the controls and quick-add share the same surface without a visible seam. */
 .list-quick-entry-above-table {
   width: 100%;
-  padding: var(--space-xs) var(--space-xl) var(--space-md);
+  padding: 0 var(--space-xl) var(--space-md);
   background: var(--surface);
+  border-top: 0;
 }
 
 .list-quick-entry-above-table .quick-entry-box {

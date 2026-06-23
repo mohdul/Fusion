@@ -111,7 +111,7 @@ describe("ThemeDropdown", () => {
     const root = trigger.closest(".theme-dropdown");
     expect(root).toBeTruthy();
     expect(root?.classList.contains("open")).toBe(false);
-    expect(getComputedStyle(root!).zIndex).not.toBe("40");
+    expect(getComputedStyle(root!).zIndex).not.toBe("10002");
 
     fireEvent.click(trigger);
 
@@ -119,10 +119,10 @@ describe("ThemeDropdown", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(root?.classList.contains("open")).toBe(true);
     expect(getComputedStyle(root!).position).toBe("relative");
-    expect(getComputedStyle(root!).zIndex).toBe("40");
+    expect(getComputedStyle(root!).zIndex).toBe("10002");
     expect(popover).toBeTruthy();
     expect(getComputedStyle(popover!).position).toBe("absolute");
-    expect(getComputedStyle(popover!).zIndex).toBe("40");
+    expect(getComputedStyle(popover!).zIndex).toBe("10002");
   });
 
   it("preserves the mobile static in-flow popover branch without dropdown elevation", () => {

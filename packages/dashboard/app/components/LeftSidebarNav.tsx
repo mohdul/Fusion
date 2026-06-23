@@ -262,11 +262,11 @@ export function LeftSidebarNav({
   const compoundPluginEntry = sortedPluginViews.find(
     (entry) => entry.pluginId === "fusion-plugin-compound-engineering",
   );
-  const roadmapPluginEntry = sortedPluginViews.find(
-    (entry) => entry.pluginId === "fusion-plugin-roadmap" && entry.view.viewId === "roadmaps",
-  );
   const remainingPluginViews = sortedPluginViews.filter(
-    (entry) => entry !== graphPluginEntry && entry !== compoundPluginEntry && entry !== roadmapPluginEntry,
+    (entry) =>
+      entry !== graphPluginEntry &&
+      entry !== compoundPluginEntry &&
+      !(entry.pluginId === "fusion-plugin-roadmap" && entry.view.viewId === "roadmaps"),
   );
 
   /*
@@ -277,8 +277,8 @@ export function LeftSidebarNav({
 
   Flag gates preserved verbatim from the prior layout: agents (showAgentsTab), goals (goalsView), insight (insights), research (researchView), skills (showSkillsTab), memory (memoryView), evals (evalsView). graph and compound are skipped when their plugin view is absent.
 
-  FNXC:Navigation 2026-06-22-17:40:
-  Roadmaps is a planning-adjacent plugin view, not a trailing plugin utility. When selected/enabled it appears immediately under Missions so the Planning/Missions/Roadmaps hierarchy stays together in the left sidebar.
+  FNXC:Navigation 2026-06-22-18:50:
+  Roadmaps is no longer a dashboard navigation destination. Keep filtering it out even if a persisted plugin dashboard-view row is present, while preserving other plugin views in their sorted fallback section.
   */
   const navEntries: SidebarNavEntry[] = [
     /*
@@ -335,7 +335,6 @@ export function LeftSidebarNav({
       testId: "sidebar-nav-missions",
       onSelect: () => onChangeView("missions"),
     },
-    ...(roadmapPluginEntry ? [mapPluginEntry(roadmapPluginEntry)] : []),
     ...(showAgentsTab
       ? [
           {

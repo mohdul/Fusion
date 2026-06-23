@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { WorkflowSwitcher } from "./WorkflowSwitcher";
 import type { WorkflowStatusCounts } from "./workflowStatusCounts";
 import { useBoardWorkflows } from "../hooks/useBoardWorkflows";
+import { useViewportMode } from "../hooks/useViewportMode";
 
 /*
 FNXC:PlanningWorkflowSwitcher 2026-06-22-00:00:
@@ -31,6 +32,7 @@ export function PlanningWorkflowSwitcherSlot({ projectId, onOpenWorkflowEditor, 
     setSelectedWorkflowId,
     refreshBoardWorkflows,
   } = useBoardWorkflows({ projectId });
+  const viewportMode = useViewportMode();
 
   // Header may mount its workflow slot after this component, so resolve it on mount
   // and re-resolve via a short polling effect until it attaches. Render only via portal.
@@ -49,8 +51,8 @@ export function PlanningWorkflowSwitcherSlot({ projectId, onOpenWorkflowEditor, 
     };
     if (resolve()) return;
     /*
-    FNXC:PlanningWorkflowSwitcher 2026-06-22-09:00:
-    On mobile the Header never renders `#header-workflow-slot`, so this poll would otherwise spin every 250ms for the entire Planning session. Cap it at 20 attempts (~5s); after that the slot is presumed absent and the poll self-cancels. The unmount cleanup still clears any in-flight interval.
+    FNXC:PlanningWorkflowSwitcher 2026-06-23-20:05:
+    Header swaps the workflow portal slot between mobile and non-mobile placements as the viewport changes. Re-resolve the DOM node on viewport-mode changes and cap polling so the Planning selector never stays attached to a removed slot after resizing.
     */
     let attempts = 0;
     const interval = window.setInterval(() => {
@@ -58,7 +60,7 @@ export function PlanningWorkflowSwitcherSlot({ projectId, onOpenWorkflowEditor, 
       if (resolve() || attempts >= 20) window.clearInterval(interval);
     }, 250);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [viewportMode]);
 
   // Gate: only render when there is something to switch (>= 2 options), matching Board's "show only when switchable" intent.
   if (!workflowMode || !selectedWorkflow || workflowOptions.length < 2 || !headerWorkflowSlot) {

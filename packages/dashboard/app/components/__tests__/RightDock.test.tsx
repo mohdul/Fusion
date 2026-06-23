@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { RightDock, RIGHT_DOCK_VIEW_STORAGE_KEY, RIGHT_DOCK_WIDTH_STORAGE_KEY } from "../RightDock";
@@ -16,6 +18,8 @@ const renderProps = {
   addToast: vi.fn(),
   projectId: "project-1",
 };
+
+const rightDockCss = readFileSync(resolve(__dirname, "../RightDock.css"), "utf8");
 
 /*
 FNXC:Navigation 2026-06-22-16:00:
@@ -53,6 +57,19 @@ describe("RightDock", () => {
 
   afterEach(() => {
     window.localStorage.clear();
+  });
+
+  it("keeps right-dock divider chrome tokenized and invisible by default", () => {
+    /*
+    FNXC:RightDockChrome 2026-06-23-19:10:
+    Right-dock shell/header/view dividers are hidden by default via transparent theme tokens, not removed outright, so a theme can opt them back in.
+    */
+    expect(rightDockCss).toContain("border-left: var(--chrome-divider-width, 1px) solid var(--right-dock-shell-divider-color, transparent);");
+    expect(rightDockCss).toContain("border-bottom: var(--chrome-divider-width, 1px) solid var(--right-dock-toolbar-divider-color, transparent);");
+    expect(rightDockCss).toContain("border-bottom: var(--chrome-divider-width, 1px) solid var(--right-dock-view-header-divider-color, transparent);");
+    expect(rightDockCss).toContain("border-bottom-color: var(--right-dock-expand-header-divider-color, transparent);");
+    expect(rightDockCss).not.toContain("border-left: thin solid var(--border);");
+    expect(rightDockCss).not.toContain("border-bottom: thin solid var(--border);");
   });
 
   it("renders Files by default and restores the persisted inline view on remount", () => {

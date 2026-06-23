@@ -148,6 +148,17 @@ html {
   --modal-padding: var(--space-lg) 20px;
   --header-padding: var(--space-md) var(--space-xl);
   /*
+  FNXC:DashboardTheming 2026-06-23-19:10:
+  Divider chrome defaults to invisible for the cleaner app shell, but uses tokens instead of `border: none` so a theme can opt any participating header/sidebar/view divider back in by setting --chrome-divider-color or a component-specific alias.
+  */
+  --chrome-divider-width: 1px;
+  --chrome-divider-color: transparent;
+  --right-dock-shell-divider-color: var(--chrome-divider-color);
+  --right-dock-toolbar-divider-color: var(--chrome-divider-color);
+  --right-dock-view-header-divider-color: var(--chrome-divider-color);
+  --right-dock-expand-header-divider-color: var(--chrome-divider-color);
+  --right-dock-view-divider-color: var(--chrome-divider-color);
+  /*
   FNXC:ViewHeader 2026-06-23-04:15:
   Canonical main-content view-header height. Headers with btn-sm action buttons render taller (~61px border-box) than title-only headers (~54px), so every canonical header (ViewHeader, Missions, embedded Planning, Goals, Automations, Import Tasks) pins this min-height to stay pixel-identical regardless of whether actions are present.
   FNXC:ViewHeader 2026-06-22-18:00:
@@ -213,6 +224,15 @@ html {
   --xsmall-breakpoint: 640px;
 }
 
+/*
+FNXC:LoadingIndicators 2026-06-23-20:40:
+Use a uniquely named global spinner keyframe for shared loading utilities. Component CSS files also define `@keyframes spin`; because keyframes are global, later-loaded modal/sidebar CSS can replace the shared `spin` definition and make SVG spinners appear frozen or inconsistent across sections such as Git Manager.
+*/
+@keyframes fusion-spinner-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Global spinner animation — used by 25+ components via className="animate-spin"
    or inline animation: "spin ...". Must live at the stylesheet top level (not
    inside any selector block) so the keyframes and utility class are available
@@ -222,12 +242,21 @@ html {
   to { transform: rotate(360deg); }
 }
 .animate-spin {
-  animation: spin 1s linear infinite;
+  animation: fusion-spinner-spin 1s linear infinite;
   transform-origin: center;
 }
 
 .spin {
-  animation: spin 1s linear infinite;
+  animation: fusion-spinner-spin 1s linear infinite;
+  transform-origin: center;
+}
+
+.spinner,
+.spinning {
+  animation-name: fusion-spinner-spin;
+  animation-duration: 1s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
   transform-origin: center;
 }
 
@@ -237,7 +266,9 @@ Lucide SVG loaders must rotate on the first Planning loading paint, before later
 Use the painted geometry box for shared spinner utilities so `transform-origin: center` is resolved immediately instead of waiting on the SVG viewBox layout.
 */
 svg.animate-spin,
-svg.spin {
+svg.spin,
+svg.spinner,
+svg.spinning {
   transform-box: fill-box;
 }
 

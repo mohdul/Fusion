@@ -22,7 +22,11 @@ The right dock OVERLAYS the page content (floats over the right edge) instead of
   max-width: min(100%, var(--right-dock-max-width, calc(var(--space-2xl) * 40)));
   min-height: 0;
   background: var(--surface);
-  border-left: thin solid var(--border);
+  /*
+  FNXC:RightDockChrome 2026-06-23-19:10:
+  Right-dock dividing lines should be invisible by default, including the shell edge, toolbar, and selected-view header. Use theme tokens instead of removing border geometry so themes can re-enable the dividers by setting --chrome-divider-color or the right-dock-specific aliases.
+  */
+  border-left: var(--chrome-divider-width, 1px) solid var(--right-dock-shell-divider-color, transparent);
   color: var(--text);
   box-shadow: var(--shadow-lg);
 }
@@ -72,7 +76,7 @@ The right dock OVERLAYS the page content (floats over the right edge) instead of
   justify-content: space-between;
   gap: var(--space-sm);
   padding: var(--space-sm);
-  border-bottom: thin solid var(--border);
+  border-bottom: var(--chrome-divider-width, 1px) solid var(--right-dock-toolbar-divider-color, transparent);
 }
 
 .right-dock--collapsed .right-dock__toolbar {
@@ -118,7 +122,7 @@ The right dock OVERLAYS the page content (floats over the right edge) instead of
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-sm) var(--space-md);
-  border-bottom: thin solid var(--border);
+  border-bottom: var(--chrome-divider-width, 1px) solid var(--right-dock-view-header-divider-color, transparent);
   color: var(--text);
 }
 
@@ -210,6 +214,7 @@ FNXC:RightDock 2026-06-22-18:50:
 Touch dragging was janky because the browser claimed the header's touch stream for scroll/pan gestures. `touch-action: none` on the drag handle (matching the resize handles) hands the whole gesture to our pointer handlers so a finger drag stays smooth and never scrolls the page behind it. `cursor: grab/grabbing` is desktop-only signal; `touch-action` is what makes touch work. A comfortable `min-height` makes the header a forgiving touch target.
 */
 .right-dock-expand-modal__header--draggable {
+  border-bottom-color: var(--right-dock-expand-header-divider-color, transparent);
   cursor: grab;
   user-select: none;
   touch-action: none;

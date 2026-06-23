@@ -140,7 +140,7 @@ The Settings page should match other main-content views with no extra outer inse
 FNXC:Settings 2026-06-22-00:00:
 The embedded title reads like other embedded-view titles (Planning modal-header--embedded, Command Center cc-title): a plain heading with no tinted modal-header bar, no bottom divider, no close button, aligned to the content edge, at the shared 1.125rem embedded-title size. Header actions (Star/Discord) and footer remain so the full-width panel keeps its controls.
 */
-/* FNXC:Settings 2026-06-23-04:45: The embedded Settings header now matches the canonical ViewHeader/other sidebar views exactly — same min-height, space-lg/space-xl padding, surface bg, single bottom divider, var(--todo) icon, 1.125rem/600 title, actions pinned right. (Supersedes the earlier no-divider/transparent embedded treatment.) */
+/* FNXC:Settings 2026-06-23-04:45: The embedded Settings header now matches the canonical ViewHeader/other sidebar views exactly — same min-height, space-lg/space-xl padding, surface bg, no bottom divider, var(--todo) icon, 1.125rem/600 title, actions pinned right. */
 .settings-modal--embedded .modal-header--embedded {
   box-sizing: border-box;
   display: flex;
@@ -149,7 +149,7 @@ The embedded title reads like other embedded-view titles (Planning modal-header-
   min-height: var(--view-header-min-height);
   padding: var(--space-lg) var(--space-xl);
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  border-bottom: none;
   flex-shrink: 0;
 }
 

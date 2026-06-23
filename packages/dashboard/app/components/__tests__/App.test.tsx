@@ -2284,24 +2284,34 @@ describe("App view switching", () => {
     localStorage.removeItem("kb-dashboard-view-mode");
   });
 
-  it("shows Roadmaps under Missions when the roadmap experiment is enabled but the plugin API returns no views", async () => {
+  it("hides the removed Roadmaps destination even when settings and plugin API still mention it", async () => {
     /*
-    FNXC:RoadmapsNavigation 2026-06-22-18:00:
-    Regression guard for the roadmap experiment: enabling `experimentalFeatures.roadmap` must expose the bundled Roadmaps sidebar destination even when /plugins/dashboard-views returns an empty list.
+    FNXC:RoadmapsNavigation 2026-06-22-18:50:
+    Roadmaps was removed as an app view and experiment. Stale persisted flags and plugin dashboard rows must not expose the old sidebar destination.
     */
     mockUseViewportMode.mockReturnValue("desktop");
     (fetchSettings as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ...defaultSettings,
       experimentalFeatures: { ...defaultSettings.experimentalFeatures, roadmap: true },
     });
-    (fetchPluginDashboardViews as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
+    (fetchPluginDashboardViews as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      {
+        pluginId: "fusion-plugin-roadmap",
+        view: {
+          viewId: "roadmaps",
+          label: "Roadmaps",
+          componentPath: "./dashboard-view",
+          icon: "Map",
+          placement: "primary",
+          order: 30,
+        },
+      },
+    ]);
 
     render(<App />);
 
-    const roadmaps = await screen.findByTestId("sidebar-nav-plugin-fusion-plugin-roadmap-roadmaps");
-    const missions = screen.getByTestId("sidebar-nav-missions");
-    const navItems = Array.from(screen.getByRole("navigation", { name: "Primary navigation" }).querySelectorAll(".left-sidebar-nav__item"));
-    expect(navItems.indexOf(roadmaps)).toBe(navItems.indexOf(missions) + 1);
+    expect(await screen.findByTestId("sidebar-nav-missions")).toBeInTheDocument();
+    expect(screen.queryByTestId("sidebar-nav-plugin-fusion-plugin-roadmap-roadmaps")).toBeNull();
   });
 
   it("restores board and plugin routes when persisted taskView changes across remounts", async () => {

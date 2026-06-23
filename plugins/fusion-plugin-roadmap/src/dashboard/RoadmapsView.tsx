@@ -2140,7 +2140,7 @@ export function RoadmapsView({ projectId, addToast }: RoadmapsViewProps) {
     <div className="roadmaps-view">
       {/*
       FNXC:Roadmaps 2026-06-22-18:00:
-      Plugin Roadmaps needs the same top chrome as built-in dashboard views: full-width surface header, todo-tinted icon, canonical padding, and a divider before the scrollable body. The internal roadmap sidebar stays below this header so Roadmaps aligns with Artifacts/Skills/Missions while preserving its own list/detail workflow.
+      Plugin Roadmaps needs the same top chrome as built-in dashboard views: full-width surface header, todo-tinted icon, canonical padding, and no divider before the scrollable body. The internal roadmap sidebar stays below this header so Roadmaps aligns with Artifacts/Skills/Missions while preserving its own list/detail workflow.
       */}
       <div className="roadmaps-view__top-header">
         <h2 className="roadmaps-view__top-title">

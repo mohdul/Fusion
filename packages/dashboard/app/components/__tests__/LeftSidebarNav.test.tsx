@@ -384,7 +384,7 @@ describe("LeftSidebarNav", () => {
     expect(screen.queryByRole("button", { name: /view$/i })).toBeNull();
   });
 
-  it("pins the Roadmaps plugin destination directly under Missions when registered", () => {
+  it("filters the removed Roadmaps plugin destination when registered", () => {
     const roadmapView: PluginDashboardViewEntry = {
       pluginId: "fusion-plugin-roadmap",
       view: {
@@ -397,14 +397,10 @@ describe("LeftSidebarNav", () => {
     };
     renderSidebar({ pluginDashboardViews: [pluginViews[0], roadmapView, pluginViews[1]] });
 
-    const missions = screen.getByTestId("sidebar-nav-missions");
-    const roadmaps = screen.getByTestId("sidebar-nav-plugin-fusion-plugin-roadmap-roadmaps");
-    const agents = screen.getByTestId("sidebar-nav-agents");
-    const navItems = Array.from(screen.getByRole("navigation", { name: "Primary navigation" }).querySelectorAll(".left-sidebar-nav__item"));
-
-    // FNXC:Navigation 2026-06-22-18:20: Roadmaps is a planning surface, so its plugin nav entry must sit immediately below Missions instead of sorting with generic plugin views.
-    expect(navItems.indexOf(roadmaps)).toBe(navItems.indexOf(missions) + 1);
-    expect(navItems.indexOf(agents)).toBe(navItems.indexOf(roadmaps) + 1);
+    // FNXC:Navigation 2026-06-22-18:50: Roadmaps was removed from dashboard navigation; plugin rows must not reintroduce it.
+    expect(screen.queryByTestId("sidebar-nav-plugin-fusion-plugin-roadmap-roadmaps")).toBeNull();
+    expect(screen.getByTestId("sidebar-nav-plugin-fusion-plugin-primary-primary-view")).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-nav-plugin-fusion-plugin-overflow-overflow-view")).toBeInTheDocument();
   });
 
   it("renders mailbox badges without the removed stash recovery destination", () => {

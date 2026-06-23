@@ -21,7 +21,7 @@
   min-height: var(--view-header-min-height, 61px);
   padding: var(--space-lg) var(--space-xl);
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  border-bottom: none;
 }
 
 .roadmaps-view__top-title {

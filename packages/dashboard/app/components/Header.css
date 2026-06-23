@@ -1,10 +1,10 @@
 /* === Header === */
 /*
 FNXC:DashboardHeader 2026-06-22-14:30:
-Superseded by the 19:00 shell requirement below. View-level headers such as Missions, Planning, Dashboard, and Project Dashboard carry the theme-controlled divider; the global Fusion shell header no longer owns that separator.
+Superseded by the 19:00 shell requirement below. View-level headers such as Missions, Planning, Dashboard, and Project Dashboard no longer carry post-header divider lines; the global Fusion shell header no longer owns that separator either.
 
 FNXC:DashboardHeader 2026-06-22-19:00:
-The global Fusion shell header should not draw a divider between itself and the sidebar/main content row. View-level headers keep their own dividers; this top shell bar blends into the surface above the navigation/content split.
+The global Fusion shell header should not draw a divider between itself and the sidebar/main content row. View-level headers also avoid post-header divider lines; this top shell bar blends into the surface above the navigation/content split.
 */
 .header {
   display: flex;
@@ -132,9 +132,13 @@ non-notched devices, so this is a no-op there. Pair with viewport-fit=cover (ind
 
 @media (max-width: 768px) {
   /*
-  FNXC:WorkflowControls 2026-06-22-18:00:
-  Mobile places the workflow dropdown in the top header beside the logo/project switch. Hide only the text label, clamp the trigger width, and keep the transparent project-selector-style chrome so the row fits without pushing search/usage controls offscreen.
+  FNXC:WorkflowControls 2026-06-23-20:05:
+  Mobile places the workflow dropdown in the top header beside the logo/project switch. Match the 32px board/list toggle height, reduce row gaps, hide the text label/counts, and cap width aggressively so resizing does not crowd adjacent header controls.
   */
+  .header {
+    gap: var(--space-xs);
+  }
+
   .header-left {
     min-width: 0;
     gap: var(--space-xs);
@@ -146,10 +150,14 @@ non-notched devices, so this is a no-op there. Pair with viewport-fit=cover (ind
   }
 
   .header-workflow-slot {
-    flex: 1 1 auto;
+    flex: 0 1 min(30vw, calc(var(--space-2xl) * 2.875));
     justify-content: flex-start;
-    min-width: 0;
-    max-width: min(42vw, calc(var(--space-2xl) * 4));
+    min-width: calc(var(--space-2xl) * 2);
+    max-width: min(30vw, calc(var(--space-2xl) * 2.875));
+  }
+
+  .header-actions {
+    gap: var(--space-xs);
   }
 
   .header-workflow-slot:empty {
@@ -158,6 +166,7 @@ non-notched devices, so this is a no-op there. Pair with viewport-fit=cover (ind
 
   .header-workflow-slot .workflow-switcher {
     width: 100%;
+    height: 32px;
     min-width: 0;
   }
 
@@ -166,10 +175,12 @@ non-notched devices, so this is a no-op there. Pair with viewport-fit=cover (ind
   }
 
   .header-workflow-slot .workflow-switcher-trigger {
+    box-sizing: border-box;
     width: 100%;
+    height: 32px;
     max-width: 100%;
-    min-height: calc(var(--space-lg) + var(--space-xs));
-    padding: calc(var(--space-xs) / 2) var(--space-xs);
+    min-height: 32px;
+    padding: 0 var(--space-xs);
     font-size: 12px;
   }
 

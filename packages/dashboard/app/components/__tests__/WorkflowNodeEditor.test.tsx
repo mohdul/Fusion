@@ -3262,7 +3262,7 @@ describe("WorkflowNodeEditor — U10 design-with-AI", () => {
 
 // ── U6: per-column agent picker, mode toggle, stale-id + override surfaces ────
 
-function flagsOn(): Settings {
+function settingsWithStaleWorkflowFlags(): Settings {
   return { experimentalFeatures: { workflowColumns: true, workflowGraphExecutor: true } } as Settings;
 }
 
@@ -3289,7 +3289,7 @@ describe("WorkflowNodeEditor — U6 column agents", () => {
   beforeEach(() => {
     vi.mocked(fetchTraits).mockResolvedValue(TRAIT_CATALOG);
     vi.mocked(fetchStepParsers).mockResolvedValue(["step-headings", "json-steps"]);
-    vi.mocked(fetchSettings).mockResolvedValue(flagsOn());
+    vi.mocked(fetchSettings).mockResolvedValue(settingsWithStaleWorkflowFlags());
     vi.mocked(fetchAgents).mockResolvedValue(agentList());
     vi.mocked(fetchModels).mockResolvedValue({ models: [] });
   });
@@ -3298,7 +3298,7 @@ describe("WorkflowNodeEditor — U6 column agents", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the per-column agent picker enabled with registry agents when flags are on", async () => {
+  it("renders the per-column agent picker enabled with registry agents by default", async () => {
     vi.mocked(fetchWorkflows).mockResolvedValue([v2Def()]);
     render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
     const picker = (await screen.findByTestId("wf-column-agent-select-triage")) as HTMLSelectElement;
@@ -3310,14 +3310,14 @@ describe("WorkflowNodeEditor — U6 column agents", () => {
     expect(picker.value).toBe("");
   });
 
-  it("disables the picker with a flag-naming hint when the flags are off", async () => {
+  it("keeps the picker enabled when stale workflow flags are absent", async () => {
     vi.mocked(fetchSettings).mockResolvedValue({} as Settings);
     vi.mocked(fetchWorkflows).mockResolvedValue([v2Def()]);
     render(<WorkflowNodeEditor isOpen onClose={() => {}} addToast={() => {}} />);
     const picker = (await screen.findByTestId("wf-column-agent-select-triage")) as HTMLSelectElement;
-    await waitFor(() => expect(picker.disabled).toBe(true));
-    expect(picker.title).toMatch(/workflowColumns/);
-    expect(picker.title).toMatch(/workflowGraphExecutor/);
+    await waitFor(() => expect(picker.disabled).toBe(false));
+    expect(picker.title).not.toMatch(/workflowColumns/);
+    expect(picker.title).not.toMatch(/workflowGraphExecutor/);
   });
 
   it("selecting an agent reveals the defer/override mode toggle (default defer) and writes the binding", async () => {

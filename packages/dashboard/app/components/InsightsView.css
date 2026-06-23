@@ -1,5 +1,11 @@
 /* === InsightsView === */
 .insights-view {
+  /*
+  FNXC:Insights 2026-06-23-19:20:
+  Insights page horizontal dividers should default invisible with the current seamless header treatment. Keep a local token so themes can restore those dividers with --insights-divider-color or the shared --chrome-divider-color.
+  */
+  --insights-divider-color: var(--chrome-divider-color, transparent);
+
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -23,7 +29,7 @@ Header migrated to the shared ViewHeader component (.view-header). The old .insi
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-sm) var(--space-lg);
-  border-bottom: 1px solid var(--border);
+  border-bottom: var(--chrome-divider-width, 1px) solid var(--insights-divider-color);
   background: var(--surface-subtle);
 }
 
@@ -59,6 +65,10 @@ Header migrated to the shared ViewHeader component (.view-header). The old .insi
 
 .insights-view-close:hover {
   color: var(--text);
+}
+
+.insights-refresh-btn {
+  flex: 0 0 auto;
 }
 
 /* Status region */
@@ -279,7 +289,7 @@ Header migrated to the shared ViewHeader component (.view-header). The old .insi
   justify-content: space-between;
   padding: var(--space-md) var(--space-lg);
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  border-bottom: var(--chrome-divider-width, 1px) solid var(--insights-divider-color);
 }
 
 .insights-section-title {
@@ -467,7 +477,7 @@ Header migrated to the shared ViewHeader component (.view-header). The old .insi
   .insights-sidebar {
     width: 100%;
     border-right: none;
-    border-bottom: 1px solid var(--border);
+    border-bottom: var(--chrome-divider-width, 1px) solid var(--insights-divider-color);
     overflow-x: auto;
     overflow-y: hidden;
     flex-shrink: 0;
@@ -589,7 +599,7 @@ Insights tablets at 769px–1024px were inheriting the desktop fixed category si
     min-width: 0;
     min-inline-size: 0;
     border-right: none;
-    border-bottom: var(--btn-border-width) solid var(--border);
+    border-bottom: var(--chrome-divider-width, 1px) solid var(--insights-divider-color);
     overflow-x: auto;
     overflow-y: hidden;
   }

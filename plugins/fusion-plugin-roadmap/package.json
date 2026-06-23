@@ -13,10 +13,6 @@
       "types": "./src/server/index.d.ts",
       "import": "./src/server/index.ts"
     },
-    "./dashboard-view": {
-      "types": "./src/dashboard-view.tsx",
-      "import": "./src/dashboard-view.tsx"
-    },
     "./roadmap-suggestions": {
       "types": "./src/roadmap-suggestions.d.ts",
       "import": "./src/roadmap-suggestions.ts"

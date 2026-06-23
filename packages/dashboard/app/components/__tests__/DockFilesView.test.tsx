@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 import { DockFilesView } from "../DockFilesView";
@@ -16,6 +18,8 @@ vi.mock("react-i18next", () => ({
 const entries: FileNode[] = [
   { name: "readme.md", type: "file", size: 10, mtime: "2026-01-15T10:30:00Z" },
 ];
+
+const dockFilesCss = readFileSync(resolve(__dirname, "../DockFilesView.css"), "utf8");
 
 vi.mock("../../hooks/useWorkspaceFileBrowser", () => ({
   useWorkspaceFileBrowser: () => ({
@@ -83,6 +87,17 @@ describe("DockFilesView shared current-file state", () => {
     capturedFileEditorProps.length = 0;
   });
   afterEach(() => cleanup());
+
+  it("keeps right-dock Files view dividers tokenized and invisible by default", () => {
+    /*
+    FNXC:RightDockChrome 2026-06-23-19:10:
+    The default Files dock view must not draw extra header or pane dividers unless a theme opts into the right-dock divider token.
+    */
+    expect(dockFilesCss).toContain("border-bottom: var(--chrome-divider-width, 1px) solid var(--right-dock-view-divider-color, transparent);");
+    expect(dockFilesCss).toContain("border-right: var(--chrome-divider-width, 1px) solid var(--right-dock-view-divider-color, transparent);");
+    expect(dockFilesCss).not.toContain("border-bottom: 1px solid var(--border);");
+    expect(dockFilesCss).not.toContain("border-right: 1px solid var(--border);");
+  });
 
   it("persists the selected file to scoped storage and a fresh expand instance reads it on mount", async () => {
     // 1. Dock instance: select a file.

@@ -3844,7 +3844,8 @@ describe("SettingsModal", () => {
 
       // Known features are always shown even with no custom features configured.
       expect(screen.getByText("Insights")).toBeInTheDocument();
-      expect(screen.getByText("Roadmaps")).toBeInTheDocument();
+      // FNXC:SettingsExperimental 2026-06-22-18:50: Roadmaps was removed from Experimental and must not render as a known or stale toggle.
+      expect(screen.queryByText("Roadmaps")).not.toBeInTheDocument();
 
       for (const featureLabel of [
         "Research View",
@@ -4209,7 +4210,7 @@ describe("SettingsModal", () => {
 
       // Known features should always be shown regardless of settings
       expect(screen.getByText("Insights")).toBeInTheDocument();
-      expect(screen.getByText("Roadmaps")).toBeInTheDocument();
+      expect(screen.queryByText("Roadmaps")).not.toBeInTheDocument();
     });
 
     it("saves experimentalFeatures with multiple toggled flags", async () => {

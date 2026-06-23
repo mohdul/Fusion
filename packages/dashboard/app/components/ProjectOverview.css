@@ -15,10 +15,10 @@ FNXC:DashboardHeader 2026-06-22-16:42:
 Dashboard overview uses the canonical ViewHeader at the top; the overview body owns padding, max-width, and vertical scrolling below that header so the header aligns with Artifacts/Skills while the project content keeps its readable width.
 
 FNXC:DashboardHeader 2026-06-22-16:55:
-The Dashboard header itself must remain the same full-width chrome as other main views (surface background, divider, shared padding from ViewHeader). Only the content below is centered/constrained; never put the header inside the 1400px overview body.
+The Dashboard header itself must remain the same full-width chrome as other main views (surface background, no divider, shared padding from ViewHeader). Only the content below is centered/constrained; never put the header inside the 1400px overview body.
 
 FNXC:DashboardHeader 2026-06-22-17:20:
-Keep Dashboard on the canonical header model instead of changing every other view to match a flat Dashboard. The shared ViewHeader owns the shaded surface and single bottom divider so Dashboard matches Missions and Chat; this file only keeps the header full-width and prevents local overview body constraints from changing that chrome.
+Keep Dashboard on the canonical header model instead of changing every other view to match a flat Dashboard. The shared ViewHeader owns the shaded surface without a bottom divider so Dashboard matches Missions and Chat; this file only keeps the header full-width and prevents local overview body constraints from changing that chrome.
 */
 .project-overview > :where(.view-header) {
   width: 100%;
