@@ -68,11 +68,6 @@ import { useAuthOnboarding } from "./hooks/useAuthOnboarding";
 import { useMobileKeyboard } from "./hooks/useMobileKeyboard";
 import { isIOS, useMobileKeyboardViewportLock, useMobileViewportRestoreReset } from "./hooks/useMobileScrollLock";
 import { computeMobileBarKeyboardFlags } from "./utils/mobileBarKeyboardFlags";
-import {
-  captureBoardScrollSnapshot,
-  restoreBoardScrollSnapshot,
-  type BoardScrollSnapshot,
-} from "./utils/boardScrollSnapshot";
 import { useSetupReadiness } from "./hooks/useSetupReadiness";
 import { useUpdateCheck } from "./hooks/useUpdateCheck";
 import { useViewState, type TaskView } from "./hooks/useViewState";
@@ -101,6 +96,9 @@ import { useDashboardHealth } from "./hooks/useDashboardHealth";
 import { useAuthTokenRecovery } from "./hooks/useAuthTokenRecovery";
 import { useScopedDismissFlag } from "./hooks/useScopedDismissFlag";
 import { useCapacityRiskBanner } from "./hooks/useCapacityRiskBanner";
+import { useMainPanelTaskDetail } from "./hooks/useMainPanelTaskDetail";
+import { useBoardScrollRestore } from "./hooks/useBoardScrollRestore";
+import { usePoppedOutTasks } from "./hooks/usePoppedOutTasks";
 import { NativeShellOnboardingModal } from "./components/NativeShellOnboardingModal";
 import { NativeShellConnectionManager } from "./components/NativeShellConnectionManager";
 import { ShellConnectionStatus } from "./components/ShellConnectionStatus";
@@ -401,55 +399,13 @@ function AppInner() {
   FNXC:TaskDetail 2026-06-23-00:41:
   Board task-card secondary actions can deep-link into the inline main-panel task detail. Files-changed must land on the embedded Changes tab instead of reopening the task in the modal path.
   */
-  const [mainPanelDetailTask, setMainPanelDetailTask] = useState<Task | TaskDetail | null>(null);
-  const [mainPanelDetailInitialTab, setMainPanelDetailInitialTab] = useState<DetailTaskTab>("chat");
-  const boardScrollSnapshotRef = useRef<BoardScrollSnapshot | null>(null);
-  const pendingBoardScrollRestoreRef = useRef(false);
-
-  const captureCurrentBoardScrollSnapshot = useCallback(() => {
-    boardScrollSnapshotRef.current = captureBoardScrollSnapshot();
-  }, []);
-
-  const restoreCurrentBoardScrollSnapshot = useCallback(() => {
-    if (restoreBoardScrollSnapshot(boardScrollSnapshotRef.current)) {
-      pendingBoardScrollRestoreRef.current = false;
-    }
-  }, []);
-
-  useEffect(() => {
-    if (taskView !== "board" || !pendingBoardScrollRestoreRef.current) return;
-    const scheduleFrame = typeof window.requestAnimationFrame === "function"
-      ? window.requestAnimationFrame.bind(window)
-      : ((callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 0));
-    const cancelFrame = typeof window.cancelAnimationFrame === "function"
-      ? window.cancelAnimationFrame.bind(window)
-      : window.clearTimeout.bind(window);
-    let firstFrame = 0;
-    let secondFrame = 0;
-    /*
-    FNXC:BoardNavigation 2026-06-22-20:15:
-    Board-card task detail replaces the board instead of overlaying it. Preserve horizontal board scroll and per-column vertical scroll before opening detail, then restore after Back to board remounts the board so users return to the same lane/card context.
-    */
-    firstFrame = scheduleFrame(() => {
-      secondFrame = scheduleFrame(restoreCurrentBoardScrollSnapshot);
-    });
-    return () => {
-      cancelFrame(firstFrame);
-      cancelFrame(secondFrame);
-    };
-  }, [restoreCurrentBoardScrollSnapshot, taskView]);
-
+  const { task: mainPanelDetailTask, initialTab: mainPanelDetailInitialTab, setTask: setMainPanelDetailTask, setInitialTab: setMainPanelDetailInitialTab } = useMainPanelTaskDetail();
+  const { capture: captureCurrentBoardScrollSnapshot, requestRestore } = useBoardScrollRestore(taskView);
   /*
   FNXC:FloatingWindow 2026-06-22-20:45:
   Open popped-out task-detail windows. Each entry is a task snapshot rendered inside its own movable, resizable, non-blocking FloatingWindow. Several can be open at once and coexist with the right-dock pop-out and terminal (all click-through overlays). Snapshots survive a tasks revalidation; rendering prefers the live row by id and falls back to the snapshot. Pop-out dedupes by task id — re-popping an already-open task is a no-op (its window stays; focus-to-front in FloatingWindow handles re-raising on click).
   */
-  const [poppedOutTasks, setPoppedOutTasks] = useState<Array<Task | TaskDetail>>([]);
-  const popOutTaskDetail = useCallback((task: Task | TaskDetail) => {
-    setPoppedOutTasks((current) => (current.some((entry) => entry.id === task.id) ? current : [...current, task]));
-  }, []);
-  const closePoppedOutTask = useCallback((taskId: string) => {
-    setPoppedOutTasks((current) => current.filter((entry) => entry.id !== taskId));
-  }, []);
+  const { tasks: poppedOutTasks, popOut: popOutTaskDetail, close: closePoppedOutTask } = usePoppedOutTasks();
 
   const previousTaskViewRef = useRef<TaskView>(taskView);
 
@@ -883,7 +839,7 @@ function AppInner() {
 
   // FNXC:Navigation 2026-06-22-00:00: Leaving task-detail clears the snapshot so a stale task never lingers if the view is reopened empty.
   const closeTaskDetailMainPanel = useCallback(() => {
-    pendingBoardScrollRestoreRef.current = true;
+    requestRestore();
     setMainPanelDetailTask(null);
     setMainPanelDetailInitialTab("chat");
     handleTaskViewChange("board");
