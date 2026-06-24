@@ -69,9 +69,14 @@ export async function ensureGitRepositoryForProjectPath(
   and `fn project add` do not — without this fallback they would create a stray .git at the
   workspace root because loadWorkspaceConfig returned null.
   */
-  const detectedRepos = await detectWorkspaceRepos(projectPath);
+  const detectedRepos = await detectWorkspaceRepos(projectPath, runner, timeout);
   if (detectedRepos.length > 0) {
-    await saveWorkspaceConfig(projectPath, { repos: detectedRepos });
+    try {
+      await saveWorkspaceConfig(projectPath, { repos: detectedRepos });
+    } catch {
+      // Best-effort: persist for the fast path on future calls, but don't fail
+      // the current registration if the write fails (permissions, disk full, etc.).
+    }
     return "existing";
   }
 
@@ -132,8 +137,16 @@ function extractCommandErrorMessage(error: unknown): string {
 /**
  * Scans `dir` one level deep for sub-directories that are git repositories.
  * Returns relative paths of found repos, sorted alphabetically.
+ *
+ * Excludes `node_modules`, `.fusion`, and other known non-workspace directories so that
+ * packages installed from git sources (which leave real `.git` dirs) do not produce
+ * false-positive workspace members.
  */
-export async function detectWorkspaceRepos(dir: string): Promise<string[]> {
+export async function detectWorkspaceRepos(
+  dir: string,
+  runner: GitRepositoryCommandRunner = runGitCommand,
+  timeout: number = DEFAULT_GIT_TIMEOUT_MS,
+): Promise<string[]> {
   let entries: string[];
   try {
     const { readdir } = await import("node:fs/promises");
@@ -150,7 +163,17 @@ export async function detectWorkspaceRepos(dir: string): Promise<string[]> {
   proof of a git repository. Each candidate child is validated with a real `git rev-parse`
   work-tree probe before it counts, so stray `.git` entries do not yield false-positive repos.
   */
+  /*
+  FNXC:Workspace 2026-06-24-15:00:
+  Exclude node_modules and .fusion so that npm packages installed from git sources (which
+  leave real .git directories inside node_modules/<package>) and Fusion's own state directory
+  do not produce false-positive workspace members. A workspace root is a plain directory whose
+  immediate children are the intended sub-repos, not transitive dependency artifacts.
+  */
+  const EXCLUDED_ENTRIES = new Set(["node_modules", ".fusion", ".git", ".pi"]);
   for (const entry of entries) {
+    if (EXCLUDED_ENTRIES.has(entry)) continue;
+
     const childDir = join(dir, entry);
     // Cheap pre-filter: skip children with no `.git` marker at all before spawning git.
     try {
@@ -159,7 +182,7 @@ export async function detectWorkspaceRepos(dir: string): Promise<string[]> {
     } catch {
       continue;
     }
-    if (await isInsideGitWorkTree(childDir, runGitCommand, DEFAULT_GIT_TIMEOUT_MS)) {
+    if (await isInsideGitWorkTree(childDir, runner, timeout)) {
       found.push(entry);
     }
   }

@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import {
   ensureGitRepositoryForProjectPath,
   GitRepositoryInitializationError,
+  detectWorkspaceRepos,
   type GitRepositoryCommandRunner,
 } from "../git-repository.js";
 
@@ -139,5 +140,22 @@ describe("ensureGitRepositoryForProjectPath", () => {
     expect(existsSync(join(projectPath, ".git"))).toBe(false);
     // workspace.json should be auto-persisted so future calls hit the fast path
     expect(existsSync(join(projectPath, ".fusion", "workspace.json"))).toBe(true);
+  });
+
+  it("does not misclassify node_modules git dirs as workspace sub-repos", async () => {
+    const projectPath = tempDir("fusion-git-workspace-nodemodules-");
+    // Create a node_modules sub-dir with a real .git (simulates a package installed from git)
+    const fakePkg = join(projectPath, "node_modules", "some-package");
+    mkdirSync(fakePkg, { recursive: true });
+    await git(fakePkg, ["init", "-b", "main"]);
+    await git(fakePkg, ["config", "user.email", "test@test.com"]);
+    await git(fakePkg, ["config", "user.name", "Test"]);
+    writeFileSync(join(fakePkg, "index.js"), "module.exports = {};\n");
+    await git(fakePkg, ["add", "index.js"]);
+    await git(fakePkg, ["commit", "-m", "init"]);
+
+    const detected = await detectWorkspaceRepos(projectPath);
+
+    expect(detected).toEqual([]);
   });
 });
