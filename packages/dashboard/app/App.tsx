@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import {
   computeCapacityRisk,
   DEFAULT_CAPACITY_RISK_TODO_THRESHOLD,
-  type ChatRoomMessage,
   type Task,
   type TaskDetail,
   type WorkflowStep,
@@ -96,6 +95,7 @@ import { RetryWarningProvider } from "./context/RetryWarningContext";
 import { ShellHostProvider, useShellHostContext } from "./context/ShellHostContext";
 import { useShellConnection } from "./hooks/useShellConnection";
 import { useStashOrphanCount } from "./hooks/useStashOrphanCount";
+import { useChatUnreadBadge } from "./hooks/useChatUnreadBadge";
 import { NativeShellOnboardingModal } from "./components/NativeShellOnboardingModal";
 import { NativeShellConnectionManager } from "./components/NativeShellConnectionManager";
 import { ShellConnectionStatus } from "./components/ShellConnectionStatus";
@@ -579,7 +579,7 @@ function AppInner() {
   // App-level mailbox/chat unread state (used for header/mobile nav badges)
   const [mailboxUnreadCount, setMailboxUnreadCount] = useState(0);
   const [mailboxPendingApprovalCount, setMailboxPendingApprovalCount] = useState(0);
-  const [chatHasUnreadResponse, setChatHasUnreadResponse] = useState(false);
+  const { chatHasUnreadResponse } = useChatUnreadBadge(currentProject?.id, { taskView, quickChatOpen });
   const { stashOrphanCount } = useStashOrphanCount(currentProject?.id);
   const [approvalBannerCandidate, setApprovalBannerCandidate] = useState<ApprovalBannerCandidate | null>(null);
   const [showGitHubStarPrompt, setShowGitHubStarPrompt] = useState(false);
@@ -692,48 +692,6 @@ function AppInner() {
       },
     });
   }, [currentProject?.id, gitHubStarPromptShown, refreshMailboxUnreadCount]);
-
-  useEffect(() => {
-    if (taskView === "chat" || quickChatOpen) {
-      setChatHasUnreadResponse(false);
-    }
-  }, [quickChatOpen, taskView]);
-
-
-  useEffect(() => {
-    const params = new URLSearchParams();
-    if (currentProject?.id) {
-      params.set("projectId", currentProject.id);
-    }
-    const query = params.size > 0 ? `?${params.toString()}` : "";
-
-    return subscribeSse(`/api/events${query}`, {
-      events: {
-        "chat:message:added": (event: MessageEvent) => {
-          try {
-            const payload = JSON.parse(event.data) as { role?: string; projectId?: string | null };
-            if (payload.role !== "assistant") return;
-            if (taskView === "chat" || quickChatOpen) return;
-            if (payload.projectId && currentProject?.id && payload.projectId !== currentProject.id) return;
-            setChatHasUnreadResponse(true);
-          } catch {
-            // no-op
-          }
-        },
-        "chat:room:message:added": (event: MessageEvent) => {
-          try {
-            const payload = JSON.parse(event.data) as ChatRoomMessage & { projectId?: string | null };
-            if (payload.role === "user") return;
-            if (taskView === "chat" || quickChatOpen) return;
-            if (payload.projectId && currentProject?.id && payload.projectId !== currentProject.id) return;
-            setChatHasUnreadResponse(true);
-          } catch {
-            // no-op
-          }
-        },
-      },
-    });
-  }, [currentProject?.id, quickChatOpen, taskView]);
 
   const branchOptions = useMemo(() => {
     return Array.from(
