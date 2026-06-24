@@ -277,6 +277,13 @@ interface TaskRow {
   sourceIssueUrl: string | null;
   sourceIssueClosedAt: string | null;
   mergeDetails: string | null;
+  // FNXC:Workspace 2026-06-24-15:30 (FN-multiworkspace persistence): the per-sub-repo worktree
+  // map MUST have its own SQLite column. Before this it was a Task field with NO column/rowToTask
+  // mapping, so updateTask set it only in-memory and applyTaskPatch wrote the DB-round-tripped
+  // task (without it) back to task.json — the map was silently dropped on every persist. That made
+  // fn_task_done's scope verifier always read `{}` ("acquired no sub-repo worktrees") and broke
+  // every isWorkspaceTask() consumer. Stored as JSON text, same shape as mergeDetails.
+  workspaceWorktrees: string | null;
   breakIntoSubtasks: number | null;
   noCommitsExpected: number | null;
   enabledWorkflowSteps: string | null;
@@ -429,6 +436,10 @@ const TASK_COLUMN_DESCRIPTORS: TaskColumnDescriptor[] = [
   defineTaskColumn("sourceIssueUrl", (task) => task.sourceIssue?.url ?? null),
   defineTaskColumn("sourceIssueClosedAt", (task) => task.sourceIssue?.closedAt ?? null),
   defineTaskColumn("mergeDetails", (task) => toJsonNullable(task.mergeDetails)),
+  // FNXC:Workspace 2026-06-24-15:30: persist the per-sub-repo worktree map so fn_acquire_repo_worktree's
+  // write survives the SQLite round-trip getChangedTaskColumns/rowToTask use. Without this descriptor the
+  // column diff never sees a change and the field never reaches the DB.
+  defineTaskColumn("workspaceWorktrees", (task) => toJsonNullable(task.workspaceWorktrees)),
   defineTaskColumn("breakIntoSubtasks", (task) => task.breakIntoSubtasks ? 1 : 0),
   defineTaskColumn("noCommitsExpected", (task) => task.noCommitsExpected ? 1 : 0),
   defineTaskColumn("enabledWorkflowSteps", (task) => toJson(task.enabledWorkflowSteps || [])),
@@ -2150,6 +2161,13 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         };
       })(),
       mergeDetails: fromJson<import("./types.js").MergeDetails>(row.mergeDetails),
+      // FNXC:Workspace 2026-06-24-15:30: deserialize the per-sub-repo worktree map. An empty/null map
+      // normalizes to undefined so isWorkspaceTask() (keys-length>0) and the scope verifier behave the
+      // same as a task that never acquired a sub-repo.
+      workspaceWorktrees: (() => {
+        const w = fromJson<import("./types.js").Task["workspaceWorktrees"]>(row.workspaceWorktrees);
+        return w && Object.keys(w).length > 0 ? w : undefined;
+      })(),
       breakIntoSubtasks: row.breakIntoSubtasks ? true : undefined,
       noCommitsExpected: row.noCommitsExpected ? true : undefined,
       enabledWorkflowSteps: (() => { const e = fromJson<string[]>(row.enabledWorkflowSteps); return e && e.length > 0 ? e : undefined; })(),
