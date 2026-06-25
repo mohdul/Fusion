@@ -365,6 +365,18 @@ function normalizeExperimentalFeaturesForSave(features?: Record<string, boolean>
   return normalized;
 }
 
+function normalizeWorktreeCopyFilesForSave(paths?: string[]): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const rawPath of paths ?? []) {
+    const path = rawPath.trim();
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    normalized.push(path);
+  }
+  return normalized;
+}
+
 type LegacySectionId = "pi-extensions";
 export type SectionId = SettingsSection["id"] | LegacySectionId;
 
@@ -709,6 +721,7 @@ export function SettingsModal({
     recycleWorktrees: false,
     executorAllowSiblingBranchRename: false,
     worktreeNaming: "random",
+    worktreeCopyFiles: [],
     worktreesDir: "",
     worktrunk: {
       enabled: false,
@@ -767,6 +780,7 @@ export function SettingsModal({
   const [researchLimitError, setResearchLimitError] = useState<string | null>(null);
   const [overlapPathPickerIndex, setOverlapPathPickerIndex] = useState<number | null>(null);
   const [worktreesDirPickerOpen, setWorktreesDirPickerOpen] = useState(false);
+  const [worktreeCopyFilePickerIndex, setWorktreeCopyFilePickerIndex] = useState<number | null>(null);
 
   const {
     entries: overlapPathPickerEntries,
@@ -785,6 +799,15 @@ export function SettingsModal({
     error: worktreesDirPickerError,
     refresh: refreshWorktreesDirPicker,
   } = useWorkspaceFileBrowser("project", worktreesDirPickerOpen, projectId);
+
+  const {
+    entries: worktreeCopyFilePickerEntries,
+    currentPath: worktreeCopyFilePickerCurrentPath,
+    setPath: setWorktreeCopyFilePickerPath,
+    loading: worktreeCopyFilePickerLoading,
+    error: worktreeCopyFilePickerError,
+    refresh: refreshWorktreeCopyFilePicker,
+  } = useWorkspaceFileBrowser("project", worktreeCopyFilePickerIndex !== null, projectId);
 
   const { nodes } = useNodes();
   const experimentalFeatures = form.experimentalFeatures ?? {};
@@ -966,6 +989,7 @@ export function SettingsModal({
           mergeIntegrationWorktree: normalizeMergeIntegrationWorktreeMode(s.mergeIntegrationWorktree),
           mergeAdvanceAutoSync: normalizeMergeAdvanceAutoSyncMode(s.mergeAdvanceAutoSync),
           maxAutoMergeRetries: resolveMaxAutoMergeRetriesForSettingsForm(s),
+          worktreeCopyFiles: Array.isArray(s.worktreeCopyFiles) ? s.worktreeCopyFiles : [],
         };
         setForm(normalizedSettings);
         setInitialValues(normalizedSettings); // Store initial values to detect explicit clears
@@ -2271,6 +2295,73 @@ export function SettingsModal({
     }
   }, [closeWorktreesDirPicker]);
 
+  const openWorktreeCopyFilePicker = useCallback((index: number) => {
+    setWorktreeCopyFilePickerIndex(index);
+    setWorktreeCopyFilePickerPath(".");
+  }, [setWorktreeCopyFilePickerPath]);
+
+  const closeWorktreeCopyFilePicker = useCallback(() => {
+    setWorktreeCopyFilePickerIndex(null);
+  }, []);
+
+  const selectWorktreeCopyFile = useCallback((path: string) => {
+    if (worktreeCopyFilePickerIndex === null) return;
+
+    setForm((f) => {
+      const currentPaths = f.worktreeCopyFiles && f.worktreeCopyFiles.length > 0
+        ? [...f.worktreeCopyFiles]
+        : [""];
+      currentPaths[worktreeCopyFilePickerIndex] = path;
+      return { ...f, worktreeCopyFiles: currentPaths };
+    });
+
+    closeWorktreeCopyFilePicker();
+  }, [worktreeCopyFilePickerIndex, closeWorktreeCopyFilePicker]);
+
+  const handleWorktreeCopyFilePickerOverlayClick = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    if (event.target === event.currentTarget) {
+      closeWorktreeCopyFilePicker();
+    }
+  }, [closeWorktreeCopyFilePicker]);
+
+  const handleWorktreeCopyFileChange = useCallback((index: number, value: string) => {
+    setForm((f) => {
+      const currentPaths = f.worktreeCopyFiles && f.worktreeCopyFiles.length > 0
+        ? [...f.worktreeCopyFiles]
+        : [""];
+      currentPaths[index] = value;
+      return { ...f, worktreeCopyFiles: currentPaths };
+    });
+  }, []);
+
+  const handleRemoveWorktreeCopyFile = useCallback((index: number) => {
+    setForm((f) => {
+      const currentPaths = f.worktreeCopyFiles && f.worktreeCopyFiles.length > 0
+        ? [...f.worktreeCopyFiles]
+        : [""];
+      const nextPaths = currentPaths.filter((_, i) => i !== index);
+      return { ...f, worktreeCopyFiles: nextPaths.length > 0 ? nextPaths : [] };
+    });
+
+    if (worktreeCopyFilePickerIndex === index) {
+      closeWorktreeCopyFilePicker();
+      return;
+    }
+
+    if (worktreeCopyFilePickerIndex !== null && worktreeCopyFilePickerIndex > index) {
+      setWorktreeCopyFilePickerIndex(worktreeCopyFilePickerIndex - 1);
+    }
+  }, [worktreeCopyFilePickerIndex, closeWorktreeCopyFilePicker]);
+
+  const handleAddWorktreeCopyFile = useCallback(() => {
+    setForm((f) => {
+      const currentPaths = f.worktreeCopyFiles && f.worktreeCopyFiles.length > 0
+        ? f.worktreeCopyFiles
+        : [""];
+      return { ...f, worktreeCopyFiles: [...currentPaths, ""] };
+    });
+  }, []);
+
   const handleOverlapIgnorePathChange = useCallback((index: number, value: string) => {
     setForm((f) => {
       const currentPaths = f.overlapIgnorePaths && f.overlapIgnorePaths.length > 0
@@ -2334,6 +2425,7 @@ export function SettingsModal({
 
     setIsSaving(true);
     try {
+      const normalizedWorktreeCopyFiles = normalizeWorktreeCopyFilesForSave(form.worktreeCopyFiles);
       const payload = {
         ...form,
         worktreeInitCommand: form.worktreeInitCommand?.trim() || undefined,
@@ -2348,6 +2440,9 @@ export function SettingsModal({
         githubTrackingDefaultRepo: form.githubTrackingDefaultRepo?.trim() || undefined,
         githubAuthToken: form.githubAuthToken?.trim() || undefined,
         overlapIgnorePaths: (form.overlapIgnorePaths ?? []).map((path) => path.trim()).filter((path) => path.length > 0),
+        worktreeCopyFiles: normalizedWorktreeCopyFiles.length > 0 || initialScopedValues?.project?.worktreeCopyFiles !== undefined
+          ? normalizedWorktreeCopyFiles
+          : undefined,
         experimentalFeatures: normalizeExperimentalFeaturesForSave(form.experimentalFeatures),
       };
 
@@ -2740,6 +2835,10 @@ export function SettingsModal({
             worktrunkInstall={worktrunkInstall}
             worktrunkInstallVerified={worktrunkInstallVerified}
             onOpenWorktreesDirPicker={openWorktreesDirPicker}
+            onWorktreeCopyFileChange={handleWorktreeCopyFileChange}
+            onRemoveWorktreeCopyFile={handleRemoveWorktreeCopyFile}
+            onAddWorktreeCopyFile={handleAddWorktreeCopyFile}
+            onOpenWorktreeCopyFilePicker={openWorktreeCopyFilePicker}
             onOpenApprovals={onOpenApprovals}
           />
         );
@@ -3257,6 +3356,53 @@ export function SettingsModal({
                 </button>
                 <button className="btn btn-primary btn-sm" onClick={selectCurrentWorktreesDir}>
                   {t("settings.scheduling.selectCurrentDir", "Select current directory")}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {worktreeCopyFilePickerIndex !== null && (
+        <div
+          className="modal-overlay open"
+          onClick={handleWorktreeCopyFilePickerOverlayClick}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("settings.worktrees.browseCopyFile", "Browse file to copy into new worktrees")}
+        >
+          <div className="modal modal-lg settings-overlap-path-picker-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{t("settings.worktrees.selectCopyFile", "Select file to copy")}</h3>
+              <button className="modal-close" onClick={closeWorktreeCopyFilePicker} aria-label={t("actions.close", "Close")}>
+                &times;
+              </button>
+            </div>
+            <div className="modal-body settings-overlap-path-picker-body">
+              <p className="settings-overlap-path-picker-note">
+                {t("settings.worktrees.copyFilePickerNote", "Choose a repository file to copy into each newly assigned task worktree. Directories are not selected from this picker.")}
+              </p>
+              <FileBrowser
+                entries={worktreeCopyFilePickerEntries}
+                currentPath={worktreeCopyFilePickerCurrentPath}
+                onSelectFile={selectWorktreeCopyFile}
+                onNavigate={setWorktreeCopyFilePickerPath}
+                loading={worktreeCopyFilePickerLoading}
+                error={worktreeCopyFilePickerError}
+                onRetry={refreshWorktreeCopyFilePicker}
+                workspace="project"
+                projectId={projectId}
+              />
+            </div>
+            <div className="modal-actions">
+              <div className="modal-actions-left">
+                <small>
+                  {t("settings.fileBrowser.currentDirectory", "Current directory:")} <code>{worktreeCopyFilePickerCurrentPath === "." ? t("settings.fileBrowser.projectRoot", "(project root)") : worktreeCopyFilePickerCurrentPath}</code>
+                </small>
+              </div>
+              <div className="modal-actions-right">
+                <button className="btn btn-sm" onClick={closeWorktreeCopyFilePicker}>
+                  {t("settings.actions.cancel", "Cancel")}
                 </button>
               </div>
             </div>

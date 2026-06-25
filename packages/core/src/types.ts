@@ -3778,6 +3778,13 @@ export interface ProjectSettings {
   /** Shell command to run inside each new worktree immediately after creation.
    *  Useful for project-specific setup (e.g. `pnpm install --frozen-lockfile`, `cp .env.local .env`). */
   worktreeInitCommand?: string;
+  /**
+   * Repository-root-relative regular files copied into newly assigned non-resume task worktrees.
+   *
+   * FNXC:WorktreeCopyFiles 2026-06-24-00:00:
+   * Operators need `.env`-style repo files available before worktree init commands run without embedding shell copy commands in setup. Entries stay root-relative, copy only regular files, and apply only when Fusion prepares a fresh or pooled assignment so resume worktrees keep their existing on-disk state.
+   */
+  worktreeCopyFiles?: string[];
   /** Custom test command for the project (e.g. "pnpm test") */
   testCommand?: string;
   /** Custom build command for the project (e.g. "pnpm build") */

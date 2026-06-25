@@ -295,6 +295,11 @@ export const DEFAULT_PROJECT_SETTINGS = {
   defaultNodeId: undefined,
   secretsEnv: undefined,
   worktreeInitCommand: undefined,
+  /*
+  FNXC:WorktreeCopyFiles 2026-06-24-00:00:
+  The safe default is an empty allowlist so new worktrees never copy potentially sensitive repository files until the project owner explicitly configures root-relative regular-file paths.
+  */
+  worktreeCopyFiles: [],
   testCommand: undefined,
   buildCommand: undefined,
   recycleWorktrees: false,

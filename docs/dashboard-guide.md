@@ -277,6 +277,10 @@ Saved API keys are stored in settings but are masked in API responses and UI-loa
 
 For the stored settings shape, see [`customProviders` in the Settings Reference](./settings-reference.md#customproviders). For the API behavior, including masked keys in responses, see [Architecture → Custom Provider endpoints](./architecture.md#custom-provider-endpoints).
 
+## Worktree copy files
+
+Open **Settings → Worktrees** to maintain **Files to copy into new worktrees**. Add editable rows for repository-root-relative files such as `.env`, use **Browse** to select a project file, remove rows you no longer want, then Save. Fusion trims blank rows and de-duplicates paths before persisting. During task startup, configured regular files are copied into fresh or pooled task worktrees before the worktree init command and task execution begin; existing/resumed worktrees are not overwritten. Missing files, directories, absolute paths, traversal entries, and unreadable sources are skipped with non-fatal diagnostics and without logging file contents. See [`worktreeCopyFiles` in the Settings Reference](./settings-reference.md#project-settings) for the stored setting shape.
+
 ## Planning Mode
 
 Planning is a desktop/tablet left-sidebar main-content destination after **Command Center**. It opens the planning-session list and composer in the main content region; mobile continues to use the compact planning entry points. Planning Mode now includes branch controls on the summary screen before you create a task.

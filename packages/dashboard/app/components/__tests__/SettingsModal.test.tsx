@@ -215,6 +215,7 @@ const defaultSettings = {
   ephemeralAgentsEnabled: true,
   executorAllowSiblingBranchRename: false,
   worktreeNaming: "random",
+  worktreeCopyFiles: [],
   worktreesDir: "",
   worktrunk: {
     enabled: false,
@@ -3090,6 +3091,96 @@ describe("SettingsModal", () => {
       await waitFor(() => expect(mockUpdateSettings).toHaveBeenCalled());
       const payload = mockUpdateSettings.mock.calls[0][0] as Record<string, unknown>;
       expect(payload.worktreesDir).toBe("~/.fn-worktrees/{repo}");
+    });
+
+    it("adds, browses, de-duplicates, and saves worktree copy files", async () => {
+      mockFetchSettings.mockResolvedValue({
+        ...defaultSettings,
+        worktreeCopyFiles: [".env"],
+      });
+      mockFetchSettingsByScope.mockResolvedValue({
+        global: defaultSettings,
+        project: { worktreeCopyFiles: [".env"] },
+      });
+
+      renderModal({ initialSection: "worktrees" });
+      await waitForSettingsModalReady();
+
+      expect(screen.getByDisplayValue(".env")).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "Add file" }));
+      const inputs = screen.getAllByLabelText("File to copy into new worktrees") as HTMLInputElement[];
+      await userEvent.type(inputs[1], "  .env  ");
+      await userEvent.click(screen.getAllByRole("button", { name: "Browse file to copy into new worktrees" })[1]);
+      expect(await screen.findByRole("dialog", { name: "Browse file to copy into new worktrees" })).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "Select README.md" }));
+
+      await userEvent.click(screen.getByRole("button", { name: "Add file" }));
+      const updatedInputs = screen.getAllByLabelText("File to copy into new worktrees") as HTMLInputElement[];
+      await userEvent.type(updatedInputs[2], " README.md ");
+      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(mockUpdateSettings).toHaveBeenCalled());
+      const payload = mockUpdateSettings.mock.calls[0][0] as Record<string, unknown>;
+      expect(payload.worktreeCopyFiles).toEqual([".env", "README.md"]);
+    });
+
+    it("clears worktree copy files to an empty persisted list", async () => {
+      mockFetchSettings.mockResolvedValue({
+        ...defaultSettings,
+        worktreeCopyFiles: [".env"],
+      });
+      mockFetchSettingsByScope.mockResolvedValue({
+        global: defaultSettings,
+        project: { worktreeCopyFiles: [".env"] },
+      });
+
+      renderModal({ initialSection: "worktrees" });
+      await waitForSettingsModalReady();
+
+      await userEvent.click(screen.getByRole("button", { name: "Remove copied worktree file" }));
+      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(mockUpdateSettings).toHaveBeenCalled());
+      const payload = mockUpdateSettings.mock.calls[0][0] as Record<string, unknown>;
+      expect(payload.worktreeCopyFiles).toEqual([]);
+    });
+
+    it("exposes worktree copy file controls via the mobile Settings Section picker", async () => {
+      Object.defineProperty(window, "matchMedia", {
+        writable: true,
+        value: vi.fn().mockImplementation((query: string) => ({
+          matches: query === "(max-width: 768px)" || query === "(max-width: 768px), (max-height: 480px)",
+          media: query,
+          onchange: null,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          dispatchEvent: vi.fn(),
+        })),
+      });
+      mockFetchSettings.mockResolvedValue({
+        ...defaultSettings,
+        worktreeCopyFiles: [".env.local"],
+      });
+      mockFetchSettingsByScope.mockResolvedValue({
+        global: defaultSettings,
+        project: { worktreeCopyFiles: [".env.local"] },
+      });
+
+      renderModal();
+      await waitForSettingsModalReady();
+
+      const sectionPicker = screen.getByLabelText("Settings Section") as HTMLSelectElement;
+      expect(sectionPicker).toBeInTheDocument();
+      expect(sectionPicker.querySelector('option[value="worktrees"]')).toHaveTextContent("Worktrees");
+
+      await userEvent.selectOptions(sectionPicker, "worktrees");
+
+      expect(screen.getByText("Files to copy into new worktrees")).toBeInTheDocument();
+      expect(screen.getByDisplayValue(".env.local")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Browse file to copy into new worktrees" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Add file" })).toBeInTheDocument();
     });
 
     it("allows clearing maxWorktrees without leaving a stuck zero", async () => {      renderModal();
