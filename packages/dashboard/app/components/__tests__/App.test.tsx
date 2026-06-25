@@ -2617,7 +2617,7 @@ describe("App view switching", () => {
     localStorage.removeItem("kb:proj_b:kb-dashboard-task-view");
   });
 
-  it("does not render insights view button when insights experimental feature is disabled", async () => {
+  it("keeps insights view button visible after graduation from experimental flags", async () => {
     (fetchSettings as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ...defaultSettings,
       experimentalFeatures: { insights: false },
@@ -2625,16 +2625,15 @@ describe("App view switching", () => {
 
     render(<App />);
 
-    // Wait for the sidebar to render
     await waitFor(() => {
       expect(screen.getByTestId("sidebar-nav-board")).toBeTruthy();
     });
 
-    // Insights is not a sidebar destination when the feature is disabled
-    expect(screen.queryByTestId("sidebar-nav-insights")).toBeNull();
+    // FNXC:DefaultNavigation 2026-06-23-01:24: Insights graduated from experimental navigation; stale false flags must not remove the destination.
+    expect(screen.getByTestId("sidebar-nav-insights")).toBeTruthy();
   });
 
-  it("keeps experimental views off until settings load and falls back to board when no flag is enabled", async () => {
+  it("keeps graduated views available after settings load with no experimental flags", async () => {
     localStorage.setItem(taskViewStorageKey(), "insights");
 
     let resolveSettings: ((settings: Settings) => void) | undefined;
@@ -2651,23 +2650,20 @@ describe("App view switching", () => {
       expect(screen.getByTestId("sidebar-nav-board")).toBeTruthy();
     });
 
-    expect(document.querySelector(".insights-view")).toBeNull();
-    expect(document.querySelector(".board")).toBeNull();
-
     resolveSettings?.({
       ...defaultSettings,
       experimentalFeatures: {},
     });
 
     await waitFor(() => {
-      expect(document.querySelector(".board")).toBeTruthy();
+      expect(document.querySelector(".insights-view")).toBeTruthy();
     });
 
-    expect(document.querySelector(".insights-view")).toBeNull();
+    expect(document.querySelector(".board")).toBeNull();
     localStorage.removeItem(taskViewStorageKey());
   });
 
-  it("does not render memory view button when memoryView experimental feature is disabled", async () => {
+  it("keeps memory view button visible after graduation from experimental flags", async () => {
     (fetchSettings as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ...defaultSettings,
       experimentalFeatures: { memoryView: false, insights: true },
@@ -2675,17 +2671,14 @@ describe("App view switching", () => {
 
     render(<App />);
 
-    // Wait for the sidebar to render
     await waitFor(() => {
       expect(screen.getByTestId("sidebar-nav-board")).toBeTruthy();
     });
 
-    // Memory is not a sidebar destination when the feature is disabled
-    expect(screen.queryByTestId("sidebar-nav-memory")).toBeNull();
+    expect(screen.getByTestId("sidebar-nav-memory")).toBeTruthy();
   });
 
-  it("redirects to board when memoryView experimental feature is disabled and taskView is memory", async () => {
-    // Set localStorage to memory view but memoryView is disabled
+  it("keeps memory view selected after graduation from experimental flags", async () => {
     localStorage.setItem(taskViewStorageKey(), "memory");
     (fetchSettings as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ...defaultSettings,
@@ -2694,17 +2687,15 @@ describe("App view switching", () => {
 
     render(<App />);
 
-    // Wait for the app to settle
     await waitFor(() => {
       expect(fetchSettings).toHaveBeenCalled();
     });
 
-    // Should redirect to board view since memory is disabled
     await waitFor(() => {
-      expect(document.querySelector(".board")).toBeTruthy();
+      expect(document.querySelector(".memory-view")).toBeTruthy();
     });
 
-    // Cleanup
+    expect(document.querySelector(".board")).toBeNull();
     localStorage.removeItem(taskViewStorageKey());
   });
 
@@ -2724,7 +2715,7 @@ describe("App view switching", () => {
     localStorage.removeItem(taskViewStorageKey());
   });
 
-  it("redirects to board when goalsView experimental feature is disabled and taskView is goalsView", async () => {
+  it("keeps goals view selected after graduation from experimental flags", async () => {
     localStorage.setItem(taskViewStorageKey(), "goalsView");
     (fetchSettings as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ...defaultSettings,
@@ -2738,9 +2729,10 @@ describe("App view switching", () => {
     });
 
     await waitFor(() => {
-      expect(document.querySelector(".board")).toBeTruthy();
+      expect(screen.getByTestId("goals-view")).toBeTruthy();
     });
 
+    expect(document.querySelector(".board")).toBeNull();
     localStorage.removeItem(taskViewStorageKey());
   });
 });
@@ -2881,7 +2873,7 @@ describe("Script-to-terminal modal handoff", () => {
     });
 
     // Open the Scripts modal via the quick-scripts dropdown "Manage Scripts..." button
-    const scriptsBtn = screen.getByTestId("scripts-btn");
+    const scriptsBtn = await screen.findByTestId("scripts-btn");
     await act(async () => {
       fireEvent.click(scriptsBtn);
     });
@@ -2926,7 +2918,7 @@ describe("Script-to-terminal modal handoff", () => {
     });
 
     // Open the Scripts modal and run a script
-    const scriptsBtn = screen.getByTestId("scripts-btn");
+    const scriptsBtn = await screen.findByTestId("scripts-btn");
     await act(async () => {
       fireEvent.click(scriptsBtn);
     });
@@ -2988,7 +2980,7 @@ describe("Script-to-terminal modal handoff", () => {
     });
 
     // Open the Scripts modal
-    const scriptsBtn = screen.getByTestId("scripts-btn");
+    const scriptsBtn = await screen.findByTestId("scripts-btn");
     await act(async () => {
       fireEvent.click(scriptsBtn);
     });

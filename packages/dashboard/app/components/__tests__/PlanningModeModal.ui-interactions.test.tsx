@@ -271,7 +271,7 @@ describe("PlanningModeModal", () => {
 
     it("uses SVG-safe spin geometry so the first Planning loading paint rotates", () => {
       const styles = readFileSync(resolve(process.cwd(), "app/styles.css"), "utf8");
-      const sharedSvgSpinRule = styles.match(/svg\.animate-spin,\s*\nsvg\.spin\s*\{[^}]*\}/)?.[0] ?? "";
+      const sharedSvgSpinRule = styles.match(/svg\.animate-spin,\s*\n(?:svg\.[\w-]+,\s*\n)*svg\.[\w-]+\s*\{[^}]*\}/)?.[0] ?? "";
 
       expect(sharedSvgSpinRule).toContain("transform-box: fill-box");
     });

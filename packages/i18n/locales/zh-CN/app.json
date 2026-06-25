@@ -8562,12 +8562,10 @@
   },
   "taskChat": {
     "activePlaceholder": "",
-    "activeSessionHint": "",
     "agentMessages": "",
     "arguments": "",
     "collapseChat": "",
     "donePlaceholder": "",
-    "doneSessionHint": "",
     "emptyAgentOutput": "",
     "entryCount_one": "",
     "entryCount_other": "",

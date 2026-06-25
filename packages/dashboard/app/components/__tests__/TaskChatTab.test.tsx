@@ -183,23 +183,27 @@ function renderListSplitTaskChat(task: Task = makeTask()) {
   );
 }
 
-function expectIdleSessionHint() {
-  // FNXC:TaskDetailChat 2026-06-22-21:20: The idle "No agent is working…" banner was removed per user request — idle chats stay sendable with no hint shown.
+function expectNoComposerGuidanceShell() {
+  /*
+   * FNXC:TaskDetailChat 2026-06-24-00:00:
+   * Task chat composers communicate the active/idle/done action through placeholders only; tests must prove the removed guidance block does not leave an empty status shell above the entry row.
+   */
   expect(screen.queryByTestId("task-chat-idle-hint")).not.toBeInTheDocument();
+  expect(document.querySelector(".task-chat-session-hint")).toBeNull();
+  expect(document.querySelector(".task-chat-session-hint--idle")).toBeNull();
   expect(screen.queryByText(/no agent is working on this task right now/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/message the active agent session\. guidance is delivered to the running session in real time\./i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/^send a message to start a refinement task for this completed task\.$/i)).not.toBeInTheDocument();
+}
+
+function expectActivePlaceholderWithoutGuidance() {
+  expectNoComposerGuidanceShell();
   expect(screen.getByPlaceholderText("Steer the currently executing agent")).toBeInTheDocument();
 }
 
-function expectActiveSessionCopy() {
-  expect(screen.getByText(/active agent session/i)).toBeInTheDocument();
-  expect(screen.getByText(/delivered to the running session in real time/i)).toBeInTheDocument();
-  expect(screen.queryByTestId("task-chat-idle-hint")).not.toBeInTheDocument();
-}
-
-function expectDoneRefinementCopy() {
-  expect(screen.getByText(/start a refinement task for this completed task/i)).toBeInTheDocument();
+function expectDonePlaceholderWithoutGuidance() {
+  expectNoComposerGuidanceShell();
   expect(screen.getByPlaceholderText("Start a refinement task for this completed task")).toBeInTheDocument();
-  expect(screen.queryByTestId("task-chat-idle-hint")).not.toBeInTheDocument();
 }
 
 function restoreMetricDescriptor(name: "scrollTop" | "scrollHeight" | "clientHeight", descriptor: PropertyDescriptor | undefined) {
@@ -657,7 +661,7 @@ describe("TaskChatTab", () => {
   it.each([
     ["inline", false],
     ["expanded", true],
-  ])("renders the idle no-reply hint in the %s task chat surface", (_label, expanded) => {
+  ])("omits composer guidance in the %s task chat surface", (_label, expanded) => {
     render(
       <TaskChatTab
         task={makeTask({ column: "todo", assignedAgentId: undefined, checkedOutBy: undefined, status: undefined })}
@@ -669,7 +673,7 @@ describe("TaskChatTab", () => {
       />,
     );
 
-    expectIdleSessionHint();
+    expectActivePlaceholderWithoutGuidance();
   });
 
   it.each([
@@ -677,7 +681,7 @@ describe("TaskChatTab", () => {
     ["expanded planning", true, "planning"],
     ["inline cleared status", false, null],
     ["expanded cleared status", true, null],
-  ] as const)("renders active planning guidance in the %s task chat surface", (_label, expanded, status) => {
+  ] as const)("uses placeholder-only planning composer in the %s task chat surface", (_label, expanded, status) => {
     render(
       <TaskChatTab
         task={makeTask({ column: "triage", status, assignedAgentId: undefined, checkedOutBy: undefined })}
@@ -689,7 +693,7 @@ describe("TaskChatTab", () => {
       />,
     );
 
-    expectActiveSessionCopy();
+    expectActivePlaceholderWithoutGuidance();
   });
 
   it.each([
@@ -702,11 +706,11 @@ describe("TaskChatTab", () => {
       steeringComments: [makeSteeringComment({ id: "planning-populated-user", text: "Earlier planning guidance" })],
     })],
     ["loading", [], true, makeTask({ column: "triage", status: null, assignedAgentId: undefined, checkedOutBy: undefined })],
-  ] as const)("keeps planning-session guidance active with an %s transcript", (_label, entries, loading, task) => {
+  ] as const)("keeps planning-session composer placeholder-only with an %s transcript", (_label, entries, loading, task) => {
     mockLogs([...entries], loading);
     render(<TaskChatTab task={task} active addToast={vi.fn()} sessionLive={false} />);
 
-    expectActiveSessionCopy();
+    expectActivePlaceholderWithoutGuidance();
   });
 
   it.each([
@@ -718,11 +722,11 @@ describe("TaskChatTab", () => {
       status: undefined,
       steeringComments: [makeSteeringComment({ id: "idle-populated-user", text: "Earlier saved guidance" })],
     })],
-  ] as const)("renders the composer-anchored idle hint with an %s transcript", (_label, entries, task) => {
+  ] as const)("omits composer guidance with an %s idle transcript", (_label, entries, task) => {
     mockLogs([...entries]);
     render(<TaskChatTab task={task} active addToast={vi.fn()} sessionLive={false} />);
 
-    expectIdleSessionHint();
+    expectActivePlaceholderWithoutGuidance();
   });
 
   it("renders a single text entry as one text bubble", () => {
@@ -1399,7 +1403,7 @@ describe("TaskChatTab", () => {
       />,
     );
 
-    expectDoneRefinementCopy();
+    expectDonePlaceholderWithoutGuidance();
     const input = screen.getByLabelText("Message active agent session");
     await user.type(input, "Please add a follow-up report");
     await user.click(screen.getByRole("button", { name: "Send" }));
@@ -1859,7 +1863,7 @@ describe("TaskChatTab", () => {
     );
 
     expect(screen.queryByText(/No active steerable agent session/)).not.toBeInTheDocument();
-    expectIdleSessionHint();
+    expectActivePlaceholderWithoutGuidance();
     const input = screen.getByLabelText("Message active agent session");
     expect(input).not.toBeDisabled();
     const sendButton = screen.getByRole("button", { name: "Send" });
@@ -1872,7 +1876,7 @@ describe("TaskChatTab", () => {
     await waitFor(() => {
       expect(mockedAddSteeringComment).toHaveBeenCalledWith("FN-001", "Queue this for later", "project-1");
     });
-    expectIdleSessionHint();
+    expectActivePlaceholderWithoutGuidance();
     expect(within(screen.getByTestId("task-chat-transcript")).getByText("Queue this for later")).toBeVisible();
   });
 
@@ -1886,12 +1890,12 @@ describe("TaskChatTab", () => {
     const message = `Will anyone answer ${_label}?`;
     render(<TaskChatTab task={task} projectId="project-1" active addToast={vi.fn()} sessionLive={false} />);
 
-    expectIdleSessionHint();
+    expectActivePlaceholderWithoutGuidance();
     await user.type(screen.getByLabelText("Message active agent session"), message);
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(mockedAddSteeringComment).toHaveBeenCalledWith("FN-001", message, "project-1");
-    expectIdleSessionHint();
+    expectActivePlaceholderWithoutGuidance();
     expect(within(screen.getByTestId("task-chat-transcript")).getByText(message)).toBeVisible();
 
     await act(async () => {
@@ -1899,7 +1903,7 @@ describe("TaskChatTab", () => {
       await send.promise;
     });
 
-    expectIdleSessionHint();
+    expectActivePlaceholderWithoutGuidance();
     expect(within(screen.getByTestId("task-chat-transcript")).getByText(message)).toBeVisible();
   });
 
@@ -1919,7 +1923,7 @@ describe("TaskChatTab", () => {
       );
 
       expect(screen.queryByText(/No active steerable agent session/)).not.toBeInTheDocument();
-      expectActiveSessionCopy();
+      expectActivePlaceholderWithoutGuidance();
       const input = screen.getByLabelText("Message active agent session");
       expect(input).not.toBeDisabled();
       await user.type(input, `Please continue ${agentState}`);
@@ -1944,11 +1948,11 @@ describe("TaskChatTab", () => {
     );
 
     expect(screen.queryByText(/No active steerable agent session/)).not.toBeInTheDocument();
-    expectActiveSessionCopy();
+    expectActivePlaceholderWithoutGuidance();
     expect(screen.getByLabelText("Message active agent session")).not.toBeDisabled();
   });
 
-  it.each(["done", "dead", "needsAttention", null] as const)("shows idle guidance but stays sendable when the CLI session is not live: %s", (agentState) => {
+  it.each(["done", "dead", "needsAttention", null] as const)("omits guidance but stays sendable when the CLI session is not live: %s", (agentState) => {
     const sessionLive = agentState === null ? isCliSessionLive(null) : isCliSessionLive(makeCliSession(agentState));
     render(
       <TaskChatTab
@@ -1959,7 +1963,7 @@ describe("TaskChatTab", () => {
       />,
     );
 
-    expectIdleSessionHint();
+    expectActivePlaceholderWithoutGuidance();
     expectComposerSendableAfterDraft();
   });
 
@@ -1968,8 +1972,8 @@ describe("TaskChatTab", () => {
     (status) => {
       // In the default ephemeral-agents mode the scheduler never writes
       // assignedAgentId/checkedOutBy, so a running in-progress task has no
-      // assignment field yet IS being worked. It must NOT show the idle
-      // "no agent is working" hint.
+      // assignment field yet IS being worked. It must keep the compact
+      // placeholder-only composer without a guidance shell.
       render(
         <TaskChatTab
           task={makeTask({ column: "in-progress", status, assignedAgentId: undefined, checkedOutBy: undefined })}
@@ -1979,7 +1983,7 @@ describe("TaskChatTab", () => {
         />,
       );
 
-      expectActiveSessionCopy();
+      expectActivePlaceholderWithoutGuidance();
       expect(screen.getByLabelText("Message active agent session")).not.toBeDisabled();
     },
   );
@@ -1994,7 +1998,7 @@ describe("TaskChatTab", () => {
       />,
     );
 
-    expectIdleSessionHint();
+    expectActivePlaceholderWithoutGuidance();
   });
 
   it.each(["busy", "ready", "starting", "waitingOnInput"] as const)("treats %s CLI sessions as live", (agentState) => {
@@ -2121,15 +2125,13 @@ describe("TaskChatTab", () => {
     ["triage task", makeTask({ column: "triage", assignedAgentId: "agent-1", status: undefined }), true],
     ["done task", makeTask({ column: "done", assignedAgentId: "agent-1", status: undefined }), false],
     ["archived task", makeTask({ column: "archived", assignedAgentId: "agent-1", status: undefined }), false],
-  ])("keeps the composer sendable for %s column", (_label, task, showsActiveCopy) => {
+  ])("keeps the composer sendable for %s column", (_label, task, _previouslyShowedActiveCopy) => {
     render(<TaskChatTab task={task} active addToast={vi.fn()} sessionLive={false} />);
 
     if (task.column === "done") {
-      expectDoneRefinementCopy();
-    } else if (showsActiveCopy) {
-      expectActiveSessionCopy();
+      expectDonePlaceholderWithoutGuidance();
     } else {
-      expectIdleSessionHint();
+      expectActivePlaceholderWithoutGuidance();
     }
     expectComposerSendableAfterDraft();
   });
@@ -2146,10 +2148,10 @@ describe("TaskChatTab", () => {
     ["paused unassigned in-progress task in an active status", makeTask({ column: "in-progress", status: "planning", paused: true, assignedAgentId: undefined, checkedOutBy: undefined })],
     ["paused in-review task", makeTask({ column: "in-review", status: "reviewing", paused: true })],
     ["user-paused in-review task", makeTask({ column: "in-review", status: "reviewing", userPaused: true })],
-  ])("keeps the composer sendable with idle guidance for %s", (_label, task) => {
+  ])("keeps the composer sendable without guidance for %s", (_label, task) => {
     render(<TaskChatTab task={task} active addToast={vi.fn()} />);
 
-    expectIdleSessionHint();
+    expectActivePlaceholderWithoutGuidance();
     expectComposerSendableAfterDraft();
   });
 
@@ -2157,8 +2159,8 @@ describe("TaskChatTab", () => {
     "treats an actively-reviewing in-review task as an active session even without an assignment (ephemeral mode): %s status",
     (status) => {
       // A reviewer/merger runs ephemerally with no assignedAgentId/checkedOutBy,
-      // so an in-review task in an active review/merge status must NOT show the
-      // idle "no agent is working" hint.
+      // so an in-review task in an active review/merge status must keep the
+      // compact placeholder-only composer without a guidance shell.
       render(
         <TaskChatTab
           task={makeTask({ column: "in-review", status, assignedAgentId: undefined, checkedOutBy: undefined })}
@@ -2168,7 +2170,7 @@ describe("TaskChatTab", () => {
         />,
       );
 
-      expectActiveSessionCopy();
+      expectActivePlaceholderWithoutGuidance();
       expect(screen.getByLabelText("Message active agent session")).not.toBeDisabled();
     },
   );
@@ -2183,7 +2185,7 @@ describe("TaskChatTab", () => {
       />,
     );
 
-    expectIdleSessionHint();
+    expectActivePlaceholderWithoutGuidance();
   });
 
   it.each([
@@ -2191,19 +2193,19 @@ describe("TaskChatTab", () => {
     ["user-paused in-progress task with a live session", makeTask({ column: "in-progress", status: "queued", userPaused: true })],
     ["paused in-review task with a live session", makeTask({ column: "in-review", status: "reviewing", paused: true })],
     ["user-paused in-review task with a live session", makeTask({ column: "in-review", status: "reviewing", userPaused: true })],
-  ])("keeps the composer sendable with idle guidance for %s", (_label, task) => {
+  ])("keeps the composer sendable without guidance for %s", (_label, task) => {
     render(<TaskChatTab task={task} active addToast={vi.fn()} sessionLive={true} />);
 
-    expectIdleSessionHint();
+    expectActivePlaceholderWithoutGuidance();
     expectComposerSendableAfterDraft();
   });
 
   it.each(["paused", "awaiting-user-input", "awaiting-cli-approval", "awaiting-user-review", "awaiting-approval", "awaiting-integration", "failed", "needs-replan"])(
-    "keeps active-column steering sendable with idle guidance for %s status",
+    "keeps active-column steering sendable without guidance for %s status",
     (status) => {
       render(<TaskChatTab task={makeTask({ column: "triage", assignedAgentId: "agent-1", status })} active addToast={vi.fn()} />);
 
-      expectIdleSessionHint();
+      expectActivePlaceholderWithoutGuidance();
       expectComposerSendableAfterDraft();
     },
   );
@@ -2494,13 +2496,13 @@ describe("TaskChatTab", () => {
 
   it("keeps List View as the only split-pane host for compact task chat", () => {
     const listSource = readFileSync(resolve(__dirname, "../ListView.tsx"), "utf8");
-    const appSource = readFileSync(resolve(__dirname, "../../App.tsx"), "utf8");
+    const mainContentSource = readFileSync(resolve(__dirname, "../dashboard/MainContent.tsx"), "utf8");
 
     expect(listSource).toContain('className="list-split-detail-content"');
     expect(listSource).toContain("<TaskDetailContent");
     expect(listSource).toContain("embedded");
-    expect(appSource).toContain('className="task-detail-main-panel-body"');
-    expect(appSource).toContain("<TaskDetailContent");
+    expect(mainContentSource).toContain('className="task-detail-main-panel-body"');
+    expect(mainContentSource).toContain("<TaskDetailContent");
   });
 
   it("keeps task chat timestamp styling tokenized and mobile-safe", () => {

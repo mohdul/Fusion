@@ -8565,12 +8565,10 @@
   },
   "taskChat": {
     "activePlaceholder": "Steer the currently executing agent",
-    "activeSessionHint": "Message the active agent session. Guidance is delivered to the running session in real time.",
     "agentMessages": "{{label}} messages",
     "arguments": "Arguments",
     "collapseChat": "Collapse chat",
     "donePlaceholder": "Start a refinement task for this completed task",
-    "doneSessionHint": "Send a message to start a refinement task for this completed task.",
     "emptyAgentOutput": "No agent output yet. Live messages from Planner, Executor, Reviewer, and Merger agents will appear here.",
     "entryCount_one": "{{count}} entry",
     "entryCount_other": "{{count}} entries",

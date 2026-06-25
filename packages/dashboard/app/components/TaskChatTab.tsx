@@ -50,22 +50,6 @@ type TaskChatToolGroupRow =
   | { kind: "invocation"; call: AgentLogEntry; completion?: AgentLogEntry; callIndex: number; completionIndex?: number }
   | { kind: "entry"; entry: AgentLogEntry; index: number };
 
-const STEERING_BLOCKED_STATUSES = new Set([
-  "paused",
-  "awaiting-user-input",
-  "awaiting-cli-approval",
-  "awaiting-user-review",
-  "awaiting-approval",
-  "awaiting-integration",
-  "failed",
-  "needs-replan",
-]);
-const REVIEW_STEERABLE_STATUSES = new Set(["reviewing", "merging", "merging-fix", "fixing"]);
-// The scheduler's waiting/blocked marker for a not-yet-dispatched task
-// (self-healing.ts documents `status: "queued"` as the blocked marker). A queued
-// in-progress row has no agent executing yet, so it stays assignment-gated rather
-// than counting as an implied active session.
-const SCHEDULER_WAITING_STATUS = "queued";
 const BOTTOM_FOLLOW_THRESHOLD = 48;
 const TOP_LOAD_THRESHOLD = 48;
 
@@ -239,48 +223,6 @@ function buildTranscriptItems(entries: readonly AgentLogEntry[], userMessages: r
     items.push({ kind: "agent", role, label: getRoleLabel(role, t), entries: [item.entry] });
     return items;
   }, []);
-}
-
-function isActiveAgentSession(task: Task | TaskDetail, opts: { sessionLive?: boolean } = {}): boolean {
-  if (task.paused || task.userPaused) return false;
-  if (opts.sessionLive) return true;
-
-  if (task.status === SCHEDULER_WAITING_STATUS) return false;
-
-  const hasAssignedAgent = Boolean(task.assignedAgentId || task.checkedOutBy);
-  const statusBlocksProgressSteering = task.status ? STEERING_BLOCKED_STATUSES.has(task.status) : false;
-  if (statusBlocksProgressSteering) return false;
-
-  const statusAllowsProgressSteering = !statusBlocksProgressSteering;
-  const statusAllowsReviewSteering = !task.status || REVIEW_STEERABLE_STATUSES.has(task.status);
-  const columnAllowsSteering = (task.column === "triage" && statusAllowsProgressSteering)
-    || (task.column === "in-progress" && statusAllowsProgressSteering)
-    || (task.column === "in-review" && statusAllowsReviewSteering);
-  // FNXC:TaskDetailChat 2026-06-20-20:10:
-  // In the default ephemeral-agents mode the scheduler never writes
-  // `assignedAgentId`/`checkedOutBy` — those are only set when
-  // `ephemeralAgentsEnabled === false` (scheduler.ts). An actively-executing
-  // task therefore has no assignment field yet IS being worked, so requiring
-  // `hasAssignedAgent` made the chat always show "no agent is working" for
-  // default-mode tasks. Treat assignment as sufficient-but-not-necessary:
-  // - in-progress with a non-blocked, non-`queued` status is an executing run;
-  // - in-review with an active review/merge status (REVIEW_STEERABLE_STATUSES)
-  //   has a reviewer/merger running. A null-status in-review row is awaiting
-  //   human review, not actively worked, so it stays assignment-gated and idle.
-  // FNXC:TaskDetailChat 2026-06-21-13:03:
-  // Planning/triage is an execution surface too: triage.ts writes
-  // `status: "planning"` only after a planner slot is acquired, while active
-  // default-mode planner sessions still omit assignment fields. Treat non-waiting,
-  // non-blocked triage rows as active so steering copy does not falsely say no
-  // agent is working during spec generation. Keep `queued` and awaiting/failed
-  // statuses idle before assignment checks because they are waiting states, not
-  // live agent work.
-  const executionImpliesActiveAgent =
-    (task.column === "triage" && statusAllowsProgressSteering)
-    || (task.column === "in-progress" && statusAllowsProgressSteering)
-    || (task.column === "in-review" && task.status != null && REVIEW_STEERABLE_STATUSES.has(task.status));
-  return columnAllowsSteering
-    && (hasAssignedAgent || executionImpliesActiveAgent);
 }
 
 function isToolLikeEntry(entry: AgentLogEntry): boolean {
@@ -549,7 +491,7 @@ function TaskChatUserMessage({ message }: { message: UserChatMessage }) {
   );
 }
 
-export function TaskChatTab({ task, projectId, active, addToast, sessionLive, onTaskUpdated, expanded = false, onToggleExpanded, effectiveModels }: TaskChatTabProps) {
+export function TaskChatTab({ task, projectId, active, addToast, onTaskUpdated, expanded = false, onToggleExpanded, effectiveModels }: TaskChatTabProps) {
   const { t } = useTranslation("app");
   const { entries, loading, loadMore, hasMore, loadingMore } = useAgentLogs(task.id, active, projectId);
   const [draft, setDraft] = useState("");
@@ -575,21 +517,11 @@ export function TaskChatTab({ task, projectId, active, addToast, sessionLive, on
   const transcriptItems = useMemo(() => buildTranscriptItems(entries, userMessages, t), [entries, t, userMessages]);
   const transcriptItemCount = entries.length + userMessages.length;
   const firstEntryKey = entries[0] ? getEntryKey(entries[0], 0) : null;
-  const activeSession = isActiveAgentSession(task, { sessionLive });
   const isDoneTask = task.column === "done";
-  const isIdleSession = !isDoneTask && !activeSession;
   /**
-   * FNXC:TaskDetailChat 2026-06-19-22:54:
-   * The task-detail chat must never silently accept a question when no agent session will consume it. Keep idle chats sendable, but surface that the message is saved as guidance for the next task run instead of implying a live reply.
-   *
-   * FNXC:TaskDetailChat 2026-06-22-21:20:
-   * The idle "No agent is working on this task right now…" hint is suppressed (empty) per user request — idle chats stay sendable but no longer show the banner. Done/active hints remain. The render gates on a truthy sessionHint, so the empty idle case renders nothing.
+   * FNXC:TaskDetailChat 2026-06-24-00:00:
+   * The task-detail chat composer must not render guidance above the entry box in active, idle, or done states. Keep the action-specific copy in the textarea placeholder so the composer remains compact while send/refinement behavior stays unchanged.
    */
-  const sessionHint = isDoneTask
-    ? t("taskChat.doneSessionHint", "Send a message to start a refinement task for this completed task.")
-    : activeSession
-      ? t("taskChat.activeSessionHint", "Message the active agent session. Guidance is delivered to the running session in real time.")
-      : "";
   const composerPlaceholder = isDoneTask
     ? t("taskChat.donePlaceholder", "Start a refinement task for this completed task")
     : t("taskChat.activePlaceholder", "Steer the currently executing agent");
@@ -927,15 +859,6 @@ export function TaskChatTab({ task, projectId, active, addToast, sessionLive, on
       </div>
 
       <form className="task-chat-composer card" onSubmit={handleSubmit}>
-        {sessionHint ? (
-          <div
-            className={`task-chat-session-hint${isIdleSession ? " task-chat-session-hint--idle" : ""}`}
-            role="status"
-            data-testid={isIdleSession ? "task-chat-idle-hint" : undefined}
-          >
-            {sessionHint}
-          </div>
-        ) : null}
         <div className="task-chat-composer-row">
           <textarea
             ref={textareaRef}
