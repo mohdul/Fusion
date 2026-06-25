@@ -173,6 +173,7 @@ Navigation:
 Behavior:
 - Shows only tasks in `triage`, `todo`, `in-progress`, and `in-review`
 - Excludes `done` and `archived`
+- On desktop/tablet, the header workflow dropdown mirrors Board/List selection behavior and filters graph nodes to tasks assigned to the selected workflow; **All workflows** restores the full active-task graph.
 - Uses Sugiyama-style layered auto-layout to place nodes by dependency depth
 - Renders directed bezier dependency edges (dependent → dependency) with arrowheads
 - Supports cursor-centered wheel zoom, pinch zoom, keyboard shortcuts (`Ctrl/Cmd+=`, `Ctrl/Cmd+-`, `Ctrl/Cmd+0`, `Ctrl/Cmd+Shift+F`, `Escape`), and fit/reset controls via the floating toolbar with live zoom percentage

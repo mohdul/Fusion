@@ -1,0 +1,110 @@
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import type { BoardWorkflowDefinition, BoardWorkflowsPayload } from "../api";
+import { useBoardWorkflows } from "../hooks/useBoardWorkflows";
+import { useViewportMode } from "../hooks/useViewportMode";
+import { WorkflowSwitcher } from "./WorkflowSwitcher";
+import type { WorkflowStatusCounts } from "./workflowStatusCounts";
+
+export interface GraphWorkflowSelection {
+  boardWorkflows: BoardWorkflowsPayload;
+  selectedWorkflow: BoardWorkflowDefinition;
+}
+
+interface GraphWorkflowSwitcherSlotProps {
+  projectId?: string;
+  onOpenWorkflowEditor?: () => void;
+  onCreateWorkflow?: () => void;
+  onWorkflowSelectionChange?: (selection: GraphWorkflowSelection | null) => void;
+}
+
+const EMPTY_COUNTS: Map<string, WorkflowStatusCounts> = new Map();
+
+export function filterTasksByGraphWorkflowSelection<T extends { id: string }>(
+  tasks: T[],
+  projectId: string | undefined,
+  selection: GraphWorkflowSelection | null,
+): T[] {
+  if (!projectId || !selection) return tasks;
+  return tasks.filter((task) => {
+    const assignedWorkflowId = selection.boardWorkflows.taskWorkflowIds[task.id]
+      ?? selection.boardWorkflows.defaultWorkflowId;
+    return assignedWorkflowId === selection.selectedWorkflow.id;
+  });
+}
+
+export function GraphWorkflowSwitcherSlot({
+  projectId,
+  onOpenWorkflowEditor,
+  onCreateWorkflow,
+  onWorkflowSelectionChange,
+}: GraphWorkflowSwitcherSlotProps) {
+  const {
+    boardWorkflows,
+    workflowMode,
+    workflowOptions,
+    selectedWorkflow,
+    setSelectedWorkflowId,
+    refreshBoardWorkflows,
+  } = useBoardWorkflows({ projectId });
+  const viewportMode = useViewportMode();
+
+  const [headerWorkflowSlot, setHeaderWorkflowSlot] = useState<HTMLElement | null>(() => {
+    if (typeof document === "undefined") return null;
+    return document.getElementById("header-workflow-slot");
+  });
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const resolve = () => {
+      const slot = document.getElementById("header-workflow-slot");
+      setHeaderWorkflowSlot((previous) => (previous === slot ? previous : slot));
+      return slot;
+    };
+    if (resolve()) return;
+    /*
+    FNXC:GraphWorkflowSwitcher 2026-06-23-21:45:
+    Graph shares the Board/List header workflow affordance, but mobile and inactive left-sidebar layouts can omit `#header-workflow-slot`. Poll only briefly and re-resolve on viewport changes so Graph never spins forever or leaves an empty dropdown shell when the header slot is absent.
+    */
+    let attempts = 0;
+    const interval = window.setInterval(() => {
+      attempts += 1;
+      if (resolve() || attempts >= 20) window.clearInterval(interval);
+    }, 250);
+    return () => window.clearInterval(interval);
+  }, [viewportMode]);
+
+  const selection = useMemo<GraphWorkflowSelection | null>(() => {
+    if (!workflowMode || !boardWorkflows || !selectedWorkflow) return null;
+    return { boardWorkflows, selectedWorkflow };
+  }, [boardWorkflows, selectedWorkflow, workflowMode]);
+
+  useEffect(() => {
+    onWorkflowSelectionChange?.(selection);
+  }, [onWorkflowSelectionChange, selection]);
+
+  useEffect(() => {
+    return () => onWorkflowSelectionChange?.(null);
+  }, [onWorkflowSelectionChange]);
+
+  if (!workflowMode || !selectedWorkflow || workflowOptions.length < 2 || !headerWorkflowSlot) {
+    return null;
+  }
+
+  return createPortal(
+    <div className="board-workflow-toolbar">
+      <div className="board-workflow-selector">
+        <WorkflowSwitcher
+          workflows={workflowOptions}
+          value={selectedWorkflow.id}
+          onChange={setSelectedWorkflowId}
+          counts={EMPTY_COUNTS}
+          onOpen={refreshBoardWorkflows}
+          onEditWorkflow={onOpenWorkflowEditor}
+          onCreateWorkflow={onCreateWorkflow}
+        />
+      </div>
+    </div>,
+    headerWorkflowSlot,
+  );
+}

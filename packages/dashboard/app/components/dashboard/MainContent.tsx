@@ -16,6 +16,7 @@ import { BackendConnectionErrorPage } from "../BackendConnectionErrorPage";
 import { CapacityRiskBanner } from "../CapacityRiskBanner";
 import { PlanningModeModal } from "../PlanningModeModal";
 import { PlanningWorkflowSwitcherSlot } from "../PlanningWorkflowSwitcherSlot";
+import { GraphWorkflowSwitcherSlot, filterTasksByGraphWorkflowSelection } from "../GraphWorkflowSwitcherSlot";
 import { PluginDashboardViewHost } from "../../plugins/PluginDashboardViewHost";
 import { isPluginViewId } from "../../plugins/pluginViewRegistry";
 import { isNearDuplicateCanonicalInactive } from "../../../../core/src/near-duplicate-canonical";
@@ -57,6 +58,8 @@ export function MainContent({
   handleRemoveProject,
   nodes,
   graphPluginTaskView,
+  graphWorkflowSelection,
+  setGraphWorkflowSelection,
   isRemote,
   remoteData,
   tasks,
@@ -241,13 +244,29 @@ export function MainContent({
   // Project view
   if (resolvedPluginTaskView) {
     const pluginTasks = isRemote && remoteData.tasks.length > 0 ? remoteData.tasks : tasks;
+    const isDependencyGraphView = resolvedPluginTaskView === "plugin:fusion-plugin-dependency-graph:graph";
+    /*
+    FNXC:GraphWorkflowSwitcher 2026-06-23-22:04:
+    The dependency Graph is plugin-hosted, so App scopes the normal `tasks` array before it enters PluginDashboardViewHost instead of teaching the graph plugin about workflow metadata. This preserves the plugin context contract while matching Board/List workflow assignment fallback: `taskWorkflowIds[task.id] ?? defaultWorkflowId` must equal the selected header workflow.
+    */
+    const pluginContextTasks = isDependencyGraphView
+      ? filterTasksByGraphWorkflowSelection(pluginTasks, currentProject?.id, graphWorkflowSelection)
+      : pluginTasks;
     return (
       <PageErrorBoundary>
+        {isDependencyGraphView ? (
+          <GraphWorkflowSwitcherSlot
+            projectId={currentProject?.id}
+            onOpenWorkflowEditor={openWorkflowEditorWithNav}
+            onCreateWorkflow={openCreateWorkflowWithNav}
+            onWorkflowSelectionChange={setGraphWorkflowSelection}
+          />
+        ) : null}
         <PluginDashboardViewHost
           taskView={resolvedPluginTaskView as `plugin:${string}:${string}`}
           context={{
             projectId: currentProject?.id,
-            tasks: pluginTasks,
+            tasks: pluginContextTasks,
             workflowSteps,
             subscribePluginEvents,
             openTaskDetail: (task: Task | TaskDetail, initialTab?: DetailTaskTab) => openDetailTask(task, initialTab),
@@ -263,7 +282,7 @@ export function MainContent({
                 prAuthAvailable={prAuthAvailable}
                 autoMergeEnabled={autoMerge}
                 nearDuplicateCanonicalInactive={typeof task.sourceMetadata?.nearDuplicateOf === "string"
-                  ? isNearDuplicateCanonicalInactive(pluginTasks.find((candidate) => candidate.id === task.sourceMetadata?.nearDuplicateOf))
+                  ? isNearDuplicateCanonicalInactive(pluginContextTasks.find((candidate) => candidate.id === task.sourceMetadata?.nearDuplicateOf))
                   : undefined}
               />
             ),

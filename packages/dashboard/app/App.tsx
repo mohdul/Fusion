@@ -107,6 +107,7 @@ import { AuthTokenRecoveryDialog } from "./components/AuthTokenRecoveryDialog";
 import { MainContent } from "./components/dashboard/MainContent";
 import { DashboardBanners } from "./components/dashboard/DashboardBanners";
 import type { DashboardBannersProps, MainContentProps } from "./components/dashboard/types";
+import type { GraphWorkflowSelection } from "./components/GraphWorkflowSwitcherSlot";
 
 // ChatView's CSS is imported eagerly so the styles bundle into the main
 // CSS file. Without this, the lazy ChatView JS chunk loaded its own CSS
@@ -399,6 +400,7 @@ function AppInner() {
   }, [taskView, refreshTasks]);
 
   const boardSourceTasks = isRemote && remoteData.tasks.length > 0 ? remoteData.tasks : tasks;
+  const [graphWorkflowSelection, setGraphWorkflowSelection] = useState<GraphWorkflowSelection | null>(null);
 
   const [researchReadinessVersion, setResearchReadinessVersion] = useState(0);
   const mountTimeRef = useRef(performance.now());
@@ -1119,6 +1121,8 @@ function AppInner() {
     handleRemoveProject,
     nodes,
     graphPluginTaskView,
+    graphWorkflowSelection,
+    setGraphWorkflowSelection,
     isRemote,
     remoteData,
     tasks,

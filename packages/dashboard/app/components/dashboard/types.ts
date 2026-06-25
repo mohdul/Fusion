@@ -37,6 +37,7 @@ import type { UseRemoteNodeDataResult } from "../../hooks/useRemoteNodeData";
 import type { SectionId } from "../SettingsModal";
 import type { CliActionId } from "../SessionNotificationBanner";
 import type { ApprovalBannerCandidate } from "../../utils/appLifecycle";
+import type { GraphWorkflowSelection } from "../GraphWorkflowSwitcherSlot";
 // The lazy view components are value exports; importing them as values lets us
 // spell their types via `typeof` so MainContent's JSX gets full prop checking.
 import { SettingsView } from "../SettingsModal";
@@ -91,6 +92,8 @@ export interface MainContentProps {
   handleRemoveProject: (project: ProjectInfo) => Promise<void>;
   nodes: NodeInfo[];
   graphPluginTaskView: PluginTaskView | null;
+  graphWorkflowSelection: GraphWorkflowSelection | null;
+  setGraphWorkflowSelection: Dispatch<SetStateAction<GraphWorkflowSelection | null>>;
   isRemote: boolean;
   remoteData: UseRemoteNodeDataResult;
   tasks: Task[];
