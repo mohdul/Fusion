@@ -419,6 +419,96 @@ describe("TaskStore", () => {
       const paths = await store.parseFileScopeFromPrompt(task.id);
       expect(paths).toEqual(["packages/dashboard/app/components/TaskDetailModal.tsx"]);
     });
+
+    it("deduplicates effective write scope while preserving broad mixed-case source globs", async () => {
+      const task = await store.createTask({ description: "Duplicate effective scope" });
+      const dir = join(rootDir, ".fusion", "tasks", task.id);
+      await writeFile(
+        join(dir, "PROMPT.md"),
+        `# ${task.id}: Duplicate effective scope
+
+## File Scope
+
+- \`packages/core/**\`
+- \`packages/core/**\`
+- \`Packages/MobileApp/**\`
+- \`Tests/AtlasNotesMobileUITests/**\`
+`,
+      );
+
+      const paths = await store.parseFileScopeFromPrompt(task.id);
+      expect(paths).toEqual([
+        "packages/core/**",
+        "Packages/MobileApp/**",
+        "Tests/AtlasNotesMobileUITests/**",
+      ]);
+    });
+
+    it("excludes poisoned FN-779/FN-756 context-only paths from effective write scope", async () => {
+      const task = await store.createTask({ description: "Poisoned Fusion prompt" });
+      const dir = join(rootDir, ".fusion", "tasks", task.id);
+      await writeFile(
+        join(dir, "PROMPT.md"),
+        `# ${task.id}: Poisoned Fusion prompt
+
+## File Scope
+
+Expected touched paths in \`/Users/plarson/src/Fusion-local-runtime\`:
+
+- \`packages/core/src/store.ts\`
+- \`packages/engine/src/scheduler.ts\`
+- \`packages/dashboard/**\`
+- \`packages/cli/**\`
+- \`packages/core/src/__tests__/store-parsing.test.ts\`
+
+Forbidden paths / non-goals:
+
+- Do not edit Atlas Notes Swift/mobile files: \`project.yml\`, \`AtlasNotes.xcodeproj/**\`, \`Tests/AtlasNotesMobileUITests/**\`, \`Packages/MobileApp/**\`, \`Sources/**\`.
+- Do not hand-edit \`.fusion/fusion.db\` or \`.fusion/tasks/*/task.json\`.
+- Generated locks such as \`Packages/*/Package.resolved\` are evidence only.
+- \`.changeset/*.md\` is required only if published behavior changes.
+- Operator routes/actions: \`/tasks/:id\`, \`fn_task_update\`, \`review\`, \`merge\`, \`retry\`, \`archive\`.
+`,
+      );
+
+      const paths = await store.parseFileScopeFromPrompt(task.id);
+      expect(paths).toEqual([
+        "packages/core/src/store.ts",
+        "packages/engine/src/scheduler.ts",
+        "packages/dashboard/**",
+        "packages/cli/**",
+        "packages/core/src/__tests__/store-parsing.test.ts",
+      ]);
+    });
+
+    it("keeps true Atlas mobile hot-file family writes when declared as implementation scope", async () => {
+      const task = await store.createTask({ description: "Atlas mobile scope" });
+      const dir = join(rootDir, ".fusion", "tasks", task.id);
+      await writeFile(
+        join(dir, "PROMPT.md"),
+        `# ${task.id}: Atlas mobile scope
+
+## File Scope
+
+Expected touched paths:
+
+- \`project.yml\`
+- \`AtlasNotes.xcodeproj/**\`
+- \`Tests/AtlasNotesMobileUITests/**\`
+- \`Packages/MobileApp/**\`
+- \`Sources/AtlasNotesMobileApp/**\`
+`,
+      );
+
+      const paths = await store.parseFileScopeFromPrompt(task.id);
+      expect(paths).toEqual([
+        "project.yml",
+        "AtlasNotes.xcodeproj/**",
+        "Tests/AtlasNotesMobileUITests/**",
+        "Packages/MobileApp/**",
+        "Sources/AtlasNotesMobileApp/**",
+      ]);
+    });
   });
 
   describe("FN-5216 File Scope sanitization on copy paths", () => {
