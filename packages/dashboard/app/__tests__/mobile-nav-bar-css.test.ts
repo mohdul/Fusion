@@ -80,6 +80,16 @@ describe("mobile-nav-bar.css", () => {
     expect(cssContent).toContain("env(safe-area-inset-bottom");
   });
 
+  it("tab bar keeps symmetric tokenized side spacing while preserving ICB compensation", () => {
+    const block = extractRuleBlock(cssContent, ".mobile-nav-bar");
+    expect(block).toContain("left: 0");
+    expect(block).toContain("right: var(--icb-right-offset, 0px)");
+    expect(block).toContain("padding-inline: var(--space-sm)");
+    expect(block).toMatch(/padding-inline:\s*var\(--space-[^)]+\)/);
+    expect(block).not.toMatch(/padding-left:\s*(?!0[;\s])/);
+    expect(block).not.toMatch(/padding-right:\s*(?!0[;\s])/);
+  });
+
   it("tab bar includes z-index", () => {
     const block = extractRuleBlock(cssContent, ".mobile-nav-bar");
     expect(block).toContain("z-index: 45");

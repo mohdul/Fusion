@@ -44,6 +44,14 @@ function expectUniformMobileNavColumns(container: HTMLElement, expectedTabCount:
   const tabs = getRenderedMobileTabs(container);
   expect(tabs).toHaveLength(expectedTabCount);
 
+  const navRule = extractRuleBlock(mobileNavCss, ".mobile-nav-bar");
+  expect(navRule).toContain("left: 0");
+  expect(navRule).toContain("right: var(--icb-right-offset, 0px)");
+  expect(navRule).toContain("padding-inline: var(--space-sm)");
+  expect(navRule).toMatch(/padding-inline:\s*var\(--space-[^)]+\)/);
+  expect(navRule).not.toMatch(/padding-left:\s*(?!0[;\s])/);
+  expect(navRule).not.toMatch(/padding-right:\s*(?!0[;\s])/);
+
   const tabRule = extractRuleBlock(mobileNavCss, ".mobile-nav-tab");
   expect(tabRule).toContain("--mobile-nav-icon-size: calc(var(--space-lg) + var(--space-sm) - (var(--space-xs) / 2))");
   expect(tabRule).toContain("flex: 1 1 0");

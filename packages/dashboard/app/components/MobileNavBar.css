@@ -28,6 +28,11 @@
   */
   border-top: none;
   min-height: var(--mobile-nav-height);
+  /*
+  FNXC:MobileNav 2026-06-24-22:27:
+  The mobile bottom nav must use symmetric outer side spacing while keeping its fixed right edge compensated by --icb-right-offset, equal-width tab columns, and safe-area bottom padding intact.
+  */
+  padding-inline: var(--space-sm);
   /* Extend the bar's surface into the iOS home-indicator area so icons sit above
      the indicator (PWA standalone) and the bar meets the executor status bar
      flush — its `bottom` already adds these same terms. */
