@@ -34,6 +34,12 @@ function getMainMobileBlock(css: string): string {
   return block;
 }
 
+function getEmbeddedGitManagerBlock(css: string): string {
+  const block = getMediaBlocks(css, /@container\s+gm-embedded\s+\(max-width:\s*560px\)\s*\{/g);
+  expect(block).toContain(".gm-modal--embedded .gm-sidebar");
+  return block;
+}
+
 function getTabletBlock(css: string): string {
   const block = getMediaBlocks(
     css,
@@ -91,8 +97,9 @@ describe("core modals mobile css coverage", () => {
     expect(mobileRule).toContain("max-height: 100dvh;");
     expect(mobileRule).toContain("resize: none;");
 
-    const embeddedRule = getFirstRuleBlock(css, ".task-detail-content--embedded");
-    expect(embeddedRule).toContain("height: 100%;");
+    const embeddedRule = getRuleBlocks(css, ".task-detail-content--embedded")
+      .find((rule) => rule.includes("height: 100%;"));
+    expect(embeddedRule).toBeTruthy();
     expect(tabletBlock).not.toContain(".task-detail-content--embedded");
   });
 
@@ -244,11 +251,13 @@ describe("core modals mobile css coverage", () => {
     expect(sidebarRules.length).toBeGreaterThan(0);
     for (const sidebarRule of sidebarRules) {
       expect(sidebarRule).toContain("flex: 0 0 auto;");
+      expect(sidebarRule).toContain("flex-wrap: nowrap;");
       expect(sidebarRule).toContain("min-height: calc(var(--space-2xl) + var(--space-md));");
       expect(sidebarRule).toContain("overflow-x: auto;");
       expect(sidebarRule).toContain("overflow-y: hidden;");
       expect(sidebarRule).toContain("touch-action: pan-x pan-y;");
       expect(sidebarRule).toContain("-webkit-overflow-scrolling: touch;");
+      expect(sidebarRule).toContain("overscroll-behavior-x: contain;");
     }
 
     const navItemRules = getRuleBlocks(mobileBlock, ".gm-nav-item");
@@ -256,6 +265,63 @@ describe("core modals mobile css coverage", () => {
     for (const navItemRule of navItemRules) {
       expect(navItemRule).toMatch(/flex:\s*0 0 auto;|flex-shrink:\s*0;/);
     }
+
+    const refreshRules = getRuleBlocks(mobileBlock, ".gm-nav-refresh");
+    expect(refreshRules.length).toBeGreaterThan(0);
+    for (const refreshRule of refreshRules) {
+      expect(refreshRule).toContain("flex: 0 0 auto;");
+      expect(refreshRule).toContain("width: auto;");
+    }
+  });
+
+  it("GitManagerModal: embedded narrow tab strip is independently horizontally scrollable", () => {
+    const css = loadAllAppCss();
+    const embeddedBlock = getEmbeddedGitManagerBlock(css);
+
+    const sidebarRules = getRuleBlocks(embeddedBlock, ".gm-modal--embedded .gm-sidebar");
+    expect(sidebarRules).toHaveLength(1);
+    expect(sidebarRules[0]).toContain("flex: 0 0 auto;");
+    expect(sidebarRules[0]).toContain("flex-wrap: nowrap;");
+    expect(sidebarRules[0]).toContain("overflow-x: auto;");
+    expect(sidebarRules[0]).toContain("overflow-y: hidden;");
+    expect(sidebarRules[0]).toContain("touch-action: pan-x pan-y;");
+    expect(sidebarRules[0]).toContain("-webkit-overflow-scrolling: touch;");
+    expect(sidebarRules[0]).toContain("overscroll-behavior-x: contain;");
+
+    const navItemRules = getRuleBlocks(embeddedBlock, ".gm-modal--embedded .gm-nav-item");
+    expect(navItemRules).toHaveLength(1);
+    expect(navItemRules[0]).toContain("flex: 0 0 auto;");
+    expect(navItemRules[0]).toContain("width: auto;");
+
+    const refreshRules = getRuleBlocks(embeddedBlock, ".gm-modal--embedded .gm-nav-refresh");
+    expect(refreshRules).toHaveLength(1);
+    expect(refreshRules[0]).toContain("flex: 0 0 auto;");
+    expect(refreshRules[0]).toContain("width: auto;");
+  });
+
+  it("GitManagerModal: workspace repo selector does not consume the mobile tab strip", () => {
+    const css = loadAllAppCss();
+    const mobileBlock = getMainMobileBlock(css);
+    const embeddedBlock = getEmbeddedGitManagerBlock(css);
+
+    const standaloneWrapRules = getRuleBlocks(mobileBlock, ".gm-repo-selector-wrap");
+    expect(standaloneWrapRules.length).toBeGreaterThan(0);
+    for (const wrapRule of standaloneWrapRules) {
+      expect(wrapRule).toContain("flex: 0 0 auto;");
+    }
+    const standaloneSelectRules = getRuleBlocks(mobileBlock, ".gm-repo-selector");
+    expect(standaloneSelectRules.length).toBeGreaterThan(0);
+    for (const selectRule of standaloneSelectRules) {
+      expect(selectRule).toContain("width: auto;");
+    }
+
+    const embeddedWrapRules = getRuleBlocks(embeddedBlock, ".gm-modal--embedded .gm-repo-selector-wrap");
+    expect(embeddedWrapRules).toHaveLength(1);
+    expect(embeddedWrapRules[0]).toContain("flex: 0 0 auto;");
+
+    const embeddedSelectRules = getRuleBlocks(embeddedBlock, ".gm-modal--embedded .gm-repo-selector");
+    expect(embeddedSelectRules).toHaveLength(1);
+    expect(embeddedSelectRules[0]).toContain("width: auto;");
   });
 
   it("GitManagerModal: nav items keep a token-sized touch target on mobile", () => {

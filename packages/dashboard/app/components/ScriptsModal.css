@@ -2091,6 +2091,9 @@ The previous bespoke rules here hid the tab labels (icon-only) and used a crampe
   /*
   FNXC:GitManager 2026-06-22-19:20:
   The dock tab strip is ONE ROW that scrolls left-right when needed, showing as many section icons as fit. Tabs are compact ICON-ONLY (labels are sr-only; the button title gives a tooltip) so the maximum number of sections is visible before horizontal scroll kicks in. width:auto overrides the base .gm-nav-item width:100% that otherwise made each tab fill the row (one per swipe).
+
+  FNXC:GitManager 2026-06-24-21:25:
+  The embedded right-dock tablist must opt out of the global mobile pan-y lock the same way as the standalone modal: horizontal touch scrolling keeps late tabs and Refresh reachable while pan-y still lets vertical page/content scroll win when the gesture is vertical.
   */
   .gm-modal--embedded .gm-sidebar {
     flex: 0 0 auto;
@@ -2105,7 +2108,7 @@ The previous bespoke rules here hid the tab labels (icon-only) and used a crampe
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-x: contain;
     scrollbar-width: thin;
-    touch-action: pan-x;
+    touch-action: pan-x pan-y;
     padding: var(--space-xs) var(--space-sm);
     gap: var(--space-xs);
   }
@@ -2120,6 +2123,23 @@ The previous bespoke rules here hid the tab labels (icon-only) and used a crampe
     border-left: none;
     border-bottom: 2px solid transparent;
     min-width: calc(var(--space-xl) + var(--space-xs));
+    min-height: calc(var(--space-xl) + var(--space-sm));
+  }
+
+  .gm-modal--embedded .gm-repo-selector-wrap {
+    flex: 0 0 auto;
+    border-bottom: none;
+    padding: var(--space-xs);
+    min-height: calc(var(--space-xl) + var(--space-sm));
+  }
+
+  .gm-modal--embedded .gm-repo-selector {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: calc(var(--space-2xl) * 4);
+    border-radius: var(--radius-sm);
+    padding: calc(var(--space-xs) / 2) var(--space-xs);
+    font-size: var(--font-size-xs);
   }
 
   /* Icon-only: hide the section label (kept for screen readers); the button title is the tooltip. */
@@ -4309,10 +4329,14 @@ Refresh button pinned at the end of the section nav strip (replaces the removed 
 
   FNXC:GitManager 2026-06-21-18:00:
   FN-6900 requires the Git Manager section tabs to remain visible and switchable on touch viewports. In the mobile column layout, the content pane is the flexible sibling, so the tab strip must be `flex: 0 0 auto` with a token-sized minimum height instead of shrinking to a zero-height row.
+
+  FNXC:GitManager 2026-06-24-21:25:
+  FN-6981 requires the actual mobile tablist scroller to be a single non-wrapping horizontal strip in both modal and embedded presentations. Keep `pan-x pan-y` so horizontal swipes reveal later tabs/Refresh without stealing vertical scroll gestures from the page or content panel.
   */
   .gm-sidebar {
     flex: 0 0 auto;
     flex-direction: row;
+    flex-wrap: nowrap;
     width: 100%;
     min-width: 0;
     min-height: calc(var(--space-2xl) + var(--space-md));
@@ -4341,6 +4365,23 @@ Refresh button pinned at the end of the section nav strip (replaces the removed 
     border-left: none;
     border-bottom: 2px solid transparent;
     min-width: calc(var(--space-xl) + var(--space-xs));
+    min-height: calc(var(--space-xl) + var(--space-sm));
+  }
+
+  .gm-repo-selector-wrap {
+    flex: 0 0 auto;
+    border-bottom: none;
+    padding: var(--space-xs);
+    min-height: calc(var(--space-xl) + var(--space-sm));
+  }
+
+  .gm-repo-selector {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: calc(var(--space-2xl) * 4);
+    border-radius: var(--radius-sm);
+    padding: calc(var(--space-xs) / 2) var(--space-xs);
+    font-size: var(--font-size-xs);
   }
 
   .gm-nav-label {

@@ -287,6 +287,7 @@ describe("GitManagerModal", () => {
     (updateGitRemoteUrl as any).mockResolvedValue(undefined);
     (fetchAheadCommits as any).mockResolvedValue([]);
     (fetchRemoteCommits as any).mockResolvedValue([]);
+    (fetchWorkspaceRepos as any).mockResolvedValue({ repos: [] });
   });
 
   // ── Workspace root-race toast suppression ───────────────────
@@ -410,15 +411,33 @@ describe("GitManagerModal", () => {
     expect(modal.style.getPropertyValue("--vv-offset-top")).toBe("18px");
   });
 
-  it("renders all navigation sections", async () => {
+  it("renders all navigation sections plus Refresh without a workspace selector by default", async () => {
     render(
       <GitManagerModal isOpen={true} onClose={vi.fn()} tasks={mockTasks} addToast={mockAddToast} />
     );
-    await waitFor(() => {
-      for (const label of gitManagerSectionLabels) {
-        expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
-      }
-    });
+
+    const tablist = await screen.findByRole("tablist", { name: /git manager sections/i });
+    for (const label of gitManagerSectionLabels) {
+      expect(within(tablist).getByRole("tab", { name: label })).toBeInTheDocument();
+    }
+    expect(within(tablist).getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+    expect(within(tablist).queryByRole("combobox", { name: "Select repository" })).not.toBeInTheDocument();
+  });
+
+  it("renders all navigation sections plus Refresh when the workspace repo selector is present", async () => {
+    (fetchWorkspaceRepos as any).mockResolvedValue({ repos: ["apps/dashboard", "packages/core"] });
+
+    render(
+      <GitManagerModal isOpen={true} onClose={vi.fn()} tasks={mockTasks} addToast={mockAddToast} />
+    );
+
+    const tablist = await screen.findByRole("tablist", { name: /git manager sections/i });
+    const repoSelector = await within(tablist).findByRole("combobox", { name: "Select repository" });
+    expect(repoSelector).toHaveValue("apps/dashboard");
+    for (const label of gitManagerSectionLabels) {
+      expect(within(tablist).getByRole("tab", { name: label })).toBeInTheDocument();
+    }
+    expect(within(tablist).getByRole("button", { name: "Refresh" })).toBeInTheDocument();
   });
 
   it.each([
@@ -1489,8 +1508,8 @@ describe("GitManagerModal", () => {
     await user.click(screen.getByText("Pop"));
 
     await waitFor(() => {
-      expect((applyStash as any).mock.calls).toContainEqual([0, false, undefined]);
-      expect((applyStash as any).mock.calls).toContainEqual([0, true, undefined]);
+      expect((applyStash as any).mock.calls).toContainEqual([0, false, undefined, undefined]);
+      expect((applyStash as any).mock.calls).toContainEqual([0, true, undefined, undefined]);
       expect(screen.getByTitle("Drop stash")).toBeInTheDocument();
     });
   });
@@ -1633,7 +1652,7 @@ describe("GitManagerModal", () => {
     await user.click(pullButton);
 
     await waitFor(() => {
-      expect(pullBranch).toHaveBeenCalledWith({ rebase: false }, undefined);
+      expect(pullBranch).toHaveBeenCalledWith({ rebase: false }, undefined, undefined);
     });
   });
 
@@ -1649,7 +1668,7 @@ describe("GitManagerModal", () => {
     await user.click(screen.getByRole("menuitem", { name: /pull --rebase/i }));
 
     await waitFor(() => {
-      expect(pullBranch).toHaveBeenCalledWith({ rebase: true }, undefined);
+      expect(pullBranch).toHaveBeenCalledWith({ rebase: true }, undefined, undefined);
     });
   });
 
@@ -1788,8 +1807,8 @@ describe("GitManagerModal", () => {
     await user.click(syncButton);
 
     await waitFor(() => {
-      expect(pullBranch).toHaveBeenCalledWith({ rebase: true }, undefined);
-      expect(pushBranch).toHaveBeenCalledWith(undefined);
+      expect(pullBranch).toHaveBeenCalledWith({ rebase: true }, undefined, undefined);
+      expect(pushBranch).toHaveBeenCalledWith(undefined, undefined);
     });
 
     expect((pullBranch as any).mock.invocationCallOrder[0]).toBeLessThan(
@@ -1819,7 +1838,7 @@ describe("GitManagerModal", () => {
     await user.click(syncButton);
 
     await waitFor(() => {
-      expect(pullBranch).toHaveBeenCalledWith({ rebase: true }, undefined);
+      expect(pullBranch).toHaveBeenCalledWith({ rebase: true }, undefined, undefined);
     });
     expect(pushBranch).not.toHaveBeenCalled();
     expect(mockAddToast).toHaveBeenCalledWith("Merge conflict detected. Resolve manually.", "error");
@@ -1838,7 +1857,7 @@ describe("GitManagerModal", () => {
     await user.click(syncButton);
 
     await waitFor(() => {
-      expect(pullBranch).toHaveBeenCalledWith({ rebase: true }, undefined);
+      expect(pullBranch).toHaveBeenCalledWith({ rebase: true }, undefined, undefined);
     });
     expect(pushBranch).not.toHaveBeenCalled();
     expect(mockAddToast).toHaveBeenCalledWith("sync pull failed", "error");
@@ -1870,7 +1889,7 @@ describe("GitManagerModal", () => {
     resolvePull?.({ success: true, message: "Already up to date." });
 
     await waitFor(() => {
-      expect(pushBranch).toHaveBeenCalledWith(undefined);
+      expect(pushBranch).toHaveBeenCalledWith(undefined, undefined);
       expect(syncButton).not.toBeDisabled();
     });
     expectLatestCallStartsWith(fetchGitStatus as any, undefined, { extended: true });
@@ -2596,7 +2615,7 @@ describe("GitManagerModal", () => {
     await user.click(within(syncCard).getByRole("button", { name: /^pull$/i }));
 
     await waitFor(() => {
-      expect(pullBranch).toHaveBeenCalledWith({ rebase: false }, undefined);
+      expect(pullBranch).toHaveBeenCalledWith({ rebase: false }, undefined, undefined);
       expect(fetchRemoteCommits).toHaveBeenCalledTimes(2);
       expect(screen.getByText("Remote commit after pull")).toBeInTheDocument();
       expect(screen.queryByText("Remote commit before pull")).not.toBeInTheDocument();
@@ -3488,13 +3507,21 @@ describe("GitManagerModal", () => {
       expect(sidebarRules[0]).toContain("min-height: calc(var(--space-2xl) + var(--space-md));");
       expect(sidebarRules[0]).toContain("overflow-x: auto;");
       expect(sidebarRules[0]).toContain("overflow-y: hidden;");
+      expect(sidebarRules[0]).toContain("flex-wrap: nowrap;");
       expect(sidebarRules[0]).toContain("touch-action: pan-x pan-y;");
+      expect(sidebarRules[0]).toContain("-webkit-overflow-scrolling: touch;");
+      expect(sidebarRules[0]).toContain("overscroll-behavior-x: contain;");
 
       const navItemRules = getRuleBlocks(mobile768, ".gm-nav-item");
       expect(navItemRules).toHaveLength(1);
       // Mobile tabs are compact ICON-ONLY in one scrolling row: non-shrinking via flex:0 0 auto + intrinsic width:auto (overrides the base .gm-nav-item width:100% that otherwise made one tab fill the row).
       expect(navItemRules[0]).toContain("flex: 0 0 auto;");
       expect(navItemRules[0]).toContain("width: auto;");
+
+      const refreshRules = getRuleBlocks(mobile768, ".gm-nav-refresh");
+      expect(refreshRules).toHaveLength(1);
+      expect(refreshRules[0]).toContain("flex: 0 0 auto;");
+      expect(refreshRules[0]).toContain("width: auto;");
 
       expect(mobile720).not.toContain(".gm-sidebar");
       expect(mobile720).not.toContain(".gm-nav-item");
