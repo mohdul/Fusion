@@ -5,7 +5,7 @@
 ## Latest baseline
 
 - Cycle: **2026-W26**
-- Captured at: **2026-06-23T07:29:54.383Z**
+- Captured at: **2026-06-23T18:43:21.941Z**
 - Timing snapshot: `scripts/test-timings.json` captured at **2026-06-03T23:45:49.672Z**
 - Quarantine ledger: `scripts/lib/test-quarantine.json`
 
@@ -13,15 +13,20 @@
 
 | Metric | Current | Delta vs previous |
 |---|---:|---:|
-| Merge gate wall-time (`pnpm test:gate`) | 15.9s | +9.5s |
-| Boot smoke wall-time (`pnpm smoke:boot`) | 21.1s | +2.3s |
-| Changed-only test wall-time (`pnpm test`) | 1m 07s | +57.2s |
-| Quarantine / flake count | 0 | -1 |
+| Merge gate wall-time (`pnpm test:gate`) | 16.8s | +6.0s |
+| Boot smoke wall-time (`pnpm smoke:boot`) | 22.8s | +3.0s |
+| Changed-only test wall-time (`pnpm test`) | 19.6s | n/a |
+| Quarantine / flake count | 0 | 0 |
 | Deletion-due quarantines | 0 | n/a |
 
 ## Measurement failures
 
 - None recorded.
+
+## Timing snapshot notes
+
+- Timing snapshot is 19 days old; verify slowest-file attribution before treating the table as the current culprit.
+- 5 of the listed slowest files no longer exist at the recorded paths: `packages/engine/src/__tests__/reliability-interactions/shared-branch-group-lifecycle.test.ts`, `packages/engine/src/__tests__/reliability-interactions/branch-group-automerge-precedence.test.ts`, `packages/engine/src/__tests__/reliability-interactions/branch-group-merge-routing.test.ts`, `packages/engine/src/__tests__/reliability-interactions/branch-group-promotion-gate.test.ts`, `packages/engine/src/__tests__/reliability-interactions/branch-group-promotion.test.ts`. Refresh scripts/test-timings.json before choosing a slow-test rewrite.
 
 ## Slowest 20 test files
 
@@ -67,16 +72,16 @@
 
 | Row | Captured at | Gate | Boot smoke | `pnpm test` | Quarantine count |
 |---|---|---:|---:|---:|---:|
-| Previous | 2026-06-22T08:03:10.119Z | 6.5s | 18.8s | 9.8s | 1 |
-| Latest | 2026-06-23T07:29:54.383Z | 15.9s | 21.1s | 1m 07s | 0 |
-| Delta | — | +9.5s | +2.3s | +57.2s | -1 |
+| Previous | 2026-06-23T18:30:19.699Z | 10.8s | 19.8s | unavailable | 0 |
+| Latest | 2026-06-23T18:43:21.941Z | 16.8s | 22.8s | 19.6s | 0 |
+| Delta | — | +6.0s | +3.0s | n/a | 0 |
 
 _Future weekly rows append to `scripts/test-velocity-history.json`; compare the latest row against the previous row before posting to #leads._
 
 ## Post to #leads
 
 ```text
-FN-6612 weekly test velocity: gate 15.9s (+9.5s), boot smoke 21.1s (+2.3s), pnpm test 1m 07s (+57.2s), quarantine ledger 0 (-1). Slowest file: packages/engine/src/__tests__/reliability-interactions/shared-branch-group-lifecycle.test.ts at 13.9s. Deletion-due quarantines: 0.
+FN-6612 weekly test velocity: gate 16.8s (+6.0s), boot smoke 22.8s (+3.0s), pnpm test 19.6s (n/a), quarantine ledger 0 (0). Slowest file: packages/engine/src/__tests__/reliability-interactions/shared-branch-group-lifecycle.test.ts at 13.9s. Deletion-due quarantines: 0.
 ```
 
 ## How to refresh

@@ -9,6 +9,7 @@ import {
   measureCommands,
   readQuarantineCount,
   renderReport,
+  timingSnapshotNotes,
   topSlowestFiles,
 } from "../test-velocity-baseline.mjs";
 
@@ -55,6 +56,29 @@ describe("topSlowestFiles", () => {
     ]);
     assert.ok(rows.every((row, index) => index === 0 || rows[index - 1].ms >= row.ms));
     assert.equal(rows[1].package, "@pkg/a");
+  });
+});
+
+describe("timingSnapshotNotes", () => {
+  it("warns when slowest-file rows are stale or point at missing paths", () => {
+    const rootDir = tempRoot();
+    try {
+      const notes = timingSnapshotNotes({
+        rootDir,
+        now: new Date("2026-06-23T12:00:00.000Z"),
+        timingSnapshotCapturedAt: "2026-06-03T12:00:00.000Z",
+        slowest: [
+          { file: "packages/engine/src/__tests__/renamed.test.ts", package: "@fusion/engine", ms: 13_900 },
+        ],
+      });
+
+      assert.equal(notes.length, 2);
+      assert.match(notes[0], /20 days old/);
+      assert.match(notes[1], /renamed\.test\.ts/);
+      assert.match(notes[1], /Refresh scripts\/test-timings\.json/);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -262,6 +286,8 @@ describe("renderReport", () => {
     assert.match(report, /\| Quarantine \/ flake count \| 2 \| -1 \|/);
     assert.match(report, /`packages\/a\/src\/__tests__\/slow\.test\.ts` \| @pkg\/a \| 3\.2s/);
     assert.match(report, /FN-6612 weekly test velocity: gate 12\.0s \(\+2\.0s\)/);
+    assert.match(report, /## Timing snapshot notes/);
+    assert.match(report, /No stale or missing timing metadata detected/);
   });
 
   it("renders seed-baseline trend placeholders when there is no previous entry", () => {

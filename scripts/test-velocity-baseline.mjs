@@ -140,6 +140,34 @@ export function topSlowestFiles(timingsJson, n = 20) {
   return rows.slice(0, n);
 }
 
+/*
+FNXC:TestVelocityRegression 2026-06-23-18:58:
+The velocity baseline can only guide speed work when its slowest-file table distinguishes real command wall time from stale timing metadata.
+Annotate missing paths and old snapshots in the report so renamed `.slow.test.ts` files do not masquerade as the current W26 culprit.
+*/
+export function timingSnapshotNotes({ slowest = [], timingSnapshotCapturedAt = null, rootDir = repoRoot, now = new Date() } = {}) {
+  const notes = [];
+  const capturedAtDate = toDate(timingSnapshotCapturedAt);
+  if (capturedAtDate) {
+    const snapshotAgeDays = Math.floor((now.getTime() - capturedAtDate.getTime()) / 86_400_000);
+    if (snapshotAgeDays >= 14) {
+      notes.push(
+        `Timing snapshot is ${snapshotAgeDays} days old; verify slowest-file attribution before treating the table as the current culprit.`,
+      );
+    }
+  }
+
+  const missingRows = slowest.filter((row) => !existsSync(path.join(rootDir, row.file)));
+  if (missingRows.length > 0) {
+    const sample = missingRows.slice(0, 5).map((row) => `\`${row.file}\``).join(", ");
+    notes.push(
+      `${missingRows.length} of the listed slowest files no longer exist at the recorded path${missingRows.length === 1 ? "" : "s"}: ${sample}${missingRows.length > 5 ? ", …" : ""}. Refresh ${DEFAULT_TIMINGS_PATH} before choosing a slow-test rewrite.`,
+    );
+  }
+
+  return notes;
+}
+
 function delta(latest, previous, field) {
   if (!previous || latest?.[field] == null || previous?.[field] == null) return "n/a";
   const diff = latest[field] - previous[field];
@@ -157,7 +185,7 @@ function trendCell(current, prior) {
   return `${diff > 0 ? "+" : ""}${diff}`;
 }
 
-export function renderReport({ gateMs, bootSmokeMs, testMs, slowest = [], quarantine, capturedAt, previous = null, measurementFailures = [], timingSnapshotCapturedAt = null } = {}) {
+export function renderReport({ gateMs, bootSmokeMs, testMs, slowest = [], quarantine, capturedAt, previous = null, measurementFailures = [], timingSnapshotCapturedAt = null, timingNotes = [] } = {}) {
   const latest = {
     gateMs: normalizeMs(gateMs),
     bootSmokeMs: normalizeMs(bootSmokeMs),
@@ -175,11 +203,14 @@ export function renderReport({ gateMs, bootSmokeMs, testMs, slowest = [], quaran
   const failures = measurementFailures.length > 0
     ? measurementFailures.map((failure) => `- ${failure.label}: ${failure.status}`).join("\n")
     : "- None recorded.";
+  const timingNoteRows = timingNotes.length > 0
+    ? timingNotes.map((note) => `- ${note}`).join("\n")
+    : "- No stale or missing timing metadata detected in the rendered slowest-file rows.";
   const previousRows = previous
     ? `| Previous | ${previous.capturedAt ?? "unknown"} | ${formatDuration(previous.gateMs)} | ${formatDuration(previous.bootSmokeMs)} | ${formatDuration(previous.testMs)} | ${previous.quarantineCount ?? "n/a"} |\n| Latest | ${latest.capturedAt} | ${formatDuration(latest.gateMs)} | ${formatDuration(latest.bootSmokeMs)} | ${formatDuration(latest.testMs)} | ${latest.quarantineCount} |\n| Delta | — | ${delta(latest, previous, "gateMs")} | ${delta(latest, previous, "bootSmokeMs")} | ${delta(latest, previous, "testMs")} | ${trendCell(latest.quarantineCount, previous.quarantineCount)} |`
     : `| Previous | _(seed baseline)_ | — | — | — | — |\n| Latest | ${latest.capturedAt} | ${formatDuration(latest.gateMs)} | ${formatDuration(latest.bootSmokeMs)} | ${formatDuration(latest.testMs)} | ${latest.quarantineCount} |\n| Delta | — | n/a | n/a | n/a | n/a |`;
 
-  return `# Test velocity baseline\n\n> Weekly FN-6612 signal-per-second baseline. Measure and report feedback-loop velocity; do **not** add slow tests or wire this report into blocking PR checks. The merge gate remains the existing thin Lint, Typecheck, Build, and Gate path.\n\n## Latest baseline\n\n- Cycle: **${cycle}**\n- Captured at: **${latest.capturedAt}**\n- Timing snapshot: \`${DEFAULT_TIMINGS_PATH}\`${timingSnapshotCapturedAt ? ` captured at **${timingSnapshotCapturedAt}**` : ""}\n- Quarantine ledger: \`${DEFAULT_QUARANTINE_PATH}\`\n\n## Metrics\n\n| Metric | Current | Delta vs previous |\n|---|---:|---:|\n${renderMetricRow("Merge gate wall-time (`pnpm test:gate`)", latest, previous, "gateMs")}\n${renderMetricRow("Boot smoke wall-time (`pnpm smoke:boot`)", latest, previous, "bootSmokeMs")}\n${renderMetricRow("Changed-only test wall-time (`pnpm test`)", latest, previous, "testMs")}\n| Quarantine / flake count | ${latest.quarantineCount} | ${trendCell(latest.quarantineCount, previous?.quarantineCount)} |\n| Deletion-due quarantines | ${quarantine?.deletionDueCount ?? 0} | n/a |\n\n## Measurement failures\n\n${failures}\n\n## Slowest 20 test files\n\n| Rank | File | Package | Duration |\n|---:|---|---|---:|\n${slowRows || "| — | — | — | — |"}\n\n## Quarantine age buckets\n\n| Age bucket | Count |\n|---|---:|\n| 0-6 days | ${quarantine?.byAgeBucket?.["0-6d"] ?? 0} |\n| 7-13 days | ${quarantine?.byAgeBucket?.["7-13d"] ?? 0} |\n| deletion due (>=14 days) | ${quarantine?.byAgeBucket?.deletionDue ?? 0} |\n| unknown/future | ${quarantine?.byAgeBucket?.unknown ?? 0} |\n\n### Deletion-due entries\n\n| File | Quarantined at | Age (days) |\n|---|---:|---:|\n${dueRows || "| — | — | — |"}\n\n## Before / after trend\n\n| Row | Captured at | Gate | Boot smoke | \`pnpm test\` | Quarantine count |\n|---|---|---:|---:|---:|---:|\n${previousRows}\n\n_Future weekly rows append to \`${DEFAULT_HISTORY_PATH}\`; compare the latest row against the previous row before posting to #leads._\n\n## Post to #leads\n\n\`\`\`text\nFN-6612 weekly test velocity: gate ${formatDuration(latest.gateMs)} (${delta(latest, previous, "gateMs")}), boot smoke ${formatDuration(latest.bootSmokeMs)} (${delta(latest, previous, "bootSmokeMs")}), pnpm test ${formatDuration(latest.testMs)} (${delta(latest, previous, "testMs")}), quarantine ledger ${latest.quarantineCount} (${trendCell(latest.quarantineCount, previous?.quarantineCount)}). Slowest file: ${slowest[0]?.file ?? "none"} at ${formatDuration(slowest[0]?.ms)}. Deletion-due quarantines: ${quarantine?.deletionDueCount ?? 0}.\n\`\`\`\n\n## How to refresh\n\n\`\`\`bash\npnpm test:velocity -- --measure --write-report\n\`\`\`\n\nIn measure mode, the script runs a non-measured \`pnpm build\` preflight before timing \`pnpm test:gate\`, \`pnpm smoke:boot\`, or \`pnpm test\`. The preflight time is setup only and is excluded from lane metrics; if it fails, the Measurement failures section records \`Build preflight (pnpm build)\` as the reason. Use \`--skip-build-preflight\` only when the workspace is already built by CI.\n\nReport-only regeneration is cheap and does not run any suite:\n\n\`\`\`bash\npnpm test:velocity\n\`\`\`\n`;
+  return `# Test velocity baseline\n\n> Weekly FN-6612 signal-per-second baseline. Measure and report feedback-loop velocity; do **not** add slow tests or wire this report into blocking PR checks. The merge gate remains the existing thin Lint, Typecheck, Build, and Gate path.\n\n## Latest baseline\n\n- Cycle: **${cycle}**\n- Captured at: **${latest.capturedAt}**\n- Timing snapshot: \`${DEFAULT_TIMINGS_PATH}\`${timingSnapshotCapturedAt ? ` captured at **${timingSnapshotCapturedAt}**` : ""}\n- Quarantine ledger: \`${DEFAULT_QUARANTINE_PATH}\`\n\n## Metrics\n\n| Metric | Current | Delta vs previous |\n|---|---:|---:|\n${renderMetricRow("Merge gate wall-time (`pnpm test:gate`)", latest, previous, "gateMs")}\n${renderMetricRow("Boot smoke wall-time (`pnpm smoke:boot`)", latest, previous, "bootSmokeMs")}\n${renderMetricRow("Changed-only test wall-time (`pnpm test`)", latest, previous, "testMs")}\n| Quarantine / flake count | ${latest.quarantineCount} | ${trendCell(latest.quarantineCount, previous?.quarantineCount)} |\n| Deletion-due quarantines | ${quarantine?.deletionDueCount ?? 0} | n/a |\n\n## Measurement failures\n\n${failures}\n\n## Timing snapshot notes\n\n${timingNoteRows}\n\n## Slowest 20 test files\n\n| Rank | File | Package | Duration |\n|---:|---|---|---:|\n${slowRows || "| — | — | — | — |"}\n\n## Quarantine age buckets\n\n| Age bucket | Count |\n|---|---:|\n| 0-6 days | ${quarantine?.byAgeBucket?.["0-6d"] ?? 0} |\n| 7-13 days | ${quarantine?.byAgeBucket?.["7-13d"] ?? 0} |\n| deletion due (>=14 days) | ${quarantine?.byAgeBucket?.deletionDue ?? 0} |\n| unknown/future | ${quarantine?.byAgeBucket?.unknown ?? 0} |\n\n### Deletion-due entries\n\n| File | Quarantined at | Age (days) |\n|---|---:|---:|\n${dueRows || "| — | — | — |"}\n\n## Before / after trend\n\n| Row | Captured at | Gate | Boot smoke | \`pnpm test\` | Quarantine count |\n|---|---|---:|---:|---:|---:|\n${previousRows}\n\n_Future weekly rows append to \`${DEFAULT_HISTORY_PATH}\`; compare the latest row against the previous row before posting to #leads._\n\n## Post to #leads\n\n\`\`\`text\nFN-6612 weekly test velocity: gate ${formatDuration(latest.gateMs)} (${delta(latest, previous, "gateMs")}), boot smoke ${formatDuration(latest.bootSmokeMs)} (${delta(latest, previous, "bootSmokeMs")}), pnpm test ${formatDuration(latest.testMs)} (${delta(latest, previous, "testMs")}), quarantine ledger ${latest.quarantineCount} (${trendCell(latest.quarantineCount, previous?.quarantineCount)}). Slowest file: ${slowest[0]?.file ?? "none"} at ${formatDuration(slowest[0]?.ms)}. Deletion-due quarantines: ${quarantine?.deletionDueCount ?? 0}.\n\`\`\`\n\n## How to refresh\n\n\`\`\`bash\npnpm test:velocity -- --measure --write-report\n\`\`\`\n\nIn measure mode, the script runs a non-measured \`pnpm build\` preflight before timing \`pnpm test:gate\`, \`pnpm smoke:boot\`, or \`pnpm test\`. The preflight time is setup only and is excluded from lane metrics; if it fails, the Measurement failures section records \`Build preflight (pnpm build)\` as the reason. Use \`--skip-build-preflight\` only when the workspace is already built by CI.\n\nReport-only regeneration is cheap and does not run any suite:\n\n\`\`\`bash\npnpm test:velocity\n\`\`\`\n`;
 }
 
 function historyEntries(history) {
@@ -188,7 +219,7 @@ function historyEntries(history) {
   return [];
 }
 
-function createEntry({ capturedAt = new Date().toISOString(), gateMs = null, bootSmokeMs = null, testMs = null, quarantine, slowest, measurementFailures = [], timingSnapshotCapturedAt = null }) {
+function createEntry({ capturedAt = new Date().toISOString(), gateMs = null, bootSmokeMs = null, testMs = null, quarantine, slowest, measurementFailures = [], timingSnapshotCapturedAt = null, timingNotes = [] }) {
   return {
     capturedAt,
     gateMs: normalizeMs(gateMs),
@@ -198,6 +229,7 @@ function createEntry({ capturedAt = new Date().toISOString(), gateMs = null, boo
     slowestTop20: slowest,
     measurementFailures,
     timingSnapshotCapturedAt,
+    timingNotes,
   };
 }
 
@@ -283,17 +315,26 @@ export async function measureCommands({ timeoutMs, cwd, stdout, stderr, commandR
   return { ...results, measurementFailures: failures };
 }
 
-function renderFromEntry(entry, previous, quarantine) {
+function renderFromEntry(entry, previous, quarantine, { rootDir = repoRoot, now = new Date() } = {}) {
+  const slowest = entry?.slowestTop20 ?? [];
   return renderReport({
     gateMs: entry?.gateMs,
     bootSmokeMs: entry?.bootSmokeMs,
     testMs: entry?.testMs,
-    slowest: entry?.slowestTop20 ?? [],
+    slowest,
     quarantine: quarantine ?? { total: entry?.quarantineCount ?? 0, byAgeBucket: {}, deletionDueEntries: [], deletionDueCount: 0 },
     capturedAt: entry?.capturedAt,
     previous,
     measurementFailures: entry?.measurementFailures ?? [],
     timingSnapshotCapturedAt: entry?.timingSnapshotCapturedAt ?? null,
+    timingNotes: Array.isArray(entry?.timingNotes)
+      ? entry.timingNotes
+      : timingSnapshotNotes({
+        slowest,
+        timingSnapshotCapturedAt: entry?.timingSnapshotCapturedAt ?? null,
+        rootDir,
+        now,
+      }),
   });
 }
 
@@ -329,6 +370,12 @@ export async function main(argv = process.argv.slice(2), { rootDir = repoRoot, s
       slowest,
       measurementFailures: measured.measurementFailures,
       timingSnapshotCapturedAt: timings?.capturedAt ?? null,
+      timingNotes: timingSnapshotNotes({
+        slowest,
+        timingSnapshotCapturedAt: timings?.capturedAt ?? null,
+        rootDir,
+        now,
+      }),
     });
     entries.push(entry);
     writeJson(DEFAULT_HISTORY_PATH, { entries }, rootDir);
@@ -339,9 +386,15 @@ export async function main(argv = process.argv.slice(2), { rootDir = repoRoot, s
     quarantine,
     slowest,
     timingSnapshotCapturedAt: timings?.capturedAt ?? null,
+    timingNotes: timingSnapshotNotes({
+      slowest,
+      timingSnapshotCapturedAt: timings?.capturedAt ?? null,
+      rootDir,
+      now,
+    }),
   });
   const previous = entries.length > 1 ? entries.at(-2) : null;
-  const report = renderFromEntry(latest, previous, quarantine);
+  const report = renderFromEntry(latest, previous, quarantine, { rootDir, now });
 
   if (args.writeReport || args.reportOnly) {
     writeText(DEFAULT_REPORT_PATH, report, rootDir);
