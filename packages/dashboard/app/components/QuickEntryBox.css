@@ -81,10 +81,10 @@ Board/columns omit `.quick-entry--single-line`, keeping the tall 80px + auto-gro
 }
 
 /*
-FNXC:QuickEntry 2026-06-23-02:45:
-The global `.description-with-refine textarea { padding-right: 70px }` (styles.css) reserves space for a refine button overlaid at the textarea's right edge. In QuickEntryBox the refine button lives in the controls panel, NOT overlaid on the textarea, so that 70px is dead space — it left a large empty gap on the right of the quick-add input (computed padding-right: 70px). Reclaim that width down to a tight var(--space-sm). Scope to the wrapping box (.description-with-refine ancestor) so this beats the global rule on specificity, not just source order (the prior `.quick-entry-textarea-wrap textarea` override tied on specificity and lost to styles.css load order). Nothing overlays the input's right edge in this variant, so text now uses the full reclaimed width.
+FNXC:QuickEntry 2026-06-24-12:00:
+The global `.description-with-refine textarea { padding-right: 70px }` (styles.css) reserves space for a refine button overlaid at the textarea's right edge. QuickEntryBox renders its refine action in the controls panel instead of overlaying the textarea, so inheriting that reserve creates dead right-side text space. Scope the reclaim to the quick-entry input and include the wrapper classes so this rule beats the global description rule by specificity, not source order, while TaskForm/NewTaskModal and fullscreen description textareas keep their overlay padding.
 */
-.quick-entry-box .description-with-refine .quick-entry-textarea-wrap textarea {
+.quick-entry-box .description-with-refine .quick-entry-textarea-wrap .quick-entry-input {
   padding-right: var(--space-sm);
 }
 

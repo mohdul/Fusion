@@ -6,6 +6,7 @@ import type { Task } from "@fusion/core";
 import { checkDuplicateTasks, fetchSettings, fetchAgents, uploadAttachment } from "../../api";
 import { useNodes } from "../../hooks/useNodes";
 import { scopedKey } from "../../utils/projectStorage";
+import { loadAllAppCss } from "../../test/cssFixture";
 
 const MOCK_MODELS = [
   {
@@ -27,6 +28,9 @@ const MOCK_MODELS = [
 const TEST_PROJECT_ID = "proj-123";
 const QUICK_ENTRY_STORAGE_KEY = scopedKey("kb-quick-entry-text", TEST_PROJECT_ID);
 const QUICK_ENTRY_BOX_CSS = readFileSync("app/components/QuickEntryBox.css", "utf8");
+const ALL_APP_CSS = loadAllAppCss();
+const GLOBAL_DESCRIPTION_TEXTAREA_SELECTOR = ".description-with-refine textarea";
+const QUICK_ENTRY_TEXTAREA_RECLAIM_SELECTOR = ".quick-entry-box .description-with-refine .quick-entry-textarea-wrap .quick-entry-input";
 
 const originalWindowInnerWidthDescriptor = Object.getOwnPropertyDescriptor(window, "innerWidth");
 const originalWindowMatchMediaDescriptor = Object.getOwnPropertyDescriptor(window, "matchMedia");
@@ -67,6 +71,49 @@ function quickEntryMobileActionsTouchRule() {
       /@media \(max-width: 768px\) \{[\s\S]*?(\.quick-entry-actions,\s*\.quick-entry-actions \*\s*\{[\s\S]*?\})/,
     )?.[1] ?? ""
   );
+}
+
+function escapeCssSelectorForRegex(selector: string) {
+  return selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function cssRuleBody(css: string, selector: string) {
+  return css.match(new RegExp(`${escapeCssSelectorForRegex(selector)}\\s*\\{([^}]*)\\}`))?.[1] ?? null;
+}
+
+function cssDeclarationValue(ruleBody: string, property: string) {
+  return ruleBody.match(new RegExp(`${property}\\s*:\\s*([^;]+);`))?.[1].trim() ?? null;
+}
+
+function classSpecificity(selector: string) {
+  return selector.match(/\.[A-Za-z0-9_-]+/g)?.length ?? 0;
+}
+
+function typeSpecificity(selector: string) {
+  return selector.split(/\s+/).filter((part) => /^[A-Za-z][A-Za-z0-9_-]*$/.test(part)).length;
+}
+
+function expectQuickEntryCssWidthReclaim() {
+  const globalRule = cssRuleBody(ALL_APP_CSS, GLOBAL_DESCRIPTION_TEXTAREA_SELECTOR);
+  const quickEntryRule = cssRuleBody(ALL_APP_CSS, QUICK_ENTRY_TEXTAREA_RECLAIM_SELECTOR);
+  expect(globalRule).not.toBeNull();
+  expect(quickEntryRule).not.toBeNull();
+  expect(cssDeclarationValue(globalRule!, "padding-right")).toBe("70px");
+  expect(cssDeclarationValue(quickEntryRule!, "padding-right")).toBe("var(--space-sm)");
+  expect(quickEntryRule).not.toContain("!important");
+
+  const quickEntrySpecificity = [classSpecificity(QUICK_ENTRY_TEXTAREA_RECLAIM_SELECTOR), typeSpecificity(QUICK_ENTRY_TEXTAREA_RECLAIM_SELECTOR)];
+  const globalSpecificity = [classSpecificity(GLOBAL_DESCRIPTION_TEXTAREA_SELECTOR), typeSpecificity(GLOBAL_DESCRIPTION_TEXTAREA_SELECTOR)];
+  expect(quickEntrySpecificity[0]).toBeGreaterThan(globalSpecificity[0]);
+}
+
+function expectQuickEntryTextareaWidthReclaim(textarea: HTMLTextAreaElement) {
+  const box = textarea.closest(".quick-entry-box");
+  expect(box).toBeTruthy();
+  expect(textarea.closest(".description-with-refine")).toBeTruthy();
+  expect(textarea.closest(".quick-entry-textarea-wrap")).toBeTruthy();
+  expect(textarea.classList.contains("quick-entry-input")).toBe(true);
+  expectQuickEntryCssWidthReclaim();
 }
 
 const CREATED_TASK: Task = {
@@ -431,6 +478,73 @@ describe("QuickEntryBox", () => {
       const textarea = screen.getByTestId("quick-entry-input") as HTMLTextAreaElement;
       expect(box.className).not.toContain("quick-entry--single-line");
       expect(textarea.rows).toBe(2);
+    });
+  });
+
+  describe("quick-entry textarea width reclaim (FN-6944)", () => {
+    it("declares a specific non-70px right-padding override while preserving description textarea overlay padding", () => {
+      expectQuickEntryCssWidthReclaim();
+    });
+
+    it("applies the reclaim hook for empty and populated board quick-entry textareas on desktop", () => {
+      mockDesktopViewport();
+      renderQuickEntryBox({ singleLine: false });
+      const textarea = screen.getByTestId("quick-entry-input") as HTMLTextAreaElement;
+
+      expect(textarea.placeholder).toBe("Add a task...");
+      expectQuickEntryTextareaWidthReclaim(textarea);
+
+      fireEvent.change(textarea, {
+        target: {
+          value: "This is a long multiline task description that should use the available quick entry width before wrapping.\nIt should not reserve the description refine-button gutter.",
+        },
+      });
+
+      expect(textarea.value).toContain("available quick entry width");
+      expectQuickEntryTextareaWidthReclaim(textarea);
+    });
+
+    it("applies the same reclaim hook in list singleLine mode and at the mobile breakpoint", () => {
+      mockMobileViewport();
+      renderQuickEntryBox({ singleLine: true, defaultExpanded: false });
+      const box = screen.getByTestId("quick-entry-box");
+      const textarea = screen.getByTestId("quick-entry-input") as HTMLTextAreaElement;
+
+      expect(window.matchMedia("(max-width: 768px)").matches).toBe(true);
+      expect(box.className).toContain("quick-entry--single-line");
+      expect(textarea.rows).toBe(1);
+      expectQuickEntryTextareaWidthReclaim(textarea);
+
+      fireEvent.change(textarea, {
+        target: { value: "A compact list quick entry should reclaim the same right-side text column on mobile." },
+      });
+      expectQuickEntryTextareaWidthReclaim(textarea);
+    });
+
+    it("keeps the quick-entry width reclaim through duplicate warning and disabled submitting states", async () => {
+      let resolveCreate!: () => void;
+      const onCreate = vi.fn().mockImplementation(() => new Promise<void>((resolve) => { resolveCreate = resolve; }));
+      vi.mocked(checkDuplicateTasks).mockResolvedValueOnce([
+        { id: "FN-456", title: "Duplicate", description: "desc", column: "todo", score: 0.7 },
+      ]);
+      renderQuickEntryBox({ onCreate });
+      const textarea = screen.getByTestId("quick-entry-input") as HTMLTextAreaElement;
+
+      fireEvent.change(textarea, { target: { value: "duplicate candidate with enough text to show the padding regression" } });
+      fireEvent.keyDown(textarea, { key: "Enter" });
+      expect(await screen.findByText("Possible duplicates")).toBeInTheDocument();
+      expectQuickEntryTextareaWidthReclaim(textarea);
+
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      vi.mocked(checkDuplicateTasks).mockResolvedValueOnce([]);
+      fireEvent.keyDown(textarea, { key: "Enter" });
+      await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+      expect(textarea).toBeDisabled();
+      expectQuickEntryTextareaWidthReclaim(textarea);
+
+      await act(async () => {
+        resolveCreate();
+      });
     });
   });
 
