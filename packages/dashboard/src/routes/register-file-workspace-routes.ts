@@ -1,5 +1,6 @@
 import { access } from "node:fs/promises";
 import { createReadStream } from "node:fs";
+import { extname } from "node:path";
 import type { Request } from "express";
 import { ApiError, badRequest } from "../api-error.js";
 import {
@@ -31,6 +32,45 @@ function extractFileParams(req: Request): { filePath: string; workspace: string 
     ? req.query.workspace
     : "project";
   return { filePath, workspace };
+}
+
+/*
+FNXC:FileBrowser 2026-06-26-00:00:
+The server-side preview MIME map must stay aligned with `packages/dashboard/app/utils/file-preview-kind.ts` so every browser-previewable extension rendered by the file viewer has exactly one safe inline content type, while all unknown extensions keep attachment semantics.
+*/
+const INLINE_PREVIEW_CONTENT_TYPES = new Map<string, string>([
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".gif", "image/gif"],
+  [".webp", "image/webp"],
+  [".bmp", "image/bmp"],
+  [".ico", "image/x-icon"],
+  [".svg", "image/svg+xml"],
+  [".svgz", "image/svg+xml"],
+  [".avif", "image/avif"],
+  [".mp4", "video/mp4"],
+  [".webm", "video/webm"],
+  [".ogg", "video/ogg"],
+  [".ogv", "video/ogg"],
+  [".mov", "video/quicktime"],
+  [".m4v", "video/x-m4v"],
+  [".mp3", "audio/mpeg"],
+  [".wav", "audio/wav"],
+  [".oga", "audio/ogg"],
+  [".m4a", "audio/mp4"],
+  [".aac", "audio/aac"],
+  [".flac", "audio/flac"],
+  [".opus", "audio/opus"],
+  [".pdf", "application/pdf"],
+]);
+
+function isInlinePreviewRequest(req: Request): boolean {
+  return req.query.inline === "1" || req.query.inline === "true";
+}
+
+function getInlinePreviewContentType(filePath: string): string | null {
+  return INLINE_PREVIEW_CONTENT_TYPES.get(extname(filePath).toLowerCase()) ?? null;
 }
 
 /**
@@ -232,32 +272,6 @@ export function registerFileWorkspaceRoutes(ctx: ApiRoutesContext): void {
     }
   });
 
-  router.get("/files/{*filepath}", async (req, res) => {
-    try {
-      const { store: scopedStore } = await getProjectContext(req);
-      const filePath = Array.isArray(req.params.filepath) ? req.params.filepath[0] : req.params.filepath ?? "";
-      const workspace = typeof req.query.workspace === "string" && req.query.workspace.length > 0
-        ? req.query.workspace
-        : "project";
-      const result = await readWorkspaceFile(scopedStore, workspace, filePath);
-      res.json(result);
-    } catch (err: unknown) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-      if (err instanceof FileServiceError) {
-        const status = err.code === "ENOTASK" ? 404
-          : err.code === "ENOENT" ? 404
-          : err.code === "EACCES" ? 403
-          : err.code === "ETOOLARGE" ? 413
-          : err.code === "EINVAL" && (err instanceof Error ? err.message : String(err)).includes("Binary file") ? 415
-          : 400;
-        throw new ApiError(status, err.message, { code: err.code });
-      }
-      rethrowAsApiError(err, "Internal server error");
-    }
-  });
-
   // MUST be before generic wildcard write route.
   router.post("/files/{*filepath}/copy", async (req, res) => {
     try {
@@ -369,9 +383,21 @@ export function registerFileWorkspaceRoutes(ctx: ApiRoutesContext): void {
       const { store: scopedStore } = await getProjectContext(req);
       const { filePath, workspace } = extractFileParams(req);
       const { absolutePath, stats, fileName } = await getWorkspaceFileForDownload(scopedStore, workspace, filePath);
+      const inlineContentType = isInlinePreviewRequest(req) ? getInlinePreviewContentType(filePath) : null;
 
-      res.setHeader("Content-Type", "application/octet-stream");
-      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      /*
+      FNXC:FileBrowser 2026-06-26-00:00:
+      File previews opt into inline rendering and receive a renderable MIME type plus `nosniff` and a sandbox CSP so SVG/markup bytes cannot execute on the dashboard origin. The Download button and unrecognized extensions stay on attachment + octet-stream semantics.
+      */
+      if (inlineContentType) {
+        res.setHeader("Content-Type", inlineContentType);
+        res.setHeader("Content-Disposition", `inline; filename="${fileName}"`);
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("Content-Security-Policy", "sandbox");
+      } else {
+        res.setHeader("Content-Type", "application/octet-stream");
+        res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      }
       res.setHeader("Content-Length", stats.size);
       res.setHeader("Last-Modified", stats.mtime.toUTCString());
 
@@ -417,6 +443,33 @@ export function registerFileWorkspaceRoutes(ctx: ApiRoutesContext): void {
           : err.code === "ENOENT" ? 404
           : err.code === "ENOTDIR" ? 400
           : err.code === "EACCES" ? 403
+          : 400;
+        throw new ApiError(status, err.message, { code: err.code });
+      }
+      rethrowAsApiError(err, "Internal server error");
+    }
+  });
+
+  // MUST stay after operation routes so suffix routes like /download are not captured as file paths.
+  router.get("/files/{*filepath}", async (req, res) => {
+    try {
+      const { store: scopedStore } = await getProjectContext(req);
+      const filePath = Array.isArray(req.params.filepath) ? req.params.filepath[0] : req.params.filepath ?? "";
+      const workspace = typeof req.query.workspace === "string" && req.query.workspace.length > 0
+        ? req.query.workspace
+        : "project";
+      const result = await readWorkspaceFile(scopedStore, workspace, filePath);
+      res.json(result);
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      if (err instanceof FileServiceError) {
+        const status = err.code === "ENOTASK" ? 404
+          : err.code === "ENOENT" ? 404
+          : err.code === "EACCES" ? 403
+          : err.code === "ETOOLARGE" ? 413
+          : err.code === "EINVAL" && (err instanceof Error ? err.message : String(err)).includes("Binary file") ? 415
           : 400;
         throw new ApiError(status, err.message, { code: err.code });
       }

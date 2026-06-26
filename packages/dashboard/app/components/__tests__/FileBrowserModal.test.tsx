@@ -825,6 +825,7 @@ describe("FileBrowserModal", () => {
       expect(preview).toBeInTheDocument();
       expect(preview).toHaveAttribute(attribute, expect.stringContaining(encodeURIComponent(name)));
       expect(preview).toHaveAttribute(attribute, expect.stringContaining("workspace=project"));
+      expect(preview).toHaveAttribute(attribute, expect.stringContaining("inline=1"));
       if (selector.startsWith("video") || selector.startsWith("audio")) {
         expect(preview).toHaveAttribute("controls");
         expect(preview).toHaveAttribute("aria-label", `Preview for ${name}`);
@@ -858,6 +859,7 @@ describe("FileBrowserModal", () => {
       expect(video).toBeInTheDocument();
       expect(video).toHaveAttribute("src", expect.stringContaining("workspace=FN-001"));
       expect(video).toHaveAttribute("src", expect.stringContaining("projectId=proj-1"));
+      expect(video).toHaveAttribute("src", expect.stringContaining("inline=1"));
       expect(video).toHaveAttribute("src", expect.stringContaining("movie.mov"));
       expect(mockUseWorkspaceFileEditor).toHaveBeenLastCalledWith("FN-001", "movie.mov", false, "proj-1");
     });
@@ -875,6 +877,7 @@ describe("FileBrowserModal", () => {
       await waitFor(() => expect(document.querySelector("iframe.file-browser-preview-media--pdf")).toBeInTheDocument());
       const pdf = document.querySelector("iframe.file-browser-preview-media--pdf");
       expect(pdf).toHaveAttribute("src", expect.stringContaining(encodeURIComponent("docs/MANUAL.PDF")));
+      expect(pdf).toHaveAttribute("src", expect.stringContaining("inline=1"));
       expect(pdf).toHaveAttribute("title", "Preview for docs/MANUAL.PDF");
       expect(mockSetPath).toHaveBeenCalledWith("docs");
       expect(mockUseWorkspaceFileEditor).toHaveBeenLastCalledWith("project", "docs/MANUAL.PDF", false, undefined);
@@ -936,7 +939,10 @@ describe("FileBrowserModal", () => {
 
       await selectFile("clip.mp4");
       expect(document.querySelector("iframe.file-browser-preview-media--pdf")).not.toBeInTheDocument();
-      expect(document.querySelector("video.file-browser-preview-media--video")).toBeInTheDocument();
+      const video = document.querySelector("video.file-browser-preview-media--video");
+      expect(video).toBeInTheDocument();
+      expect(video).toHaveAttribute("src", expect.stringContaining("clip.mp4"));
+      expect(video).toHaveAttribute("src", expect.stringContaining("inline=1"));
       expect(mockUseWorkspaceFileEditor).toHaveBeenLastCalledWith("project", "clip.mp4", false, undefined);
     });
 
@@ -955,7 +961,9 @@ describe("FileBrowserModal", () => {
       await selectFile("voice.mp3");
 
       expect(screen.getByLabelText("Back to file list")).toBeInTheDocument();
-      expect(document.querySelector("audio.file-browser-preview-media--audio")).toBeInTheDocument();
+      const audio = document.querySelector("audio.file-browser-preview-media--audio");
+      expect(audio).toBeInTheDocument();
+      expect(audio).toHaveAttribute("src", expect.stringContaining("inline=1"));
       expect(document.querySelector(".file-browser-content.mobile.active")).toBeInTheDocument();
     });
   });

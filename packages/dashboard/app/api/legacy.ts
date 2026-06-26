@@ -3511,10 +3511,17 @@ export function renameFile(workspace: string, filePath: string, newName: string,
 }
 
 /** Get the download URL for a single file in a workspace. */
-export function downloadFileUrl(workspace: string, filePath: string, projectId?: string): string {
+export function downloadFileUrl(workspace: string, filePath: string, projectId?: string, options?: { inline?: boolean }): string {
   const query = new URLSearchParams({ workspace });
   if (projectId) {
     query.set("projectId", projectId);
+  }
+  /**
+   * FNXC:FileBrowser 2026-06-26-00:00:
+   * Browser-native preview consumers request `inline=1` so the shared download route serves renderable MIME types with inline disposition. The explicit Download action intentionally omits this option to preserve attachment downloads.
+   */
+  if (options?.inline === true) {
+    query.set("inline", "1");
   }
   return `/api/files/${encodeURIComponent(filePath)}/download?${query.toString()}`;
 }

@@ -111,7 +111,7 @@ export function DockFilesView({ projectId, openFile, layout = "auto" }: DockFile
     if (!selectedFile || !selectedPreviewKind) {
       return null;
     }
-    return downloadFileUrl("project", selectedFile, projectId);
+    return downloadFileUrl("project", selectedFile, projectId, { inline: true });
   }, [projectId, selectedFile, selectedPreviewKind]);
 
   /*

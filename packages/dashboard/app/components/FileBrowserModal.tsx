@@ -327,7 +327,7 @@ export function FileBrowserModal({
   */
   const previewUrl = useMemo(() => {
     if (!selectedFile || !selectedPreviewKind) return null;
-    return downloadFileUrl(currentWorkspace, selectedFile, projectId);
+    return downloadFileUrl(currentWorkspace, selectedFile, projectId, { inline: true });
   }, [currentWorkspace, projectId, selectedFile, selectedPreviewKind]);
 
   const selectedPreviewLabel = selectedFile

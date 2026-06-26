@@ -47,15 +47,16 @@ vi.mock("../../hooks/useWorkspaceFileBrowser", () => ({
 
 const mockFetchContent = vi.fn(() => Promise.resolve({ content: "# hi" }));
 const mockSaveContent = vi.fn(() => Promise.resolve({ mtime: "2026-01-15T10:31:00Z" }));
-const mockDownloadFileUrl = vi.fn((workspace: string, filePath: string, projectId?: string) => {
+const mockDownloadFileUrl = vi.fn((workspace: string, filePath: string, projectId?: string, options?: { inline?: boolean }) => {
   const params = new URLSearchParams({ workspace });
   if (projectId) params.set("projectId", projectId);
-  return `/api/files/${encodeURIComponent(filePath)}?${params.toString()}`;
+  if (options?.inline) params.set("inline", "1");
+  return `/api/files/${encodeURIComponent(filePath)}/download?${params.toString()}`;
 });
 vi.mock("../../api", () => ({
   fetchWorkspaceFileContent: (...args: unknown[]) => mockFetchContent(...(args as [])),
   saveWorkspaceFileContent: (...args: unknown[]) => mockSaveContent(...(args as [])),
-  downloadFileUrl: (...args: unknown[]) => mockDownloadFileUrl(...(args as [string, string, string | undefined])),
+  downloadFileUrl: (...args: unknown[]) => mockDownloadFileUrl(...(args as [string, string, string | undefined, { inline?: boolean } | undefined])),
 }));
 
 const capturedEditorHookCalls: Array<{
@@ -284,7 +285,7 @@ describe("DockFilesView shared current-file state", () => {
 
     await waitFor(() => expect(document.querySelector(selector)).toBeInTheDocument());
     const preview = document.querySelector(selector);
-    expect(preview).toHaveAttribute(attr, `/api/files/${encodeURIComponent(file)}?workspace=project&projectId=${PROJECT_ID}`);
+    expect(preview).toHaveAttribute(attr, `/api/files/${encodeURIComponent(file)}/download?workspace=project&projectId=${PROJECT_ID}&inline=1`);
     if (selector.startsWith("video") || selector.startsWith("audio")) {
       expect(preview).toHaveAttribute("controls");
       expect(preview).toHaveAttribute("aria-label", `Preview for ${file}`);
@@ -295,7 +296,7 @@ describe("DockFilesView shared current-file state", () => {
     expect(screen.queryByTestId("mock-file-editor")).toBeNull();
     expect(screen.queryByTestId("right-dock-files-save")).toBeNull();
     expect(capturedEditorHookCalls.at(-1)).toMatchObject({ workspace: "project", filePath: file, enabled: false, projectId: PROJECT_ID });
-    expect(mockDownloadFileUrl).toHaveBeenLastCalledWith("project", file, PROJECT_ID);
+    expect(mockDownloadFileUrl).toHaveBeenLastCalledWith("project", file, PROJECT_ID, { inline: true });
   });
 
   it("keeps text files editable with Save when changes exist", async () => {
@@ -306,6 +307,7 @@ describe("DockFilesView shared current-file state", () => {
     expect(screen.getByTestId("right-dock-files-save")).toBeEnabled();
     expect(document.querySelector(".file-browser-preview")).not.toBeInTheDocument();
     expect(capturedEditorHookCalls.at(-1)).toMatchObject({ workspace: "project", filePath: "changed.txt", enabled: true, projectId: PROJECT_ID });
+    expect(mockDownloadFileUrl).not.toHaveBeenCalledWith("project", "changed.txt", PROJECT_ID, { inline: true });
   });
 
   it("keeps known non-preview binary files read-only without rendering garbage editor content", () => {
@@ -317,12 +319,14 @@ describe("DockFilesView shared current-file state", () => {
     expect(screen.queryByTestId("right-dock-files-save")).toBeNull();
     expect(document.querySelector(".file-browser-preview")).not.toBeInTheDocument();
     expect(capturedEditorHookCalls.at(-1)).toMatchObject({ workspace: "project", filePath: "build/output.bin", enabled: false, projectId: PROJECT_ID });
+    expect(mockDownloadFileUrl).not.toHaveBeenCalledWith("project", "build/output.bin", PROJECT_ID, { inline: true });
   });
 
   it("clears stale preview state when switching from a preview file back to text", async () => {
     render(<DockFilesView projectId={PROJECT_ID} layout="auto" />);
     fireEvent.click(screen.getByText("assets/Logo.PNG"));
     await waitFor(() => expect(document.querySelector("img.file-browser-preview-media--image")).toBeInTheDocument());
+    expect(document.querySelector("img.file-browser-preview-media--image")).toHaveAttribute("src", expect.stringContaining("inline=1"));
 
     fireEvent.click(screen.getByText("readme.md"));
     await waitFor(() => expect(screen.getByTestId("mock-file-editor")).toHaveAttribute("data-file-path", "readme.md"));
