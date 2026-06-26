@@ -96,9 +96,31 @@ function parseWorkspacePackagesFromYaml(rawYaml) {
   return packages;
 }
 
-const rootDir = process.env.FUSION_PROJECT_DIR
-  ? path.resolve(process.env.FUSION_PROJECT_DIR)
-  : process.cwd();
+/*
+FNXC:TestInfrastructure 2026-06-26-14:40:
+This is a workspace-wide test runner: it MUST anchor at the repo root, not the
+cwd. If launched from a package subdirectory without FUSION_PROJECT_DIR, a bare
+`process.cwd()` root made workspace discovery (readWorkspacePatterns /
+listWorkspacePackageInfos / packageHasVitestConfig) find no packages, so
+decideExecutionPlan saw "no affected package", ran only the gate, and exited
+SUCCESSFULLY without running the live changed package tests (greptile). Resolve
+the git toplevel as the fallback so every cwd inside the repo (including a git
+worktree, which is how the engine runs per-task verification) resolves to the
+correct root. FUSION_PROJECT_DIR remains the explicit override; fall back to cwd
+only when git can't report a toplevel (e.g. not a repo).
+*/
+export function resolveRepoRoot() {
+  if (process.env.FUSION_PROJECT_DIR) return path.resolve(process.env.FUSION_PROJECT_DIR);
+  try {
+    const r = spawnSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" });
+    const top = r.status === 0 ? (r.stdout ?? "").trim() : "";
+    if (top) return top;
+  } catch {
+    // git unavailable / not a repo — fall through to cwd
+  }
+  return process.cwd();
+}
+const rootDir = resolveRepoRoot();
 
 /** @type {string} Cache format version — bump when the shape or hash inputs change. */
 const CACHE_FORMAT_VERSION = 1;
@@ -1480,25 +1502,14 @@ handing Vitest an empty/garbage positional set.
  * @returns {string[]}
  */
 /*
-FNXC:TestInfrastructure 2026-06-26-13:40:
-Existence checks for changed test files must anchor at the GIT REPO ROOT, not
-`rootDir` (which falls back to `process.cwd()`). `git diff --name-only` returns
-repo-root-relative paths regardless of the cwd it runs from, so joining them
-against a `rootDir` that is a package SUBDIR (script run from a package without
-FUSION_PROJECT_DIR) would form a doubled path (packages/x/packages/x/...), make
-`existsSync` false, and silently DROP live changed tests into the delegate path.
-Resolve the toplevel once via git so the check is correct from any cwd inside the
-repo; fall back to rootDir if git can't report a toplevel.
+FNXC:TestInfrastructure 2026-06-26-14:40:
+Existence checks for changed test files join repo-root-relative `git diff` paths
+against `projectRoot` (default `rootDir`). `rootDir` is now resolved to the git
+toplevel (see resolveRepoRoot above), so this is correct from any cwd inside the
+repo — no doubled path, no silently-dropped live test. Deleted/renamed-away test
+paths correctly fail existsSync and fall into the delegate-to-gate path.
 */
-let _repoToplevelCache;
-function repoRootForExistence() {
-  if (_repoToplevelCache !== undefined) return _repoToplevelCache;
-  const top = gitOutput(["rev-parse", "--show-toplevel"]);
-  _repoToplevelCache = top && top.trim() ? top.trim() : rootDir;
-  return _repoToplevelCache;
-}
-
-export function existingChangedTestFilesInPackage(changedFiles, pkgDir, { projectRoot = repoRootForExistence() } = {}) {
+export function existingChangedTestFilesInPackage(changedFiles, pkgDir, { projectRoot = rootDir } = {}) {
   return (changedFiles ?? []).filter(
     (file) =>
       isTestFilePath(file) &&

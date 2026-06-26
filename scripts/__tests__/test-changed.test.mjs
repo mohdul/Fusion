@@ -46,6 +46,7 @@ import {
   isTestFilePath,
   changedSourceFilesAffectingPackage,
   existingChangedTestFilesInPackage,
+  resolveRepoRoot,
   GATE_COVERED_MEMORY_ENVELOPE_PACKAGES,
   SCOPED_AFFECTED_MEMORY_ENVELOPES,
   CORE_SCOPED_AFFECTED_PACKAGE,
@@ -2030,6 +2031,26 @@ test("existingChangedTestFilesInPackage: excludes non-test and out-of-package pa
 test("existingChangedTestFilesInPackage: default existence root anchors at the git repo root", () => {
   const selfRel = "scripts/__tests__/test-changed.test.mjs"; // this very file — guaranteed on disk
   assert.deepEqual(existingChangedTestFilesInPackage([selfRel], "scripts"), [selfRel]);
+});
+
+// FNXC:TestInfrastructure 2026-06-26-14:40: regression for the "subdirectory runs
+// skip" bug — rootDir (which drives ALL workspace discovery) must resolve to the
+// git toplevel, not process.cwd(), so a run launched from a package subdir without
+// FUSION_PROJECT_DIR still finds the workspace instead of exiting through the gate.
+test("resolveRepoRoot: honors FUSION_PROJECT_DIR else resolves the git toplevel (cwd-independent)", () => {
+  const saved = process.env.FUSION_PROJECT_DIR;
+  try {
+    process.env.FUSION_PROJECT_DIR = path.join(path.sep, "explicit", "root");
+    assert.equal(resolveRepoRoot(), path.resolve(path.join(path.sep, "explicit", "root")));
+    delete process.env.FUSION_PROJECT_DIR;
+    const top = resolveRepoRoot();
+    assert.ok(path.isAbsolute(top), "toplevel must be absolute");
+    // The resolved root must contain this workspace (cwd-independent), not a subdir.
+    assert.ok(existsSync(path.join(top, "scripts/test-changed.mjs")), "resolved root must be the repo root");
+  } finally {
+    if (saved === undefined) delete process.env.FUSION_PROJECT_DIR;
+    else process.env.FUSION_PROJECT_DIR = saved;
+  }
 });
 
 // FNXC:TestInfrastructure 2026-06-26-09:15: the merge gate re-covers a delegated
