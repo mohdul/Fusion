@@ -5425,6 +5425,49 @@ describe("SelfHealingManager", () => {
       managerWithRecovery.stop();
     });
 
+    it("does not double-fire against an inline-rescheduled in-progress task", async () => {
+      const recoverFn = vi.fn().mockResolvedValue(true);
+      const managerWithRecovery = new SelfHealingManager(store, {
+        rootDir: "/tmp/test-project",
+        recoverFailedPreMergeStep: recoverFn,
+      });
+      (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+        maxPostReviewFixes: 2,
+      });
+      (store.listTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { ...baseTask, column: "in-progress", postReviewFixCount: 1 },
+      ]);
+
+      const result = await managerWithRecovery.recoverReviewTasksWithFailedPreMergeSteps();
+
+      expect(result).toBe(0);
+      expect(recoverFn).not.toHaveBeenCalled();
+      expect(store.updateTask).not.toHaveBeenCalled();
+
+      managerWithRecovery.stop();
+    });
+
+    it("does not revive an already in-review task when auto-merge processing is disabled", async () => {
+      const recoverFn = vi.fn().mockResolvedValue(true);
+      const managerWithRecovery = new SelfHealingManager(store, {
+        rootDir: "/tmp/test-project",
+        recoverFailedPreMergeStep: recoverFn,
+      });
+      (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+        maxPostReviewFixes: 2,
+        autoMerge: false,
+      });
+      (store.listTasks as ReturnType<typeof vi.fn>).mockResolvedValue([{ ...baseTask }]);
+
+      const result = await managerWithRecovery.recoverReviewTasksWithFailedPreMergeSteps();
+
+      expect(result).toBe(0);
+      expect(recoverFn).not.toHaveBeenCalled();
+      expect(store.updateTask).not.toHaveBeenCalled();
+
+      managerWithRecovery.stop();
+    });
+
     it("leaves tasks with non-pre-merge blockers alone (e.g. incomplete steps)", async () => {
       const recoverFn = vi.fn().mockResolvedValue(true);
       const managerWithRecovery = new SelfHealingManager(store, {

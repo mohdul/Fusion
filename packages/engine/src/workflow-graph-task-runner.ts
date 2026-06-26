@@ -1,7 +1,7 @@
 import type { Settings, TaskDetail, WorkflowDefinition, WorkflowStepResult } from "@fusion/core";
 import { getBuiltinWorkflow, isBuiltinWorkflowId } from "@fusion/core";
 
-import { WorkflowGraphExecutor, type WorkflowNodeOutcome, type WorkflowTaskProjection } from "./workflow-graph-executor.js";
+import { WorkflowGraphExecutor, type WorkflowGraphExecutorDeps, type WorkflowNodeOutcome, type WorkflowTaskProjection } from "./workflow-graph-executor.js";
 import type {
   CodeNodeRunner,
   ForeachActiveContext,
@@ -92,6 +92,8 @@ export interface WorkflowGraphTaskRunnerDeps {
    *  node's outcome into `task.workflowStepResults` keyed by node id. Additive;
    *  absent → graph records nothing (disabled groups + unwired stores byte-inert). */
   recordWorkflowStepResult?: (taskId: string, result: WorkflowStepResult) => void | Promise<void>;
+  /** Enabled pre-merge optional-step REVISE remediation seam. Additive; absent preserves prior graph traversal. */
+  requestPreMergeOptionalStepFix?: WorkflowGraphExecutorDeps["requestPreMergeOptionalStepFix"];
   /** Project node-published task metadata onto the task row for dispatcher/UI. */
   publishTaskProjection?: (taskId: string, patch: WorkflowTaskProjection, source: { nodeId: string; nodeKind: string }) => void | Promise<void>;
   /** @deprecated use publishTaskProjection. */
@@ -236,6 +238,7 @@ export class WorkflowGraphTaskRunner {
         resumeReconcile: this.deps.resumeReconcile,
         logTaskEntry: this.deps.logTaskEntry,
         recordWorkflowStepResult: this.deps.recordWorkflowStepResult,
+        requestPreMergeOptionalStepFix: this.deps.requestPreMergeOptionalStepFix,
         publishTaskProjection: this.deps.publishTaskProjection,
         publishTouchedFiles: this.deps.publishTouchedFiles,
         // Single source of truth (KTD-6): prefer the caller-threaded run id so the

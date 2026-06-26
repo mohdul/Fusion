@@ -8,7 +8,7 @@ const execAsync = promisify(exec);
 import { delimiter, isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
-import type { TaskStore, Task, TaskDetail, TaskTokenUsage, StepStatus, Settings, WorkflowStep, MissionStore, Slice, AgentState, AgentCapability, RunMutationContext, AgentHeartbeatConfig, Agent, AgentMemoryInclusionMode, ProjectSettings, MergeResult, WorkflowIrNode, WorkflowIrNodeKind } from "@fusion/core";
+import type { TaskStore, Task, TaskDetail, TaskTokenUsage, StepStatus, Settings, WorkflowStep, MissionStore, Slice, AgentState, AgentCapability, RunMutationContext, AgentHeartbeatConfig, Agent, AgentMemoryInclusionMode, ProjectSettings, MergeResult, WorkflowIrNode, WorkflowIrNodeKind, WorkflowStepResult as CoreWorkflowStepResult } from "@fusion/core";
 import { getUnmetSchedulingDependencies } from "./scheduler.js";
 import { RetryStormError, TaskDeletedError, serializeRetryStormError, isExperimentalFeatureEnabled, resolveWorkflowIrForTask, resolveColumnAgentBinding, resolveEffectiveAgent, instanceNodeId, getWorkflowExtensionRegistry, getBuiltinWorkflow, parseNoOpCompletionMarker, allowsAutoMergeProcessing, isSharedBranchGroupMemberIntegration, resolveMaxAutoMergeRetries } from "@fusion/core";
 import { mergeEffectiveSettings } from "./effective-settings.js";
@@ -3703,6 +3703,51 @@ export class TaskExecutor {
     }
   }
 
+  /*
+   * FNXC:WorkflowOptionalStepFix 2026-06-26-16:35:
+   * Inline graph optional-step remediation consumes `postReviewFixCount` BEFORE calling `sendTaskBackForFix`, matching self-healing's budget-first ordering. This prevents a persistent Code Review / Browser Verification REVISE from ping-ponging forever: when `postReviewFixCount >= maxPostReviewFixes` (or max <= 0), the seam declines and graph execution falls through to the prior advisory/gate behavior.
+   */
+  private async requestPreMergeOptionalStepFix(
+    taskId: string,
+    fallbackTask: Task,
+    info: {
+      stepName: string;
+      feedback: string;
+      phase: CoreWorkflowStepResult["phase"];
+      status: CoreWorkflowStepResult["status"];
+      verdict?: string;
+    },
+  ): Promise<boolean> {
+    if (info.phase !== "pre-merge") return false;
+    if (info.verdict !== "REVISE") return false;
+    if (info.status !== "advisory_failure" && info.status !== "failed") return false;
+
+    const liveTask = await this.store.getTask(taskId).catch(() => fallbackTask);
+    const settings = await mergeEffectiveSettings(this.store, liveTask, await this.store.getSettings());
+    const maxFixes = settings.maxPostReviewFixes ?? 1;
+    if (!Number.isFinite(maxFixes) || maxFixes <= 0) return false;
+
+    const currentCount = liveTask.postReviewFixCount ?? 0;
+    if (currentCount >= maxFixes) return false;
+
+    const nextCount = currentCount + 1;
+    await this.store.updateTask(taskId, { postReviewFixCount: nextCount }, this.getRunContextFor(taskId));
+    await this.store.logEntry(
+      taskId,
+      `Pre-merge optional workflow step requested executor fixes (attempt ${nextCount}/${maxFixes})`,
+      `Step: ${info.stepName}\nStatus: ${info.status}\nFeedback:\n${info.feedback}`,
+      this.getRunContextFor(taskId),
+    );
+    await this.sendTaskBackForFix(
+      liveTask,
+      liveTask.worktree ?? "",
+      info.feedback,
+      info.stepName,
+      `Pre-merge optional workflow step "${info.stepName}" requested revision`,
+    );
+    return true;
+  }
+
   /**
    * Auto-revive an `in-review` task whose pre-merge workflow step(s) failed, by
    * replaying the same send-back-for-fix flow the executor uses during a live
@@ -4326,7 +4371,7 @@ export class TaskExecutor {
         no-op when the store lacks updateTask, and swallow read/write errors (the
         executor wrapper also swallows) so result recording never affects the run.
         */
-        recordWorkflowStepResult: async (taskId: string, result: import("@fusion/core").WorkflowStepResult) => {
+        recordWorkflowStepResult: async (taskId: string, result: CoreWorkflowStepResult) => {
           if (typeof this.store.updateTask !== "function") return;
           try {
             const live = await this.store.getTask(taskId);
@@ -4341,6 +4386,7 @@ export class TaskExecutor {
             // Result recording is additive visibility — never affect the run.
           }
         },
+        requestPreMergeOptionalStepFix: (taskId, info) => this.requestPreMergeOptionalStepFix(taskId, task, info),
       });
       let result: WorkflowGraphTaskRunResult;
       try {

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { BUILTIN_CODING_WORKFLOW_IR, BUILTIN_STEPWISE_CODING_WORKFLOW_IR } from "@fusion/core";
 import type { TaskDetail, WorkflowIr } from "@fusion/core";
 
 import { WorkflowGraphExecutor, type WorkflowNodeHandler } from "../workflow-graph-executor.js";
@@ -85,6 +86,38 @@ function multiNodeGroupIr(): WorkflowIr {
 
 function taskWith(enabled: string[] | undefined): TaskDetail {
   return { id: "FN-OG", enabledWorkflowSteps: enabled } as TaskDetail;
+}
+
+function reviseGroupIr(options: { phase?: "pre-merge" | "post-merge"; gateMode?: "advisory" | "gate" } = {}): WorkflowIr {
+  return {
+    version: "v2",
+    name: "optional-group-revise-test",
+    columns: [{ id: "work", name: "Work", traits: [] }],
+    nodes: [
+      { id: "start", kind: "start" },
+      {
+        id: "group",
+        kind: "optional-group",
+        config: {
+          name: options.phase === "post-merge" ? "Post-merge verification" : "Code Review",
+          defaultOn: true,
+          phase: options.phase,
+          template: {
+            nodes: [{ id: "review", kind: options.gateMode === "gate" ? "gate" : "prompt", config: { prompt: "review" } }],
+            edges: [],
+          },
+        },
+      },
+      { id: "after", kind: "prompt", config: { prompt: "after" } },
+      { id: "end", kind: "end" },
+    ],
+    edges: [
+      { from: "start", to: "group" },
+      { from: "group", to: "after", condition: "success" },
+      { from: "group", to: "end", condition: "failure" },
+      { from: "after", to: "end" },
+    ],
+  };
 }
 
 describe("WorkflowGraphExecutor optional-group", () => {
@@ -219,5 +252,178 @@ describe("WorkflowGraphExecutor optional-group", () => {
     expect(calls).not.toContain("optstep");
     expect(calls).toContain("after");
     expect(result.outcome).toBe("success");
+  });
+
+  it("pre-merge advisory REVISE requests a bounded fix and aborts forward traversal when scheduled", async () => {
+    const calls: string[] = [];
+    const records: unknown[] = [];
+    const requestFix = vi.fn(async () => true);
+    const executor = new WorkflowGraphExecutor({
+      handlers: {
+        prompt: async (node) => {
+          calls.push(node.id);
+          if (node.id === "review") {
+            return { outcome: "success", value: "REVISE", contextPatch: { output: "Fix the review finding" } };
+          }
+          return { outcome: "success" };
+        },
+      },
+      recordWorkflowStepResult: async (_taskId, result) => { records.push(result); },
+      requestPreMergeOptionalStepFix: requestFix,
+    });
+
+    const result = await executor.run(taskWith(["group"]), settingsOn(), reviseGroupIr());
+
+    expect(requestFix).toHaveBeenCalledWith("FN-OG", {
+      stepName: "Code Review",
+      feedback: "Fix the review finding",
+      phase: "pre-merge",
+      status: "advisory_failure",
+      verdict: "REVISE",
+    });
+    expect(calls).not.toContain("after");
+    expect(result.context["node:group:fixScheduled"]).toBe(true);
+    expect(records).toEqual(expect.arrayContaining([
+      expect.objectContaining({ workflowStepId: "group", status: "advisory_failure", verdict: "REVISE", output: "Fix the review finding" }),
+    ]));
+  });
+
+  it("falls through unchanged when the pre-merge fix seam is absent or declines", async () => {
+    for (const requestFix of [undefined, vi.fn(async () => false)] as const) {
+      const calls: string[] = [];
+      const executor = new WorkflowGraphExecutor({
+        handlers: {
+          prompt: async (node) => {
+            calls.push(node.id);
+            if (node.id === "review") return { outcome: "success", value: "REVISE", contextPatch: { output: "still advisory" } };
+            return { outcome: "success" };
+          },
+        },
+        ...(requestFix ? { requestPreMergeOptionalStepFix: requestFix } : {}),
+      });
+
+      const result = await executor.run(taskWith(["group"]), settingsOn(), reviseGroupIr());
+
+      expect(calls).toContain("after");
+      expect(result.context["node:group:fixScheduled"]).toBeUndefined();
+      if (requestFix) expect(requestFix).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("requests fixes for pre-merge gate REVISE but not post-merge, non-REVISE, or fast-mode skipped outcomes", async () => {
+    const requestFix = vi.fn(async () => true);
+    const gateExecutor = new WorkflowGraphExecutor({
+      handlers: {
+        gate: async () => ({ outcome: "failure", value: "REVISE", contextPatch: { output: "gate finding" } }),
+        prompt: async () => ({ outcome: "success" }),
+      },
+      requestPreMergeOptionalStepFix: requestFix,
+    });
+    await gateExecutor.run(taskWith(["group"]), settingsOn(), reviseGroupIr({ gateMode: "gate" }));
+    expect(requestFix).toHaveBeenLastCalledWith("FN-OG", expect.objectContaining({ status: "failed", feedback: "gate finding" }));
+
+    requestFix.mockClear();
+    const postMergeCalls: string[] = [];
+    const postMergeExecutor = new WorkflowGraphExecutor({
+      handlers: {
+        prompt: async (node) => {
+          postMergeCalls.push(node.id);
+          if (node.id === "review") return { outcome: "success", value: "REVISE", contextPatch: { output: "post merge finding" } };
+          return { outcome: "success" };
+        },
+      },
+      requestPreMergeOptionalStepFix: requestFix,
+    });
+    await postMergeExecutor.run(taskWith(["group"]), settingsOn(), reviseGroupIr({ phase: "post-merge" }));
+    expect(requestFix).not.toHaveBeenCalled();
+    expect(postMergeCalls).toContain("after");
+
+    const approveExecutor = new WorkflowGraphExecutor({
+      handlers: {
+        prompt: async () => ({ outcome: "success", value: "APPROVE_WITH_NOTES", contextPatch: { output: "notes only" } }),
+      },
+      requestPreMergeOptionalStepFix: requestFix,
+    });
+    await approveExecutor.run(taskWith(["group"]), settingsOn(), reviseGroupIr());
+    expect(requestFix).not.toHaveBeenCalled();
+
+    const fastExecutor = new WorkflowGraphExecutor({
+      handlers: {
+        prompt: async (_node, context) => context.task.executionMode === "fast"
+          ? { outcome: "success", value: "workflow-step-skipped" }
+          : { outcome: "success", value: "REVISE", contextPatch: { output: "would revise outside fast mode" } },
+      },
+      requestPreMergeOptionalStepFix: requestFix,
+    });
+    await fastExecutor.run({ ...taskWith(["group"]), executionMode: "fast" } as TaskDetail, settingsOn(), reviseGroupIr());
+    expect(requestFix).not.toHaveBeenCalled();
+  });
+
+  it("builtin coding optional Code Review and Browser Verification REVISE abort before review, and stepwise carries the same pre-merge path", async () => {
+    for (const groupId of ["code-review", "browser-verification"] as const) {
+      const requestFix = vi.fn(async () => true);
+      const calls: string[] = [];
+      const executor = new WorkflowGraphExecutor({
+        handlers: {
+          prompt: async (node) => {
+            calls.push(node.id);
+            if ((groupId === "code-review" && node.id === "code-review-step")
+              || (groupId === "browser-verification" && node.id === "browser-verification-step")) {
+              return { outcome: "success", value: "REVISE", contextPatch: { output: `${groupId} finding` } };
+            }
+            return { outcome: "success" };
+          },
+        },
+        requestPreMergeOptionalStepFix: requestFix,
+      });
+
+      const result = await executor.run(
+        { ...taskWith(groupId === "code-review" ? ["code-review"] : ["browser-verification", "code-review"]), id: `FN-${groupId}` } as TaskDetail,
+        settingsOn(),
+        BUILTIN_CODING_WORKFLOW_IR,
+      );
+
+      expect(requestFix).toHaveBeenCalledWith(`FN-${groupId}`, expect.objectContaining({
+        stepName: groupId === "code-review" ? "Code Review" : "Browser Verification",
+        feedback: `${groupId} finding`,
+      }));
+      expect(calls).not.toContain("review");
+      expect(result.context[`node:${groupId}:fixScheduled`]).toBe(true);
+    }
+
+    for (const ir of [BUILTIN_CODING_WORKFLOW_IR, BUILTIN_STEPWISE_CODING_WORKFLOW_IR]) {
+      for (const groupId of ["browser-verification", "code-review"] as const) {
+        const node = ir.nodes.find((candidate) => candidate.id === groupId);
+        expect(node).toMatchObject({ kind: "optional-group" });
+        expect(node?.config?.phase).toBeUndefined();
+        expect(ir.edges).toEqual(expect.arrayContaining([
+          expect.objectContaining({ from: groupId, to: groupId === "browser-verification" ? "code-review" : "review", condition: "success" }),
+          expect.objectContaining({ from: groupId, to: "end", condition: "failure" }),
+        ]));
+      }
+    }
+
+    const stepwiseRequestFix = vi.fn(async () => true);
+    const stepwiseExecutor = new WorkflowGraphExecutor({
+      handlers: {
+        "parse-steps": async () => ({ outcome: "success", value: "no-steps" }),
+        prompt: async (node) => node.id === "code-review-step"
+          ? { outcome: "success", value: "REVISE", contextPatch: { output: "stepwise code-review finding" } }
+          : { outcome: "success" },
+      },
+      requestPreMergeOptionalStepFix: stepwiseRequestFix,
+    });
+
+    const stepwiseResult = await stepwiseExecutor.run(
+      { ...taskWith(["code-review"]), id: "FN-stepwise", steps: [] } as TaskDetail,
+      settingsOn(),
+      BUILTIN_STEPWISE_CODING_WORKFLOW_IR,
+    );
+
+    expect(stepwiseRequestFix).toHaveBeenCalledWith("FN-stepwise", expect.objectContaining({
+      stepName: "Code Review",
+      feedback: "stepwise code-review finding",
+    }));
+    expect(stepwiseResult.context["node:code-review:fixScheduled"]).toBe(true);
   });
 });

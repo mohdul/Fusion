@@ -550,7 +550,16 @@ Authoritative cutover now depends on existing/current parity summary evidence, n
 
 If a task is found in `in-review` with failed pre-merge workflow results and no active executor, self-healing can auto-revive it (bounded by `maxPostReviewFixes`) by replaying the same remediation send-back flow.
 
-Advisory failures are intentionally excluded from merge blocking and auto-revive.
+<!--
+FNXC:WorkflowOptionalStepFix 2026-06-26-17:05:
+Enabled PRE-merge optional-group REVISE findings should be acted on before review/merge when the executor is still in the graph run. The inline path consumes the same `postReviewFixCount` / `maxPostReviewFixes` budget before scheduling `sendTaskBackForFix`; exhausted budgets preserve the older advisory/gate behavior so optional advisory gates remain ultimately non-blocking.
+-->
+
+During a live graph run, an enabled **pre-merge** optional step that returns `REVISE` (including the built-in **Code Review** / `code-review` and **Browser Verification** / `browser-verification` groups) sends the task back to the executor for a bounded fix pass before the graph continues to review or merge. The same `postReviewFixCount` / `maxPostReviewFixes` budget used by self-healing caps this inline remediation. When the budget is exhausted or disabled (`maxPostReviewFixes <= 0`), behavior falls through to the prior semantics: advisory results remain non-blocking and gate failures remain failed/parked.
+
+Post-merge optional groups never trigger this send-back path because merge has already happened; their failures are recorded/logged as non-blocking post-merge results.
+
+Advisory failures are intentionally excluded from merge blocking and self-healing auto-revive after a task is already in review; their live-run fix pass is only the bounded pre-review remediation described above.
 
 ## Viewing Results
 

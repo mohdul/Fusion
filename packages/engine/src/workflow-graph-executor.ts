@@ -166,6 +166,17 @@ export interface WorkflowGraphExecutorDeps {
    * this seam only forwards the terminal/pending entry.
    */
   recordWorkflowStepResult?: (taskId: string, result: WorkflowStepResult) => void | Promise<void>;
+  /*
+   * FNXC:WorkflowOptionalStepFix 2026-06-26-16:20:
+   * Enabled PRE-merge optional workflow steps that return REVISE must offer the executor one bounded remediation path before normal advisory/gate fall-through. This seam returns true only when the caller already consumed the `maxPostReviewFixes` budget and scheduled `sendTaskBackForFix`; the graph must then stop before review/merge. Absent or false preserves prior byte-inert behavior for in-memory tests and exhausted budgets.
+   */
+  requestPreMergeOptionalStepFix?: (taskId: string, info: {
+    stepName: string;
+    feedback: string;
+    phase: WorkflowStepResult["phase"];
+    status: WorkflowStepResult["status"];
+    verdict?: string;
+  }) => Promise<boolean> | boolean;
   /** Project node-published task metadata onto the task row for dispatcher/UI. */
   publishTaskProjection?: (taskId: string, patch: WorkflowTaskProjection, source: { nodeId: string; nodeKind: WorkflowIrNode["kind"] }) => void | Promise<void>;
   /** @deprecated use publishTaskProjection. Kept for older callers. */
@@ -649,6 +660,24 @@ export class WorkflowGraphExecutor {
           };
           context[`node:${node.id}:outcome`] = result.outcome;
           if (result.value !== undefined) context[`node:${node.id}:value`] = result.value;
+          if (
+            stepPhase === "pre-merge"
+            && verdict === "REVISE"
+            && (stepStatus === "advisory_failure" || stepStatus === "failed")
+          ) {
+            const feedback = stepOutput?.trim() || stepNotes?.trim() || "(no feedback captured)";
+            const fixScheduled = await this.deps.requestPreMergeOptionalStepFix?.(task.id, {
+              stepName: groupName,
+              feedback,
+              phase: stepPhase,
+              status: stepStatus,
+              verdict,
+            });
+            if (fixScheduled) {
+              context[`node:${node.id}:fixScheduled`] = true;
+              return { outcome: "success", value: "pre-merge-optional-step-fix-scheduled" };
+            }
+          }
           return await traverseChildren(node, result);
         }
 
