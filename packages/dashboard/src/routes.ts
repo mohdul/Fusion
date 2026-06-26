@@ -4463,6 +4463,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       // Node-aware proxying: route to remote node if nodeId is provided and not local
       if (nodeId) {
         const { CentralCore } = await import("@fusion/core");
+        // FNXC:GlobalDirGuard 2026-06-25-22:40: Node-aware proxy lookup uses GLOBAL central state — use getGlobalSettingsDir(), never getFusionDir() (project .fusion/), which spawns a stray per-project central DB and resets global settings.
         const central = new CentralCore(store.getGlobalSettingsDir());
         await central.init();
 

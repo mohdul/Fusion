@@ -52,6 +52,7 @@ export const registerSecretsSyncRoutes: ApiRouteRegistrar = (ctx) => {
   router.post("/nodes/:id/secrets/push", async (req, res) => {
     try {
       const { CentralCore } = await import("@fusion/core");
+      // FNXC:GlobalDirGuard 2026-06-25-22:40: Secrets-sync node state is GLOBAL — use getGlobalSettingsDir(), never getFusionDir() (project .fusion/), which spawns a stray per-project central DB and resets global settings. See register-settings-sync-inbound-routes.ts for full rationale.
       const central = new CentralCore(store.getGlobalSettingsDir());
       await central.init();
       try {

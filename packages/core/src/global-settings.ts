@@ -95,8 +95,11 @@ export function resolveGlobalDir(dir?: string): string {
     FNXC:GlobalDirGuard 2026-06-25-22:10:
     Production code must never point the central/global store at a project's `.fusion/` directory. Doing so silently spins up a stray per-project central DB seeded with DEFAULT global settings (globalMaxConcurrent=4, empty global secrets, default centralSettings), which then shadows the real `~/.fusion/fusion-central.db` and manifests as "all my global settings reset". Root cause was call sites passing `store.getFusionDir()` instead of the resolved global dir.
     Guard heuristic: a project `.fusion` dir is named `.fusion` and lives inside a git repo (its parent has a `.git` dir or worktree file), whereas the home global dir's parent (the home dir) is not a repo. We only flag dirs that differ from the home-resolved global dir, so legitimately-threaded global dirs and test temp dirs are unaffected. Skipped under VITEST (tests pass explicit temp dirs by design).
+
+    FNXC:GlobalDirGuard 2026-06-25-22:55:
+    The heuristic is intentionally conservative but can't perfectly distinguish a project `.fusion` from a legitimately version-controlled custom global dir (e.g. a dotfiles repo with `~/dotfiles/.fusion` + `.git`). To avoid hard-crashing that rare setup, honor an explicit opt-out env var `FUSION_ALLOW_PROJECT_LOCAL_GLOBAL_DIR=true`. This is not reachable via normal production call sites (they resolve to ~/.fusion); it only matters for operators who deliberately configure a custom global dir inside a repo.
     */
-    if (process.env.VITEST !== "true") {
+    if (process.env.VITEST !== "true" && process.env.FUSION_ALLOW_PROJECT_LOCAL_GLOBAL_DIR !== "true") {
       const homeGlobalDir = resolveGlobalDirForHome(getHomeDir());
       const looksLikeProjectFusionDir =
         dir !== homeGlobalDir &&
@@ -106,7 +109,8 @@ export function resolveGlobalDir(dir?: string): string {
         throw new Error(
           `resolveGlobalDir(): refusing project-local '.fusion' directory '${dir}' for the central/global store. ` +
             "This would create a stray per-project central database seeded with default global settings and silently reset them. " +
-            "Pass the resolved global dir (or omit the argument so it defaults to ~/.fusion); see TaskStore.getGlobalSettingsDir().",
+            "Pass the resolved global dir (or omit the argument so it defaults to ~/.fusion); see TaskStore.getGlobalSettingsDir(). " +
+            "If this really is your intended global dir (e.g. a version-controlled dotfiles repo), set FUSION_ALLOW_PROJECT_LOCAL_GLOBAL_DIR=true to override.",
         );
       }
     }
