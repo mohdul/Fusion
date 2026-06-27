@@ -143,6 +143,27 @@ async function getProjectHealth(central: CentralCore, projectId: string): Promis
   return central.getProjectHealth(projectId);
 }
 
+function getLiveInFlightAgentCount(taskCounts: Record<string, number>): number {
+  /*
+   * FNXC:CLIProjectHealth 2026-06-26-18:25:
+   * FN-7081 confirmed central projectHealth.inFlightAgentCount is slot/health bookkeeping that can be stale or zero in the default in-process runtime.
+   * User-visible In-Flight Agents must mirror FN-7080's dashboard read route by deriving the live count from tasks currently in the in-progress column without mutating persisted health rows.
+   */
+  return taskCounts["in-progress"] ?? 0;
+}
+
+function buildDisplayHealth(
+  taskCounts: Record<string, number>,
+  health?: ProjectHealth
+): NonNullable<ProjectInfoData["health"]> {
+  return {
+    activeTaskCount: health?.activeTaskCount ?? 0,
+    inFlightAgentCount: getLiveInFlightAgentCount(taskCounts),
+    totalTasksCompleted: health?.totalTasksCompleted ?? 0,
+    totalTasksFailed: health?.totalTasksFailed ?? 0,
+  };
+}
+
 /**
  * List all registered projects.
  *
@@ -174,6 +195,8 @@ export async function runProjectList(options: ProjectListOptions = {}): Promise<
           getProjectHealth(central, project.id),
         ]);
 
+        const displayHealth = buildDisplayHealth(taskCounts, health);
+
         return {
           id: project.id,
           name: project.name,
@@ -183,14 +206,7 @@ export async function runProjectList(options: ProjectListOptions = {}): Promise<
           createdAt: project.createdAt,
           updatedAt: project.updatedAt,
           lastActivityAt: health?.lastActivityAt ?? project.lastActivityAt,
-          health: health
-            ? {
-                activeTaskCount: health.activeTaskCount,
-                inFlightAgentCount: health.inFlightAgentCount,
-                totalTasksCompleted: health.totalTasksCompleted,
-                totalTasksFailed: health.totalTasksFailed,
-              }
-            : undefined,
+          health: displayHealth,
           taskCounts,
           defaultProject: defaultProject?.id === project.id,
         };
@@ -208,8 +224,8 @@ export async function runProjectList(options: ProjectListOptions = {}): Promise<
     console.log();
 
     // Header
-    console.log("  Name              Status      Isolation     Tasks  Last Activity");
-    console.log("  " + "─".repeat(72));
+    console.log("  Name              Status      Isolation     Tasks  In-Flight  Last Activity");
+    console.log("  " + "─".repeat(83));
 
     for (const project of projectData) {
       const totalTasks = Object.values(project.taskCounts).reduce((a, b) => a + b, 0);
@@ -220,9 +236,10 @@ export async function runProjectList(options: ProjectListOptions = {}): Promise<
       const status = `${statusDot} ${project.status}`.padEnd(12);
       const isolation = project.isolationMode.padEnd(12);
       const tasks = String(totalTasks).padStart(5);
+      const inFlightAgents = String(project.health?.inFlightAgentCount ?? 0).padStart(9);
       const lastActivity = formatLastActivity(project.lastActivityAt);
 
-      console.log(`  ${defaultMarker}${name} ${status} ${isolation} ${tasks}  ${lastActivity}`);
+      console.log(`  ${defaultMarker}${name} ${status} ${isolation} ${tasks}  ${inFlightAgents}  ${lastActivity}`);
     }
 
     console.log();
@@ -520,16 +537,17 @@ export async function runProjectShow(name?: string): Promise<void> {
     console.log(`  Created: ${project.createdAt ?? "unknown"}`);
     console.log(`  Updated: ${project.updatedAt ?? "unknown"}`);
 
-    if (health) {
-      console.log();
-      console.log(`  Health:`);
-      console.log(`    Active Tasks: ${health.activeTaskCount}`);
-      console.log(`    In-Flight Agents: ${health.inFlightAgentCount}`);
-      console.log(`    Completed: ${health.totalTasksCompleted}`);
-      console.log(`    Failed: ${health.totalTasksFailed}`);
-      if (health.lastActivityAt) {
-        console.log(`    Last Activity: ${formatLastActivity(health.lastActivityAt)}`);
-      }
+    const displayHealth = buildDisplayHealth(taskCounts, health);
+    const lastHealthActivityAt = health?.lastActivityAt ?? project.lastActivityAt;
+
+    console.log();
+    console.log(`  Health:`);
+    console.log(`    Active Tasks: ${displayHealth.activeTaskCount}`);
+    console.log(`    In-Flight Agents: ${displayHealth.inFlightAgentCount}`);
+    console.log(`    Completed: ${displayHealth.totalTasksCompleted}`);
+    console.log(`    Failed: ${displayHealth.totalTasksFailed}`);
+    if (lastHealthActivityAt) {
+      console.log(`    Last Activity: ${formatLastActivity(lastHealthActivityAt)}`);
     }
 
     console.log();

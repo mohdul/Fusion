@@ -108,9 +108,11 @@ Central health tracking keeps mutable project metrics, including:
 - project status (`initializing`, `active`, `paused`, `errored`)
 - dashboard project status badges degrade gracefully if registry or health data briefly carries an unknown or missing status value
 
+`projectHealth.inFlightAgentCount` is persisted slot/health bookkeeping, not an authoritative live running-agent count. Read-layer surfaces that need the current number of running agents (for example the dashboard project health route and `fn project list/info`) derive it from project tasks whose `column === "in-progress"` while preserving the stored health row for non-count metadata.
+
 ## Global Concurrency Management
 
-A singleton central record enforces system-wide limits so one project cannot monopolize all execution slots. Slot acquire/release bookkeeping remains separate from read-only running-agent displays: live read surfaces derive `currentlyActive` and per-project active counts from `in-progress` tasks in already-open project stores, while the persisted `globalMaxConcurrent` cap and `queuedCount` continue to come from central concurrency state.
+A singleton central record enforces system-wide limits so one project cannot monopolize all execution slots. `globalConcurrency.currentlyActive` remains persisted slot bookkeeping maintained by acquire/free flows; live read-only running-agent displays derive `currentlyActive` and per-project active counts from `in-progress` tasks in already-open project stores, while the persisted `globalMaxConcurrent` cap and `queuedCount` continue to come from central concurrency state. The slot acquire/free limiter semantics and DB column names are unchanged.
 
 ## Plugin Scope in Multi-Project Mode
 

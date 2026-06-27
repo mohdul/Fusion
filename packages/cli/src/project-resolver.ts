@@ -826,6 +826,10 @@ export async function unregisterProject(
 
 /**
  * Get detailed project info including runtime metrics and task counts.
+ *
+ * FNXC:CLIProjectHealth 2026-06-26-18:31:
+ * This resolver returns raw central health for metadata compatibility, so `health.inFlightAgentCount` remains persisted bookkeeping.
+ * Callers that display live running-agent counts must derive them from `taskCounts["in-progress"]` instead of rendering the raw health field.
  */
 export async function getProjectInfo(name?: string): Promise<{
   project: ResolvedProject;

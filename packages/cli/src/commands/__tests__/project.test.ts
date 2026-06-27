@@ -347,7 +347,7 @@ describe("project commands", () => {
       totalTasksFailed: 1,
       lastActivityAt: new Date().toISOString(),
     });
-    mockTaskStoreListTasks.mockResolvedValue([]);
+    mockTaskStoreListTasks.mockResolvedValue([{ id: "FN-003", column: "in-progress" }]);
 
     const { runProjectShow } = await import("../project.js");
     await runProjectShow("proj-1");
@@ -357,6 +357,176 @@ describe("project commands", () => {
     expect(output).toContain("Active Tasks: 2");
     expect(output).toContain("In-Flight Agents: 1");
     expect(output).toContain("Completed: 10");
+  });
+
+  it("runProjectShow derives In-Flight Agents from live in-progress tasks when central health is stale", async () => {
+    mockGetProject.mockResolvedValue({
+      id: "proj-1",
+      name: "demo",
+      path: "/tmp/demo",
+      status: "active",
+      isolationMode: "in-process",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    });
+    mockGetSettings.mockResolvedValue({});
+    const staleHealth = {
+      projectId: "proj-1",
+      status: "active",
+      activeTaskCount: 2,
+      inFlightAgentCount: 0,
+      totalTasksCompleted: 10,
+      totalTasksFailed: 1,
+      lastActivityAt: new Date().toISOString(),
+    };
+    mockGetProjectHealth.mockResolvedValue(staleHealth);
+    mockTaskStoreListTasks.mockResolvedValue([
+      { id: "FN-001", column: "todo" },
+      { id: "FN-002", column: "in-progress" },
+      { id: "FN-003", column: "in-progress" },
+    ]);
+
+    const { runProjectShow } = await import("../project.js");
+    await runProjectShow("proj-1");
+
+    const output = consoleSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("In-Flight Agents: 2");
+    expect(staleHealth.inFlightAgentCount).toBe(0);
+  });
+
+  it("runProjectList JSON derives health.inFlightAgentCount from live in-progress tasks", async () => {
+    mockListProjects.mockResolvedValue([
+      { id: "proj-1", name: "app-one", path: "/tmp/app-one", status: "active", isolationMode: "in-process" },
+    ]);
+    mockGetSettings.mockResolvedValue({});
+    mockGetProjectHealth.mockResolvedValue({
+      projectId: "proj-1",
+      status: "active",
+      activeTaskCount: 1,
+      inFlightAgentCount: 0,
+      totalTasksCompleted: 4,
+      totalTasksFailed: 0,
+    });
+    mockTaskStoreListTasks.mockResolvedValue([
+      { id: "FN-001", column: "in-progress" },
+      { id: "FN-002", column: "in-progress" },
+    ]);
+
+    const { runProjectList } = await import("../project.js");
+    await runProjectList({ json: true });
+
+    const parsed = JSON.parse(consoleSpy.mock.calls.map((call) => String(call[0])).join(""));
+    expect(parsed[0].health.inFlightAgentCount).toBe(2);
+    expect(parsed[0].health.activeTaskCount).toBe(1);
+    expect(mockGetProjectHealth.mock.results[0]).toBeDefined();
+  });
+
+  it("runProjectList table prints the live In-Flight column", async () => {
+    mockListProjects.mockResolvedValue([
+      { id: "proj-1", name: "app-one", path: "/tmp/app-one", status: "active", isolationMode: "in-process" },
+    ]);
+    mockGetSettings.mockResolvedValue({});
+    mockGetProjectHealth.mockResolvedValue({
+      projectId: "proj-1",
+      status: "active",
+      activeTaskCount: 1,
+      inFlightAgentCount: 0,
+      totalTasksCompleted: 0,
+      totalTasksFailed: 0,
+    });
+    mockTaskStoreListTasks.mockResolvedValue([
+      { id: "FN-001", column: "todo" },
+      { id: "FN-002", column: "in-progress" },
+    ]);
+
+    const { runProjectList } = await import("../project.js");
+    await runProjectList();
+
+    const output = consoleSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    const projectLine = output.split("\n").find((line) => line.includes("app-one"));
+    expect(output).toContain("In-Flight");
+    expect(projectLine).toContain("        1");
+  });
+
+  it("runProjectShow reports zero live In-Flight Agents when no tasks are in-progress", async () => {
+    mockGetProject.mockResolvedValue({
+      id: "proj-1",
+      name: "demo",
+      path: "/tmp/demo",
+      status: "active",
+      isolationMode: "in-process",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    });
+    mockGetSettings.mockResolvedValue({});
+    mockGetProjectHealth.mockResolvedValue({
+      projectId: "proj-1",
+      status: "active",
+      activeTaskCount: 2,
+      inFlightAgentCount: 9,
+      totalTasksCompleted: 0,
+      totalTasksFailed: 0,
+    });
+    mockTaskStoreListTasks.mockResolvedValue([
+      { id: "FN-001", column: "todo" },
+      { id: "FN-002", column: "done" },
+    ]);
+
+    const { runProjectShow } = await import("../project.js");
+    await runProjectShow("proj-1");
+
+    const output = consoleSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("In-Flight Agents: 0");
+  });
+
+  it("runProjectShow renders live In-Flight Agents even without a central health row", async () => {
+    mockGetProject.mockResolvedValue({
+      id: "proj-1",
+      name: "demo",
+      path: "/tmp/demo",
+      status: "active",
+      isolationMode: "in-process",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    });
+    mockGetSettings.mockResolvedValue({});
+    mockGetProjectHealth.mockResolvedValue(undefined);
+    mockTaskStoreListTasks.mockResolvedValue([{ id: "FN-001", column: "in-progress" }]);
+
+    const { runProjectShow } = await import("../project.js");
+    await runProjectShow("proj-1");
+
+    const output = consoleSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("Health:");
+    expect(output).toContain("In-Flight Agents: 1");
+  });
+
+  it("runProjectShow falls back to zero In-Flight Agents when the task store is unreadable", async () => {
+    mockGetProject.mockResolvedValue({
+      id: "proj-1",
+      name: "demo",
+      path: "/tmp/demo",
+      status: "active",
+      isolationMode: "in-process",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    });
+    mockGetSettings.mockResolvedValue({});
+    mockGetProjectHealth.mockResolvedValue({
+      projectId: "proj-1",
+      status: "active",
+      activeTaskCount: 2,
+      inFlightAgentCount: 3,
+      totalTasksCompleted: 0,
+      totalTasksFailed: 0,
+    });
+    mockTaskStoreListTasks.mockRejectedValue(new Error("cannot read tasks"));
+
+    const { runProjectShow } = await import("../project.js");
+    await expect(runProjectShow("proj-1")).resolves.toBeUndefined();
+
+    const output = consoleSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("In-Flight Agents: 0");
   });
 
   it("validation exits on invalid project name for runProjectAdd", async () => {

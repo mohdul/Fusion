@@ -5728,7 +5728,11 @@ export interface ProjectHealth {
   status: ProjectStatus;
   /** Number of tasks currently active */
   activeTaskCount: number;
-  /** Number of agents currently running */
+  /**
+   * FNXC:Concurrency 2026-06-26-18:34:
+   * Persisted project-health bookkeeping refreshed only by health polling / slot accounting paths; it is not a live read-layer running-agent count.
+   * Consumers that need current running agents must derive from tasks where `column === "in-progress"` (FN-7080/FN-7081) and leave this stored value untouched.
+   */
   inFlightAgentCount: number;
   /** ISO-8601 timestamp of last activity */
   lastActivityAt?: string;
@@ -5772,7 +5776,11 @@ export interface CentralActivityLogEntry {
 export interface GlobalConcurrencyState {
   /** System-wide concurrent agent limit (default: 4) */
   globalMaxConcurrent: number;
-  /** Active agents across all projects */
+  /**
+   * FNXC:Concurrency 2026-06-26-18:34:
+   * Persisted global slot bookkeeping maintained by acquire/release flows; it is not a live aggregate of project task stores.
+   * Read surfaces that need current running-agent totals should aggregate live `column === "in-progress"` task counts while preserving slot limiter semantics and DB column names.
+   */
   currentlyActive: number;
   /** Tasks waiting for concurrency slots */
   queuedCount: number;

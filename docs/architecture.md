@@ -1172,6 +1172,7 @@ SQLite schema is initialized in `packages/core/src/db.ts` and uses:
 - **Central DB**: `~/.fusion/fusion-central.db`
 - Schema in `packages/core/src/central-db.ts`
   - `projects`, `projectHealth`, `centralActivityLog`, `globalConcurrency`, `nodes`, `peerNodes`, `projectNodePathMappings`, `settingsSyncState`, `__meta`
+- `projectHealth.inFlightAgentCount` and `globalConcurrency.currentlyActive` are persisted slot/health bookkeeping fields. They are not live read-layer running-agent counts; dashboard and CLI read surfaces derive current running agents from tasks in `column === "in-progress"` while leaving slot acquire/free semantics and DB column names unchanged.
 
 ### Memory files
 - OpenClaw-style memory workspace:
