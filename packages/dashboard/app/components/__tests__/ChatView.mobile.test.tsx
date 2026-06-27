@@ -177,15 +177,6 @@ describe("ChatView mobile behavior", () => {
 
     return { listeners, mockVV };
   }
-  function ensureMatchMedia() {
-    if (!window.matchMedia) {
-      Object.defineProperty(window, "matchMedia", {
-        writable: true,
-        value: vi.fn(),
-      });
-    }
-  }
-
   function mockMobileViewport() {
     ensureMatchMedia();
     Object.defineProperty(window, "innerWidth", { value: 375, configurable: true });
@@ -342,9 +333,115 @@ describe("ChatView mobile behavior", () => {
 
       await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} experimentalFeatures={{ chatRooms: true }} />);
       expect(screen.queryByTestId("chat-mobile-session-trigger")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("chat-mobile-session-new")).not.toBeInTheDocument();
       expect(screen.getByText("#backend")).toBeInTheDocument();
     } finally {
       localStorage.setItem("fusion:chat-scope", "direct");
+      restoreMatchMedia.mockRestore();
+    }
+  });
+
+  it("mobile mode: quick session switcher New Chat opens the dialog and closes the menu", async () => {
+    const restoreMatchMedia = mockMobileViewport();
+    try {
+      setupMockChat({
+        sessions: [activeSessionFixture],
+        filteredSessions: [activeSessionFixture],
+        activeSession: activeSessionFixture,
+      });
+
+      await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+      await userEvent.click(screen.getByTestId("chat-mobile-session-trigger"));
+      const dropdown = screen.getByTestId("chat-mobile-session-dropdown");
+      const newChatItem = within(dropdown).getByRole("menuitem", { name: /new chat/i });
+
+      expect(newChatItem).toBe(screen.getByTestId("chat-mobile-session-new"));
+      await userEvent.click(newChatItem);
+
+      expect(screen.queryByTestId("chat-mobile-session-dropdown")).not.toBeInTheDocument();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    } finally {
+      restoreMatchMedia.mockRestore();
+    }
+  });
+
+  it("mobile mode: quick session switcher New Chat renders for single and multiple session lists", async () => {
+    const restoreMatchMedia = mockMobileViewport();
+    try {
+      setupMockChat({
+        sessions: [activeSessionFixture],
+        filteredSessions: [activeSessionFixture],
+        activeSession: activeSessionFixture,
+      });
+      const singleRender = await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+      await userEvent.click(screen.getByTestId("chat-mobile-session-trigger"));
+      expect(screen.getByTestId("chat-mobile-session-new")).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: /new chat/i })).toBeInTheDocument();
+
+      singleRender.unmount();
+
+      const anotherSession = {
+        id: "session-002",
+        agentId: "agent-002",
+        status: "active" as const,
+        title: "Another Chat",
+        createdAt: "2026-04-07T00:00:00.000Z",
+        updatedAt: "2026-04-07T00:00:00.000Z",
+      };
+      setupMockChat({
+        sessions: [activeSessionFixture, anotherSession],
+        filteredSessions: [activeSessionFixture, anotherSession],
+        activeSession: activeSessionFixture,
+      });
+      await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+      await userEvent.click(screen.getByTestId("chat-mobile-session-trigger"));
+      expect(screen.getByTestId("chat-mobile-session-new")).toBeInTheDocument();
+      expect(screen.getAllByRole("menuitem")).toHaveLength(3);
+    } finally {
+      restoreMatchMedia.mockRestore();
+    }
+  });
+
+  it("floating narrow mode: quick session switcher includes New Chat", async () => {
+    const restoreMatchMedia = mockDesktopViewport();
+    const originalResizeObserver = globalThis.ResizeObserver;
+    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 560,
+      height: 640,
+      top: 0,
+      right: 560,
+      bottom: 640,
+      left: 0,
+      toJSON: () => ({}),
+    });
+
+    class MockResizeObserver implements ResizeObserver {
+      readonly observe = vi.fn();
+      readonly unobserve = vi.fn();
+      readonly disconnect = vi.fn();
+      constructor(_callback: ResizeObserverCallback) {}
+    }
+
+    globalThis.ResizeObserver = MockResizeObserver;
+    try {
+      setupMockChat({
+        sessions: [activeSessionFixture],
+        filteredSessions: [activeSessionFixture],
+        activeSession: activeSessionFixture,
+      });
+
+      await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} floating />);
+
+      await userEvent.click(screen.getByTestId("chat-mobile-session-trigger"));
+      expect(screen.getByTestId("chat-mobile-session-new")).toBeInTheDocument();
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver;
+      rectSpy.mockRestore();
       restoreMatchMedia.mockRestore();
     }
   });

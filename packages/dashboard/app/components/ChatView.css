@@ -700,6 +700,37 @@ Mobile chat session switching needs a dedicated rename tap target beside each se
   background: color-mix(in srgb, var(--todo) 12%, transparent);
 }
 
+.chat-mobile-session-new {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  margin-top: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  line-height: normal;
+}
+
+.chat-mobile-session-new svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.chat-mobile-session-new:hover {
+  background: var(--card-hover);
+}
+
+.chat-mobile-session-new:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-strong);
+}
+
 .chat-mobile-session-option-title {
   width: 100%;
   display: block;

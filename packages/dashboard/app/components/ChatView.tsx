@@ -3992,6 +3992,23 @@ export function ChatView({ projectId, addToast, floating = false, onPopOut, onMa
                           </button>
                         </div>
                       ))}
+                      {/*
+                      FNXC:Chat 2026-06-27-00:00:
+                      Mobile Direct-scope quick session switching must let users start a new chat without leaving the open thread. Route this affordance through the same setShowNewDialog(true) / NewChatDialog path as the header and sidebar-footer controls.
+                      */}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="chat-mobile-session-new"
+                        data-testid="chat-mobile-session-new"
+                        onClick={() => {
+                          setMobileSessionMenuOpen(false);
+                          setShowNewDialog(true);
+                        }}
+                      >
+                        <Plus size={16} aria-hidden="true" />
+                        <span>{t("chat.newChat", "New Chat")}</span>
+                      </button>
                     </div>
                   )}
                 </div>
