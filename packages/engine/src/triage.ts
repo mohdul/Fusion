@@ -131,6 +131,7 @@ import { evaluateReleaseAuthorizationGate } from "./triage-release-authorization
 import { archiveAsGhostBug } from "./self-healing.js";
 import { createRunAuditor, generateSyntheticRunId } from "./run-audit.js";
 import { resolveAndEmitGoalContext } from "./goal-injection-diagnostics.js";
+import { accumulateSessionTokenUsage } from "./session-token-usage.js";
 
 
 export interface TriageProcessorOptions {
@@ -255,6 +256,11 @@ export class TriageProcessor {
             planLog.warn(`Failed to abort triage session for ${task.id}: ${err}`);
           });
         }
+        /*
+        FNXC:TokenAnalytics 2026-06-27-14:52:
+        Task delete may dispose the live triage session before agentWork reaches its finally; fire a fail-soft delta snapshot now, with the finally call serving as a zero-delta backstop when it unwinds.
+        */
+        this.recordTriageSessionTokenUsageSoon(task.id, session as AgentSession, { agentId: task.assignedAgentId ?? "triage" });
         session.dispose();
         this.activeSessions.delete(task.id);
       }
@@ -281,6 +287,11 @@ export class TriageProcessor {
             planLog.warn(`Failed to abort triage session for ${task.id}: ${err}`);
           });
         }
+        /*
+        FNXC:TokenAnalytics 2026-06-27-14:52:
+        Task pause can force resource disposal before the normal triage finally runs; record the current model token delta immediately and rely on delta baselines to avoid double-counting.
+        */
+        this.recordTriageSessionTokenUsageSoon(task.id, session as AgentSession, { agentId: task.assignedAgentId ?? "triage" });
         session.dispose();
         this.activeSessions.delete(task.id);
       }
@@ -372,6 +383,11 @@ export class TriageProcessor {
           planLog.warn(`Failed to abort triage session for ${taskId}: ${err}`);
         });
       }
+      /*
+      FNXC:TokenAnalytics 2026-06-27-14:52:
+      Engine stop/global pause force-disposes active triage sessions synchronously, so snapshot token deltas before disposal while preserving the existing non-blocking abort behavior.
+      */
+      this.recordTriageSessionTokenUsageSoon(taskId, session as AgentSession);
       session.dispose();
     }
   }
@@ -399,8 +415,40 @@ export class TriageProcessor {
     set.add(session);
   }
 
+  /**
+   * FNXC:TokenAnalytics 2026-06-27-14:52:
+   * Triage and spec-review subagent sessions are AI lanes that must snapshot the actually-used model before resource teardown so Command Center Tokens by model includes triage-only models such as Anthropic.
+   * Use one shared recorder for normal completion, fallback swaps, and abort disposal; the token helper is delta-based and fail-soft, so repeated emergency/finally calls do not inflate totals.
+   */
+  private async recordTriageSessionTokenUsage(
+    taskId: string,
+    session: AgentSession,
+    options?: { agentId?: string },
+  ): Promise<void> {
+    await accumulateSessionTokenUsage(this.store, taskId, session, {
+      agentId: options?.agentId,
+      role: "triage",
+    });
+  }
+
+  private recordTriageSessionTokenUsageSoon(
+    taskId: string,
+    session: AgentSession,
+    options?: { agentId?: string },
+  ): void {
+    void this.recordTriageSessionTokenUsage(taskId, session, options).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      planLog.warn(`${taskId}: failed to record triage session token usage before disposal: ${msg}`);
+    });
+  }
+
   /** Deregister a reviewer subagent that finished naturally. */
   private unregisterSubagentSession(taskId: string, session: AgentSession): void {
+    /*
+    FNXC:TokenAnalytics 2026-06-27-14:52:
+    The spec-review subagent disposes inside reviewer.ts before this callback; record its retained session stats here before dropping the reference so normal APPROVE/REVISE/RETHINK reviews count in per-model analytics.
+    */
+    this.recordTriageSessionTokenUsageSoon(taskId, session);
     const set = this.activeSubagentSessions.get(taskId);
     if (!set) return;
     set.delete(session);
@@ -414,6 +462,11 @@ export class TriageProcessor {
     planLog.log(`${taskId}: disposing ${set.size} subagent session(s) — ${reason}`);
     for (const session of set) {
       try {
+        /*
+        FNXC:TokenAnalytics 2026-06-27-14:52:
+        Pause/delete/stop can force-dispose spec-review subagents outside the normal reviewer callback, so record their model token delta before disposal without blocking the synchronous abort path.
+        */
+        this.recordTriageSessionTokenUsageSoon(taskId, session);
         session.dispose();
       } catch (err) {
         planLog.warn(`${taskId}: failed to dispose subagent session: ${err}`);
@@ -1142,6 +1195,11 @@ export class TriageProcessor {
               `Primary planning model produced no approved spec (${verdictDesc}) — retrying with fallback ${fallbackDesc}`,
             );
 
+            /*
+            FNXC:TokenAnalytics 2026-06-27-14:52:
+            Planning fallback replaces the primary triage session, so record the primary model's token delta before disposal; the shared finally records the fallback session separately.
+            */
+            await this.recordTriageSessionTokenUsage(task.id, session, { agentId: triageRunContext.agentId });
             session.dispose();
             this.activeSessions.delete(task.id);
             stuckDetector?.untrackTask(task.id);
@@ -1319,6 +1377,11 @@ export class TriageProcessor {
           this.activeSessions.delete(task.id);
           stuckDetector?.untrackTask(task.id);
           await agentLogger.flush();
+          /*
+          FNXC:TokenAnalytics 2026-06-27-14:52:
+          Every triage planning exit path, including APPROVE, retry, pause/stuck abort, split/delete, and rate-limit wrapper attempts, records the active session's actual model before disposal so by-model analytics do not collapse triage usage to missing buckets.
+          */
+          await this.recordTriageSessionTokenUsage(task.id, session, { agentId: triageRunContext.agentId });
           session.dispose();
         }
       };
