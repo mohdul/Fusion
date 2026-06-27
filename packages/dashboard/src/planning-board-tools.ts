@@ -83,8 +83,12 @@ export function createPlanningBoardTools(store: TaskStore): ToolDefinition[] {
     },
   };
 
-  const taskGet: ToolDefinition = {
-    name: "fn_task_get",
+  /**
+   * FNXC:AgentTooling 2026-06-27-00:00:
+   * Planning-board interviews must expose the task detail read tool as canonical `fn_task_show`, matching prompt text and the FN-7118 shared read-tool factory so every agent surface learns one model-visible show-tool name.
+   */
+  const taskShow: ToolDefinition = {
+    name: "fn_task_show",
     label: "Get Task",
     description:
       "Get full details of a specific task including its PROMPT.md content. " +
@@ -115,5 +119,5 @@ export function createPlanningBoardTools(store: TaskStore): ToolDefinition[] {
     },
   };
 
-  return [taskList, taskGet];
+  return [taskList, taskShow];
 }

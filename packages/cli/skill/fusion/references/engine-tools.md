@@ -64,7 +64,7 @@ These tools are **not** part of the user-invokable extension surface. They are i
 |---|---|---|
 | `fn_task_list` | List active tasks during specification (duplicate check, discovery) | none |
 | `fn_task_search` | Keyword search tasks (including done/archived by default) for duplicate detection | `query` (string), `limit?` (number), `includeDone?` (boolean), `includeArchived?` (boolean) |
-| `fn_task_get` | Fetch full task detail including PROMPT.md | `id` (string) |
+| `fn_task_show` | Fetch full task detail including PROMPT.md | `id` (string) |
 | `fn_review_spec` | Spawn spec reviewer and return `APPROVE`/`REVISE`/`RETHINK`/`UNAVAILABLE` | none |
 
 ## Executor-only runtime tools (`executor.ts`)

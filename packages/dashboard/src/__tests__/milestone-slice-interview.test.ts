@@ -365,7 +365,7 @@ describe("milestone-slice-interview module", () => {
       const createFnAgentCallArg = await waitForCreateFnAgentOptions() as { customTools?: Array<{ name: string }> };
       const customToolNames = createFnAgentCallArg.customTools?.map((tool) => tool.name) ?? [];
       expect(customToolNames).toContain("fn_task_list");
-      expect(customToolNames).toContain("fn_task_get");
+      expect(customToolNames).toContain("fn_task_show");
       expect(session?.targetId).toBe("ms-123");
       expect(session?.targetTitle).toBe("Launch Platform");
       expect(session?.missionContext).toBe("Mission: Launch Platform v2");

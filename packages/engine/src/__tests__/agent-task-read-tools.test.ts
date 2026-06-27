@@ -140,21 +140,31 @@ describe("shared task read tools", () => {
     }
   });
 
-  it("pins per-surface task-read tool name parity", () => {
+  it("pins per-surface task-read tool name parity on canonical fn_task_show", () => {
     const triageProcessor = new TriageProcessor(createStore() as never, "/tmp/fn-test");
     const triageNames = toolNames((triageProcessor as unknown as { createTriageTools: (opts: unknown) => Array<{ name: string }> }).createTriageTools({
       parentTaskId: "FN-TRIAGE",
       allowTaskCreate: true,
       createdSubtasksRef: { current: [] },
     })).filter((name) => name.startsWith("fn_task_") && name !== "fn_task_create");
-    expect(triageNames).toEqual(["fn_task_list", "fn_task_search", "fn_task_get"]);
 
-    expect(toolNames(createPlanningBoardTools(createStore())).filter((name) => name.startsWith("fn_task_"))).toEqual([
-      "fn_task_list",
-      "fn_task_get",
-    ]);
+    const surfaces = {
+      triage: triageNames,
+      planningBoard: toolNames(createPlanningBoardTools(createStore())).filter((name) => name.startsWith("fn_task_")),
+      cliExtension: extractRegisteredCliTaskReadNames(),
+      sharedFactory: toolNames(createTaskReadTools(createStore())),
+    };
 
-    expect(extractRegisteredCliTaskReadNames()).toEqual(["fn_task_list", "fn_task_show"]);
-    expect(toolNames(createTaskReadTools(createStore()))).toEqual(["fn_task_list", "fn_task_show", "fn_task_search"]);
+    expect(surfaces).toEqual({
+      triage: ["fn_task_list", "fn_task_search", "fn_task_show"],
+      planningBoard: ["fn_task_list", "fn_task_show"],
+      cliExtension: ["fn_task_list", "fn_task_show"],
+      sharedFactory: ["fn_task_list", "fn_task_show", "fn_task_search"],
+    });
+    const deprecatedGetName = ["fn_task", "get"].join("_");
+    for (const names of Object.values(surfaces)) {
+      expect(names).toContain("fn_task_show");
+      expect(names).not.toContain(deprecatedGetName);
+    }
   });
 });

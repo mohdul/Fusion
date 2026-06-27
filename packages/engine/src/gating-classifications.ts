@@ -118,8 +118,9 @@ export const READONLY_FN_TOOLS: ReadonlySet<string> = new Set([
   "fn_artifact_view",
   "fn_task_list",
   "fn_task_show",
-  // FNXC:ToolGovernance 2026-06-27-14:16: Task search and legacy task-get surfaces are read-only duplicate-discovery tools; classify them positively so heartbeat/triage calls never rely on the unknown-tool exempt fallback.
+  // FNXC:ToolGovernance 2026-06-27-14:16: Task search is a read-only duplicate-discovery tool; classify it positively so heartbeat/triage calls never rely on the unknown-tool exempt fallback.
   "fn_task_search",
+  // FNXC:ToolGovernance 2026-06-27-00:00: `fn_task_get` is a deprecated recognition-only alias. It is no longer registered as a live tool, but historical/in-flight calls must still classify as read-only instead of falling through to unknown-tool handling.
   "fn_task_get",
   "fn_task_create",
   "fn_task_document_write",
@@ -172,7 +173,10 @@ export const COORDINATION_EXEMPT_TOOLS = [
   "fn_task_document_read",
   /**
    * FNXC:ToolGovernance 2026-06-27-15:22:
-   * Task list/show/search/get are read-only discovery tools. Put them on the action-gate exempt registry, not only READONLY_FN_TOOLS, because evaluateAgentActionGate recognizes coordination exemptions directly and otherwise unknown fn_task_* reads silently fall through to exempt allow.
+   * Task list/show/search tools are read-only discovery tools. Put them on the action-gate exempt registry, not only READONLY_FN_TOOLS, because evaluateAgentActionGate recognizes coordination exemptions directly and otherwise unknown fn_task_* reads silently fall through to exempt allow.
+   *
+   * FNXC:ToolGovernance 2026-06-27-00:00:
+   * `fn_task_get` is no longer registered as a live tool, but it remains here as a deprecated recognition-only alias so stray in-flight legacy calls classify as known read-only coordination instead of relying on the unknown-tool fallback.
    */
   "fn_task_list",
   "fn_task_show",

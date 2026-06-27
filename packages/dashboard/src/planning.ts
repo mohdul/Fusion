@@ -215,7 +215,7 @@ When ready to complete, generate:
 
 ## Board tools
 - fn_task_list — list active tasks
-- fn_task_get — read a task's full details and PROMPT.md
+- fn_task_show — read a task's full details and PROMPT.md
 Use these to avoid duplicating an existing in-flight plan and to anchor your questions against current backlog context.
 
 ## Response Format

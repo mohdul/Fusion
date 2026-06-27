@@ -2286,7 +2286,7 @@ describe("taskCreate tool model inheritance", () => {
       expect(toolNames).toContain("fn_task_create");
       expect(toolNames).toContain("fn_task_list");
       expect(toolNames).toContain("fn_task_search");
-      expect(toolNames).toContain("fn_task_get");
+      expect(toolNames).toContain("fn_task_show");
       expect(tools).toHaveLength(4);
     });
 
@@ -4494,7 +4494,7 @@ describe("TriageProcessor delegation tools", () => {
     };
   }
 
-  it("createTriageTools returns fn_task_list, fn_task_search, fn_task_get, fn_task_create (no delegation tools — those are in customTools)", () => {
+  it("createTriageTools returns fn_task_list, fn_task_search, fn_task_show, fn_task_create (no delegation tools — those are in customTools)", () => {
     const store = createMockStore();
     const processor = new TriageProcessor(store as any, "/tmp/root");
 
@@ -4507,7 +4507,7 @@ describe("TriageProcessor delegation tools", () => {
     const toolNames = tools.map((t: any) => t.name);
     expect(toolNames).toContain("fn_task_list");
     expect(toolNames).toContain("fn_task_search");
-    expect(toolNames).toContain("fn_task_get");
+    expect(toolNames).toContain("fn_task_show");
     expect(toolNames).toContain("fn_task_create");
     // fn_list_agents and fn_delegate_task are added in customTools, not createTriageTools
     expect(toolNames).not.toContain("fn_list_agents");

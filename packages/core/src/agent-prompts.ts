@@ -372,12 +372,12 @@ If this task REMOVES existing functionality (deleting modules, settings, API end
 
 ## Duplicate check
 Before writing a spec, call \`fn_task_list\` to find existing active tasks, then call \`fn_task_search\` with 2-4 distinct keyword phrases from the task title and description (for example file paths, error symptoms, and symbol names).
-For any likely match in \`done\` or \`archived\`, call \`fn_task_get\` to inspect details before deciding.
+For any likely match in \`done\` or \`archived\`, call \`fn_task_show\` to inspect details before deciding.
 If an existing task already covers the same work, do NOT write a PROMPT.md. Instead write exactly:
 \`DUPLICATE: {existing-task-id}\`
 
 ## Dependency awareness
-When adding a dependency in \`## Dependencies\`, first call \`fn_task_get\` for that task and read its PROMPT.md.
+When adding a dependency in \`## Dependencies\`, first call \`fn_task_show\` for that task and read its PROMPT.md.
 Use that context to align file paths, APIs, assumptions, and completion expectations. If the dependency has no PROMPT.md yet, note that explicitly.
 
 ## Decision-only task flag (noCommitsExpected)
@@ -610,13 +610,13 @@ tests. Manual verification is NOT a test.
 
 ## Duplicate check
 Before writing a spec, first call \`fn_task_list\` to see active tasks, then call \`fn_task_search\` with 2-4 distinct keyword phrases from the task title and description (for example file paths, error symptoms, and symbol names).
-For any likely match in \`done\` or \`archived\`, call \`fn_task_get\` to inspect details before deciding.
+For any likely match in \`done\` or \`archived\`, call \`fn_task_show\` to inspect details before deciding.
 If a task already covers the same work (even if worded differently), do NOT
 write a PROMPT.md. Instead, write a single line to the output file:
 \`DUPLICATE: {existing-task-id}\`
 
 ## Dependency awareness
-When you plan to list a task in the \`## Dependencies\` section, first call \`fn_task_get\` on that task ID to read its PROMPT.md.
+When you plan to list a task in the \`## Dependencies\` section, first call \`fn_task_show\` on that task ID to read its PROMPT.md.
 Use what you learn — file scope, APIs, patterns, completion criteria — to make the new spec accurate: reference the right paths, avoid conflicting assumptions, and describe what the dependency must deliver before this task starts.
 If the dependency task has no PROMPT.md yet (not yet specified), note that in the Dependencies section.
 
@@ -656,7 +656,7 @@ For tasks you assess as Size M or L, consider whether splitting into 2-5 child t
 You have these extra tools during triage:
 - \`fn_task_list\` — list existing active tasks
 - \`fn_task_search\` — keyword search across tasks, including done and archived tasks
-- \`fn_task_get\` — inspect a task and its PROMPT.md
+- \`fn_task_show\` — inspect a task and its PROMPT.md
 - \`fn_task_create\` — create a child/follow-up task while triaging
 - \`fn_task_document_write\` — save a planning document (e.g., key="plan")
 - \`fn_task_document_read\` — read back a previously saved document
@@ -744,7 +744,7 @@ If the task targets a different task ID (audit, forensic walk, historical reconc
 - Authoritative target-task artifacts live at the **project root**: \`<rootDir>/.fusion/tasks/{TARGET_ID}/\` (\`task.json\`, \`PROMPT.md\`, \`attachments/\`, agent logs).
 - Authoritative task DB rows live at the **project root** SQLite file: \`<rootDir>/.fusion/fusion.db\` (WAL mode). Read via \`TaskStore\` APIs; do not instruct direct SQL surgery.
 - \`.fusion/\` is gitignored, so a fresh worktree from \`main\` does **not** include \`.fusion/tasks/{TARGET_ID}/\` or \`.fusion/fusion.db\`. The running worktree's own \`.fusion/\` (if present) is scratch/session state for the running task only, not source of truth.
-- Prefer \`fn_task_get\` / \`fn_task_list\` when the target task ID is known; fall back to project-root filesystem reads only when tools cannot provide needed evidence.
+- Prefer \`fn_task_show\` / \`fn_task_list\` when the target task ID is known; fall back to project-root filesystem reads only when tools cannot provide needed evidence.
 
 <!-- Frontend UX criteria are applied deterministically by packages/core/src/frontend-ux-policy.ts and mirror the "frontend-ux-design" reviewer persona in packages/core/src/types.ts. -->`;;
 

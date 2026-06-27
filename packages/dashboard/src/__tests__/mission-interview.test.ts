@@ -912,7 +912,7 @@ describe("mission-interview module", () => {
       expect(lastCall[0].builtinToolsAllowlist).toEqual(["WebSearch", "WebFetch"]);
       const customToolNames = (lastCall[0].customTools as Array<{ name: string }> | undefined)?.map((tool) => tool.name) ?? [];
       expect(customToolNames).toContain("fn_task_list");
-      expect(customToolNames).toContain("fn_task_get");
+      expect(customToolNames).toContain("fn_task_show");
     });
 
     it("uses override prompt when promptOverrides provided", async () => {

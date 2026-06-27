@@ -1044,7 +1044,10 @@ function formatTaskSummaryLine(task: { id: string; column: string; title?: strin
 
 /**
  * FNXC:AgentTooling 2026-06-27-14:05:
- * Shared read-only task discovery factories must return host-safe text and be reusable by triage, chat/planning, and heartbeat surfaces. Heartbeat agents now receive task read tools through this single store-backed implementation instead of bespoke copies, while model-visible legacy `fn_task_get` surfaces remain separately pinned by drift tests.
+ * Shared read-only task discovery factories must return host-safe text and be reusable by triage, chat/planning, and heartbeat surfaces. Heartbeat agents now receive task read tools through this single store-backed implementation instead of bespoke copies.
+ *
+ * FNXC:AgentTooling 2026-06-27-00:00:
+ * Triage and planning-board surfaces now use canonical `fn_task_show`; deprecated `fn_task_get` survives only as a recognition alias in action-gate and analytics compatibility paths, not as a model-visible registered tool.
  */
 export function createTaskListTool(store: TaskStore): ToolDefinition {
   return {

@@ -96,6 +96,7 @@ describe("usage_events", () => {
       ["semantic_search", "read"],
       ["fn_task_list", "read"],
       ["fn_task_show", "read"],
+      // FNXC:UsageAnalytics 2026-06-27-00:00: Keep legacy `fn_task_get` categorized as read-only so historical usage events remain comparable after live surfaces move to `fn_task_show`.
       ["fn_task_get", "read"],
       ["fn_task_search", "read"],
       ["fn_list_agents", "read"],

@@ -73,7 +73,7 @@ describe("createPlanningBoardTools", () => {
     expect(emptyResult.content[0]?.text).toBe("No active tasks.");
   });
 
-  it("fn_task_get returns full details and not-found fallback", async () => {
+  it("fn_task_show returns full details and not-found fallback", async () => {
     const store = createStoreMock({
       getTask: vi.fn(async (id: string) => ({
         id,
@@ -84,7 +84,7 @@ describe("createPlanningBoardTools", () => {
       })) as TaskStore["getTask"],
     });
 
-    const taskGet = createPlanningBoardTools(store).find((tool) => tool.name === "fn_task_get");
+    const taskGet = createPlanningBoardTools(store).find((tool) => tool.name === "fn_task_show");
     expect(taskGet).toBeDefined();
     const result = await taskGet!.execute("c3", { id: "FN-10" });
     expect(result.content[0]?.text).toContain("ID: FN-10");
@@ -96,7 +96,7 @@ describe("createPlanningBoardTools", () => {
 
     const notFoundStore = createStoreMock();
     const missingResult = await createPlanningBoardTools(notFoundStore)
-      .find((tool) => tool.name === "fn_task_get")!
+      .find((tool) => tool.name === "fn_task_show")!
       .execute("c4", { id: "FN-404" });
     expect(missingResult.content[0]?.text).toBe("Task FN-404 not found.");
   });
