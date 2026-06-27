@@ -46,7 +46,7 @@ export interface CeStageDefinition {
 
 /**
  * The first registration slice. Locations mirror where the real ce-* skills
- * write today (STRATEGY.md, docs/ideation/, docs/brainstorms/, docs/plans/).
+ * write today (STRATEGY.md, docs/ideation/, docs/plans/, docs/work/).
  * Icons are lucide-react export names.
  */
 const STAGE_DEFINITIONS: CeStageDefinition[] = [
@@ -69,13 +69,17 @@ const STAGE_DEFINITIONS: CeStageDefinition[] = [
     artifactGlob: "docs/ideation/**/*.md",
   },
   {
+    /*
+     * FNXC:CompoundEngineering 2026-06-27-00:21:
+     * Brainstorm and plan keep separate Fusion stage IDs and bundled skill IDs for session, pipeline, and board back-compat, but CE v3.15.0 aliases their durable artifact to one unified docs/plans plan. ce-brainstorm writes the requirements-only unified plan that ce-plan later enriches in place to implementation-ready.
+     */
     stageId: "brainstorm",
     order: 300,
     skillId: "ce-brainstorm",
-    artifactLocation: "docs/brainstorms/",
+    artifactLocation: "docs/plans/",
     icon: "Sparkles",
     label: "Brainstorm",
-    artifactGlob: "docs/brainstorms/**/*.md",
+    artifactGlob: "docs/plans/**/*.md",
   },
   {
     stageId: "plan",

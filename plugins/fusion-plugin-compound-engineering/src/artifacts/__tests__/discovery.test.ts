@@ -27,7 +27,7 @@ vi.mock("node:fs", async (importOriginal) => {
   };
 });
 
-const { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } = realFs;
+const { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, utimesSync } = realFs;
 const { discoverArtifacts, readArtifactById } = await import("../discovery.js");
 
 function makeRepo(): string {
@@ -44,7 +44,7 @@ describe("discoverArtifacts", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns grouped artifacts from a fixture repo tree (happy path)", () => {
+  it("returns grouped artifacts from legacy brainstorm and unified plan locations (happy path)", () => {
     root = makeRepo();
     writeFileSync(join(root, "STRATEGY.md"), "# Strategy");
     writeFileSync(join(root, "CONCEPTS.md"), "# Concepts");
@@ -67,7 +67,9 @@ describe("discoverArtifacts", () => {
     expect(byStage.concepts.entries).toHaveLength(1);
     expect(byStage.ideation.entries).toHaveLength(2);
     expect(byStage.brainstorm.entries).toHaveLength(1);
+    expect(byStage.brainstorm.entries[0]).toMatchObject({ path: "docs/brainstorms/x.md" });
     expect(byStage.plan.entries).toHaveLength(1);
+    expect(byStage.plan.entries[0]).toMatchObject({ path: "docs/plans/plan1.md" });
     expect(byStage.solution.entries).toHaveLength(1);
     // Every group present is flagged present.
     expect(byStage.ideation.present).toBe(true);
@@ -114,6 +116,66 @@ describe("discoverArtifacts", () => {
     expect(result.totalArtifacts).toBe(0);
     expect(result.totalErrors).toBe(0);
     expect(result.groups.every((g) => g.entries.length === 0 && !g.present)).toBe(true);
+  });
+
+  it("classifies unified plan readiness metadata while keeping legacy files valid without frontmatter", () => {
+    root = makeRepo();
+    mkdirSync(join(root, "docs/brainstorms"), { recursive: true });
+    writeFileSync(join(root, "docs/brainstorms/legacy.md"), "# Legacy brainstorm");
+    mkdirSync(join(root, "docs/plans"), { recursive: true });
+    writeFileSync(
+      join(root, "docs/plans/requirements.md"),
+      "---\nartifact_contract: ce-unified-plan/v1\nartifact_readiness: requirements-only\nproduct_contract_source: ce-brainstorm\n---\n# Requirements\n",
+    );
+    writeFileSync(
+      join(root, "docs/plans/implementation.md"),
+      "---\nartifact_contract: ce-unified-plan/v1\nartifact_readiness: implementation-ready\nproduct_contract_source: ce-plan\n---\n# Implementation\n",
+    );
+
+    const result = discoverArtifacts(root);
+    const brainstorm = result.groups.find((g) => g.stage === "brainstorm")!;
+    const plan = result.groups.find((g) => g.stage === "plan")!;
+    const legacy = brainstorm.entries[0];
+    const requirementsOnly = plan.entries.find((e) => e.name === "requirements.md");
+    const implementationReady = plan.entries.find((e) => e.name === "implementation.md");
+
+    expect(legacy).toMatchObject({
+      kind: "artifact",
+      artifactContract: null,
+      artifactReadiness: null,
+      productContractSource: null,
+    });
+    expect(requirementsOnly).toMatchObject({
+      kind: "artifact",
+      artifactContract: "ce-unified-plan/v1",
+      artifactReadiness: "requirements-only",
+      productContractSource: "ce-brainstorm",
+    });
+    expect(implementationReady).toMatchObject({
+      kind: "artifact",
+      artifactContract: "ce-unified-plan/v1",
+      artifactReadiness: "implementation-ready",
+      productContractSource: "ce-plan",
+    });
+    expect(result.totalErrors).toBe(0);
+  });
+
+  it("treats malformed frontmatter as null metadata without crashing discovery", () => {
+    root = makeRepo();
+    mkdirSync(join(root, "docs/plans"), { recursive: true });
+    writeFileSync(join(root, "docs/plans/bad.md"), "---\nartifact_contract: ce-unified-plan/v1\n# missing closing fence\n# Body\n");
+
+    const result = discoverArtifacts(root);
+    const plan = result.groups.find((g) => g.stage === "plan")!;
+
+    expect(plan.entries).toHaveLength(1);
+    expect(plan.entries[0]).toMatchObject({
+      kind: "artifact",
+      artifactContract: null,
+      artifactReadiness: null,
+      productContractSource: null,
+    });
+    expect(result.totalErrors).toBe(0);
   });
 
   it("represents an unreadable artifact as an error entry, not a crash or silent drop", () => {
@@ -178,6 +240,44 @@ describe("discoverArtifacts", () => {
 
     expect(result.totalArtifacts).toBe(2);
   });
+
+  it("rejects symlinked conventional directories and artifact children before reading", () => {
+    root = makeRepo();
+    const outside = makeRepo();
+    try {
+      mkdirSync(join(root, "docs"), { recursive: true });
+      mkdirSync(join(outside, "plans"), { recursive: true });
+      writeFileSync(join(outside, "plans/escape.md"), "outside plan");
+      symlinkSync(join(outside, "plans"), join(root, "docs/plans"), "dir");
+
+      let result = discoverArtifacts(root);
+      let plan = result.groups.find((g) => g.stage === "plan")!;
+      expect(plan.entries).toHaveLength(1);
+      expect(plan.entries[0]).toMatchObject({ kind: "error", path: "docs/plans" });
+      expect(result.totalArtifacts).toBe(0);
+
+      rmSync(join(root, "docs/plans"), { recursive: true, force: true });
+      mkdirSync(join(root, "docs/plans"), { recursive: true });
+      writeFileSync(join(outside, "secret.md"), "outside secret");
+      symlinkSync(join(outside, "secret.md"), join(root, "docs/plans/linked.md"));
+
+      result = discoverArtifacts(root);
+      plan = result.groups.find((g) => g.stage === "plan")!;
+      expect(plan.entries).toHaveLength(1);
+      expect(plan.entries[0]).toMatchObject({ kind: "error", path: "docs/plans/linked.md" });
+      expect(result.totalArtifacts).toBe(0);
+      expect(result.totalErrors).toBe(1);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps traversal rejection in place for forged plan ids", () => {
+    root = makeRepo();
+    writeFileSync(join(root, "secrets.md"), "secret");
+
+    expect(readArtifactById(root, "plan:../../secrets.md")).toBeUndefined();
+  });
 });
 
 describe("readArtifactById", () => {
@@ -198,11 +298,19 @@ describe("readArtifactById", () => {
     expect(res && "content" in res && res.content).toContain("Strategy body");
   });
 
-  it("reads a directory artifact's immediate Markdown child", () => {
+  it("reads a directory artifact's immediate Markdown child with readiness metadata", () => {
     mkdirSync(join(root, "docs/plans"), { recursive: true });
-    writeFileSync(join(root, "docs/plans/p.md"), "plan body");
+    writeFileSync(
+      join(root, "docs/plans/p.md"),
+      "---\nartifact_contract: ce-unified-plan/v1\nartifact_readiness: requirements-only\nproduct_contract_source: ce-brainstorm\n---\nplan body",
+    );
     const res = readArtifactById(root, "plan:docs/plans/p.md");
-    expect(res && "content" in res && res.content).toBe("plan body");
+    expect(res && "content" in res && res.content).toContain("plan body");
+    expect(res && "content" in res && res.artifact).toMatchObject({
+      artifactContract: "ce-unified-plan/v1",
+      artifactReadiness: "requirements-only",
+      productContractSource: "ce-brainstorm",
+    });
   });
 
   it("refuses a forged id that escapes the conventional location", () => {
@@ -213,6 +321,21 @@ describe("readArtifactById", () => {
     expect(readArtifactById(root, "strategy:CONCEPTS.md")).toBeUndefined();
     // Unknown stage.
     expect(readArtifactById(root, "bogus:whatever.md")).toBeUndefined();
+  });
+
+  it("refuses a symlinked artifact child when reading by id", () => {
+    const outside = makeRepo();
+    try {
+      mkdirSync(join(root, "docs/plans"), { recursive: true });
+      writeFileSync(join(outside, "secret.md"), "outside secret");
+      symlinkSync(join(outside, "secret.md"), join(root, "docs/plans/linked.md"));
+
+      expect(readArtifactById(root, "plan:docs/plans/linked.md")).toEqual({
+        error: "Symlink artifacts are not allowed in CE discovery",
+      });
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it("refuses a nested path under a directory location (non-immediate child)", () => {

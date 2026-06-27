@@ -27,11 +27,24 @@ Fusion while **reusing the real skills** so the plugin improves as they do.
 
 The primary dashboard view (`viewId: "compound-engineering"`) discovers and
 renders CE artifacts from their conventional locations (`STRATEGY.md`,
-`docs/ideation/`, `docs/brainstorms/`, plan docs, `docs/work/`,
-`docs/debug/`, `CONCEPTS.md`, `docs/solutions/`) and groups them by stage. Artifacts are read through a plugin
-route and rendered self-contained (sandboxed preview). The hub renders explicit
-empty / partial / error states rather than crashing or silently dropping an
-unreadable artifact.
+`docs/ideation/`, legacy `docs/brainstorms/`, unified `docs/plans/`,
+`docs/work/`, `docs/debug/`, `CONCEPTS.md`, `docs/solutions/`) and groups them
+by stage. Artifacts are read through a plugin route and rendered self-contained
+(sandboxed preview). The hub renders explicit empty / partial / error states
+rather than crashing or silently dropping an unreadable artifact.
+
+<!-- FNXC:CompoundEngineering 2026-06-27-00:44: Fusion keeps brainstorm and plan as separate orchestration stage IDs for board/session compatibility, but upstream CE v3.15.0 made their durable artifact one unified plan under docs/plans with readiness frontmatter. docs/brainstorms remains a legacy discovery input only. -->
+
+`brainstorm` and `plan` are an **alias pair** at the artifact layer: Fusion keeps
+the separate `brainstorm` / `plan` stage IDs and bundled `ce-brainstorm` /
+`ce-plan` skill IDs for session history, pipeline ordering, and board
+back-compat, while both stages now operate on upstream unified plan artifacts in
+`docs/plans/`. A brainstorm writes a requirements-only plan
+(`artifact_contract: ce-unified-plan/v1`, `artifact_readiness:
+requirements-only`, `product_contract_source: ce-brainstorm`); `ce-plan`
+enriches that same file in place to `artifact_readiness: implementation-ready`.
+The hub still discovers historical `docs/brainstorms/*.md` files as legacy input,
+but new brainstorm output targets `docs/plans/`.
 
 Artifact HTTP endpoints live under
 `/api/plugins/fusion-plugin-compound-engineering/` and back the hub list/read.
@@ -41,7 +54,10 @@ Artifact HTTP endpoints live under
 Each pipeline stage maps to a bundled skill via the **stage registry**
 (`src/session/stage-registry.ts`): `{ stageId, skillId, artifactLocation, icon,
 label }`. The default launchable stages are Strategy, Ideate, Brainstorm, Plan,
-Work, and Debug. Adding a stage is a data entry — no new route, store, or screen.
+Work, and Debug. The Brainstorm registry entry intentionally points at
+`docs/plans/` even though the durable stage ID remains `brainstorm`, matching the
+unified-plan alias described above. Adding a stage is a data entry — no new
+route, store, or screen.
 
 The launcher lists the registered (and operator-enabled) stages. Launching a
 stage starts an **interactive** agent session driven by the host's
@@ -52,7 +68,8 @@ mid-agent question). The session orchestrator (`src/session/orchestrator.ts`):
 - streams `thinking` / `text` turns,
 - surfaces a structured `question` and pauses in `awaiting_input`,
 - accepts a structured answer and continues,
-- on `complete`, writes the artifact to the stage's conventional location.
+- on `complete`, writes the artifact to the stage's conventional location (for
+  Brainstorm and Plan, the shared unified `docs/plans/` plan path).
 
 Lifecycle states are `launching → active → awaiting_input → completed`, plus
 `error` and `interrupted`. On interrupt or error the orchestrator **auto-saves
@@ -163,7 +180,10 @@ source of truth.
 
 **Outbound (pipeline → board).** When a pipeline advances to a stage that
 produces board work, the reconciler creates the next-stage board task via
-`ctx.taskStore.createTask` and links it.
+`ctx.taskStore.createTask` and links it. `lastArtifactPath` is carried forward
+when Brainstorm advances to Plan, so the Plan board task continues the same
+requirements-only unified file and later enriches it rather than creating a
+second artifact.
 
 **Conflict policy.** The reconciler only reads the already-terminal board task
 columns (board-authoritative) and only writes CE-owned fields plus a brand-new

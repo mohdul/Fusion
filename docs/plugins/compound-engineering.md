@@ -32,12 +32,20 @@ consistent across light, dark, desktop, and mobile surfaces.
 
 It provides:
 - An **artifact hub** that discovers CE artifacts from conventional locations
-  (`STRATEGY.md`, `docs/ideation/`, `docs/brainstorms/`, plan docs, `docs/work/`,
-  `CONCEPTS.md`, `docs/solutions/`) grouped by stage, with explicit
-  empty / partial / error states.
+  (`STRATEGY.md`, `docs/ideation/`, legacy `docs/brainstorms/`, unified
+  `docs/plans/`, `docs/work/`, `CONCEPTS.md`, `docs/solutions/`) grouped by
+  stage, with explicit empty / partial / error states and readiness metadata for
+  unified plans.
 - Self-contained artifact previews read through plugin routes under
   `/api/plugins/fusion-plugin-compound-engineering/`.
 - A **stage launcher** listing the registered, operator-enabled stages.
+
+<!-- FNXC:CompoundEngineering 2026-06-27-01:02: CE v3.15 keeps Fusion's brainstorm and plan stage IDs separate for orchestration/back-compat, but both stages operate on the same upstream unified plan artifact in docs/plans. docs/brainstorms remains a legacy input location for historical requirements files. -->
+
+`brainstorm` and `plan` are separate Fusion stages but share the unified
+`docs/plans/` artifact contract: brainstorm produces a requirements-only unified
+plan (`artifact_readiness: requirements-only`, `product_contract_source:
+ce-brainstorm`), and plan enriches that same file to `implementation-ready`.
 
 ## Sessions
 
@@ -47,7 +55,8 @@ an interactive agent session on the host's `createInteractiveAiSession` seam.
 
 The orchestrator streams `thinking`/`text` turns, surfaces a structured
 `question` (pausing in `awaiting_input`), accepts a structured answer, and on
-`complete` writes the artifact to the stage's conventional location. Lifecycle:
+`complete` writes the artifact to the stage's conventional location (`docs/plans/`
+for both Brainstorm and Plan under the unified-plan alias). Lifecycle:
 `launching → active → awaiting_input → completed`, plus `error` and
 `interrupted`. Interrupt/error auto-saves progress and emits an observable event;
 sessions resume/retry back to their current question.
@@ -104,7 +113,9 @@ poll loop). It drains the queue and independently re-derives transitions from
 live board state, so a dropped or never-enqueued event still converges.
 
 **Outbound:** when a pipeline advances to a stage that produces board work, the
-reconciler creates the next-stage board task and links it.
+reconciler creates the next-stage board task and links it. Brainstorm → Plan
+advancement carries `lastArtifactPath` forward so the plan task continues the
+same unified `docs/plans/` artifact instead of forking a second file.
 
 **Conflict policy:** the reconciler only reads already-terminal board columns and
 only writes CE-owned fields plus a new board task, so the two writers never

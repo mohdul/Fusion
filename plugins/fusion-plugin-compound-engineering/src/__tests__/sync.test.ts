@@ -202,12 +202,44 @@ describe("U8 reconciler (convergence + outbound)", () => {
     expect(getCePipelineStore(ctx).getState(cePipelineId)!.currentStage).toBe(stageFirst);
   });
 
+  it("brainstorm advances to plan once while sharing the unified docs/plans artifact path", async () => {
+    const { cePipelineId, task } = await landPipeline("brainstorm");
+    const store = getCePipelineStore(ctx);
+    const unifiedPath = "docs/plans/2026-06-27-001-feature-topic-plan.md";
+    store.transitionState(cePipelineId, { lastArtifactPath: unifiedPath });
+
+    await moveTo(task.id, "done");
+    const first = await reconcileCePipelines(ctx);
+    expect(first.advanced).toBe(1);
+    expect(first.tasksCreated).toBe(1);
+
+    const afterFirst = await taskStore.listTasks();
+    const planTasks = afterFirst.filter((t) => (t.sourceMetadata as Record<string, unknown>)?.ceStageId === "plan");
+    expect(planTasks).toHaveLength(1);
+    expect((planTasks[0].sourceMetadata as Record<string, unknown>).ceArtifactPath).toBe(unifiedPath);
+    expect(store.listByPipeline(cePipelineId).filter((l) => l.ceStageId === "plan")).toMatchObject([
+      { ceArtifactPath: unifiedPath },
+    ]);
+    expect(store.getState(cePipelineId)).toMatchObject({
+      currentStage: "plan",
+      status: "awaiting_board",
+      lastArtifactPath: unifiedPath,
+    });
+
+    const second = await reconcileCePipelines(ctx);
+    expect(second.tasksCreated).toBe(0);
+    expect((await taskStore.listTasks()).length).toBe(afterFirst.length);
+    expect(store.listByPipeline(cePipelineId).filter((l) => l.ceStageId === "plan")).toHaveLength(1);
+  });
+
   it("partial completion does not advance: pipeline stays running until ALL current-stage tasks are terminal", async () => {
     const { cePipelineId, task } = await landPipeline("plan");
     const store = getCePipelineStore(ctx);
+    const unifiedPath = "docs/plans/2026-06-27-001-feature-topic-plan.md";
+    store.transitionState(cePipelineId, { lastArtifactPath: unifiedPath });
     // Add a second current-stage task to the SAME pipeline/stage.
     const t2 = await taskStore.createTask({ description: "second plan task" });
-    store.createLink({ taskId: t2.id, cePipelineId, ceStageId: "plan", ceArtifactPath: null });
+    store.createLink({ taskId: t2.id, cePipelineId, ceStageId: "plan", ceArtifactPath: unifiedPath });
 
     await moveTo(task.id, "done"); // only one terminal.
     await reconcileCePipelines(ctx);
@@ -216,6 +248,8 @@ describe("U8 reconciler (convergence + outbound)", () => {
     await moveTo(t2.id, "done"); // now both terminal.
     await reconcileCePipelines(ctx);
     expect(store.getState(cePipelineId)!.currentStage).toBe("work"); // advanced.
+    const workLink = store.listByPipeline(cePipelineId).find((l) => l.ceStageId === "work");
+    expect(workLink?.ceArtifactPath).toBe(unifiedPath);
   });
 
   it("Bug 1: a deleted current-stage task does NOT wedge the pipeline — one terminal + one deleted still advances", async () => {

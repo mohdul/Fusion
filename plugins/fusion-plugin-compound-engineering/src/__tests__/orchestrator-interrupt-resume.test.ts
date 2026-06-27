@@ -88,7 +88,11 @@ describe("interrupt + resume (no silent loss)", () => {
     // Human response time is unbounded, so this is NOT a crashed turn — the
     // interval rubric must not misclassify it as stale.
     const store = new CeSessionStore(h.db);
-    const created = store.create({ stage: "brainstorm", turnIntervalMs: 1000 });
+    const created = store.create({
+      stage: "brainstorm",
+      artifactPath: "docs/plans/2026-06-27-001-topic-plan.md",
+      turnIntervalMs: 1000,
+    });
     store.appendHistory(created.id, { role: "user", text: "kick off", at: new Date().toISOString() });
     store.appendHistory(created.id, { role: "agent", text: JSON.stringify({ question: QUESTION }), at: new Date().toISOString() });
     store.update(created.id, {
@@ -106,6 +110,7 @@ describe("interrupt + resume (no silent loss)", () => {
     // Awaiting-input session with a question stays resumable, unchanged.
     expect(after.status).toBe("awaiting_input");
     expect(after.currentQuestion?.id).toBe("q1");
+    expect(after.artifactPath).toBe("docs/plans/2026-06-27-001-topic-plan.md");
 
     // Resume via the orchestrator returns to the same question + full history.
     // Rehydration re-creates a live session and replays the opening message,
@@ -119,6 +124,7 @@ describe("interrupt + resume (no silent loss)", () => {
     const resumed = await orch.resume(created.id);
     expect(resumed.session.status).toBe("awaiting_input");
     expect(resumed.session.currentQuestion?.id).toBe("q1");
+    expect(resumed.session.artifactPath).toBe("docs/plans/2026-06-27-001-topic-plan.md");
     expect(resumed.session.conversationHistory).toHaveLength(2);
   });
 

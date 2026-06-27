@@ -49,6 +49,44 @@ describe("CeSessionStore CRUD + JSON round-trip", () => {
     expect(read.status).toBe("awaiting_input");
     expect(read.projectId).toBe("p1");
   });
+
+  it("persists brainstorm and plan sessions with unified docs/plans artifact paths", () => {
+    const store = new CeSessionStore(h.db);
+    const brainstorm = store.create({
+      stage: "brainstorm",
+      projectId: "p1",
+      artifactPath: "docs/plans/2026-06-27-001-topic-plan.md",
+      turnIntervalMs: 1000,
+    });
+    const plan = store.create({
+      stage: "plan",
+      projectId: "p1",
+      artifactPath: "docs/plans/2026-06-27-001-topic-plan.md",
+      turnIntervalMs: 1000,
+    });
+
+    expect(store.get(brainstorm.id)).toMatchObject({
+      stage: "brainstorm",
+      artifactPath: "docs/plans/2026-06-27-001-topic-plan.md",
+    });
+    expect(store.list({ stage: "brainstorm" }).map((s) => s.id)).toEqual([brainstorm.id]);
+    expect(store.list({ stage: "plan" }).map((s) => s.id)).toEqual([plan.id]);
+
+    const now = Date.now();
+    store.update(brainstorm.id, { status: "active", lastActivityAt: now - 10_000 });
+    store.update(plan.id, { status: "active", lastActivityAt: now - 10_000 });
+    expect(store.recoverStaleSessions(now)).toEqual(expect.arrayContaining([brainstorm.id, plan.id]));
+    expect(store.get(brainstorm.id)).toMatchObject({
+      stage: "brainstorm",
+      status: "interrupted",
+      artifactPath: "docs/plans/2026-06-27-001-topic-plan.md",
+    });
+    expect(store.get(plan.id)).toMatchObject({
+      stage: "plan",
+      status: "interrupted",
+      artifactPath: "docs/plans/2026-06-27-001-topic-plan.md",
+    });
+  });
 });
 
 describe("multi-session independence + delete", () => {

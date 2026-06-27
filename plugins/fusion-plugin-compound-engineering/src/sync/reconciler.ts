@@ -66,7 +66,7 @@ function stageOrder(): string[] {
 }
 
 /** The stage AFTER `stageId` in the pipeline, or `undefined` if it's terminal. */
-function nextStageAfter(stageId: string): string | undefined {
+export function nextStageAfter(stageId: string): string | undefined {
   const order = stageOrder();
   const idx = order.indexOf(stageId);
   if (idx < 0 || idx >= order.length - 1) return undefined;
