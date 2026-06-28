@@ -150,6 +150,19 @@ describe("settings defaults invariants", () => {
     });
   });
 
+  describe("quickChatCloseOnOutsideClick default", () => {
+    it("keeps Quick Chat outside-click dismissal explicitly true in project defaults", () => {
+      expect(DEFAULT_PROJECT_SETTINGS.quickChatCloseOnOutsideClick).toBe(true);
+      expect("quickChatCloseOnOutsideClick" in DEFAULT_PROJECT_SETTINGS).toBe(true);
+      expect(PROJECT_SETTINGS_KEYS).toContain("quickChatCloseOnOutsideClick");
+    });
+
+    it("keeps quickChatCloseOnOutsideClick project-scoped only", () => {
+      expect("quickChatCloseOnOutsideClick" in DEFAULT_GLOBAL_SETTINGS).toBe(false);
+      expect(GLOBAL_SETTINGS_KEYS).not.toContain("quickChatCloseOnOutsideClick");
+    });
+  });
+
   describe("mergeIntegrationWorktree default", () => {
     it("defaults project settings to reuse-task-worktree", () => {
       expect(DEFAULT_PROJECT_SETTINGS.mergeIntegrationWorktree).toBe("reuse-task-worktree");

@@ -52,6 +52,7 @@ describe("useAppSettings", () => {
       expect(result.current.taskStuckTimeoutMs).toBe(600000);
       expect(result.current.staleHighFanoutBlockerAgeThresholdMs).toBe(7200000);
       expect(result.current.showQuickChatFAB).toBe(false);
+      expect(result.current.quickChatCloseOnOutsideClick).toBe(true);
       expect(result.current.capacityRiskBannerEnabled).toBe(false);
       expect(result.current.capacityRiskTodoThreshold).toBe(20);
     });
@@ -216,6 +217,67 @@ describe("useAppSettings", () => {
 
     await waitFor(() => {
       expect(result.current.autoMerge).toBe(true);
+    });
+  });
+
+  it("loads Quick Chat outside-click dismissal as default-on unless explicitly disabled", async () => {
+    const { result, rerender } = renderHook(({ projectId }) => useAppSettings(projectId), {
+      initialProps: { projectId: "proj_123" },
+    });
+
+    await waitFor(() => {
+      expect(result.current.quickChatCloseOnOutsideClick).toBe(true);
+    });
+
+    mockFetchSettings.mockResolvedValueOnce({
+      autoMerge: false,
+      globalPause: false,
+      enginePaused: false,
+      prAuthAvailable: true,
+      taskStuckTimeoutMs: 600000,
+      showQuickChatFAB: false,
+      quickChatCloseOnOutsideClick: false,
+    } as never);
+
+    rerender({ projectId: "proj_456" });
+
+    await waitFor(() => {
+      expect(result.current.quickChatCloseOnOutsideClick).toBe(false);
+    });
+  });
+
+  it("refresh() live-applies saved Quick Chat outside-click setting changes", async () => {
+    mockFetchSettings.mockResolvedValueOnce({
+      autoMerge: false,
+      globalPause: false,
+      enginePaused: false,
+      prAuthAvailable: true,
+      taskStuckTimeoutMs: 600000,
+      showQuickChatFAB: false,
+      quickChatCloseOnOutsideClick: false,
+    } as never);
+    const { result } = renderHook(() => useAppSettings("proj_123"));
+
+    await waitFor(() => {
+      expect(result.current.quickChatCloseOnOutsideClick).toBe(false);
+    });
+
+    mockFetchSettings.mockResolvedValueOnce({
+      autoMerge: false,
+      globalPause: false,
+      enginePaused: false,
+      prAuthAvailable: true,
+      taskStuckTimeoutMs: 600000,
+      showQuickChatFAB: false,
+      quickChatCloseOnOutsideClick: true,
+    } as never);
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    await waitFor(() => {
+      expect(result.current.quickChatCloseOnOutsideClick).toBe(true);
     });
   });
 

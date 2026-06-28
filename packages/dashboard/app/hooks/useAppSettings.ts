@@ -22,6 +22,7 @@ export interface UseAppSettingsResult {
   capacityRiskTodoThreshold: number;
   openTasksInRightSidebar: boolean;
   quickChatButtonMode: QuickChatButtonMode;
+  quickChatCloseOnOutsideClick: boolean;
   showQuickChatFAB: boolean;
   maxTotalRetriesBeforeFail: number;
   prAuthAvailable: boolean;
@@ -61,6 +62,7 @@ export function useAppSettings(projectId?: string): UseAppSettingsResult {
   const [capacityRiskTodoThreshold, setCapacityRiskTodoThreshold] = useState(20);
   const [openTasksInRightSidebar, setOpenTasksInRightSidebar] = useState(false);
   const [quickChatButtonMode, setQuickChatButtonMode] = useState<QuickChatButtonMode>("off");
+  const [quickChatCloseOnOutsideClick, setQuickChatCloseOnOutsideClick] = useState(true);
   const [showQuickChatFAB, setShowQuickChatFAB] = useState(false);
   const [maxTotalRetriesBeforeFail, setMaxTotalRetriesBeforeFail] = useState(25);
   const [prAuthAvailable, setPrAuthAvailable] = useState(false);
@@ -111,6 +113,7 @@ export function useAppSettings(projectId?: string): UseAppSettingsResult {
             ? "floating"
             : "off";
       setQuickChatButtonMode(nextQuickChatButtonMode);
+      setQuickChatCloseOnOutsideClick(settings.quickChatCloseOnOutsideClick !== false);
       setShowQuickChatFAB(nextQuickChatButtonMode === "floating");
       setMaxTotalRetriesBeforeFail(settings.maxTotalRetriesBeforeFail ?? 25);
       setCapacityRiskBannerEnabled(settings.capacityRiskBannerEnabled === true);
@@ -143,6 +146,7 @@ export function useAppSettings(projectId?: string): UseAppSettingsResult {
     setMemoryEnabled(true);
     setDevServerEnabled(false);
     setOpenTasksInRightSidebar(false);
+    setQuickChatCloseOnOutsideClick(true);
     setTodosEnabled(true);
     setGoalsEnabled(true);
     void refresh();
@@ -244,6 +248,7 @@ export function useAppSettings(projectId?: string): UseAppSettingsResult {
     capacityRiskTodoThreshold,
     openTasksInRightSidebar,
     quickChatButtonMode,
+    quickChatCloseOnOutsideClick,
     showQuickChatFAB,
     maxTotalRetriesBeforeFail,
     prAuthAvailable,

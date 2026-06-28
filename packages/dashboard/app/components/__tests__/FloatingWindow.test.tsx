@@ -149,6 +149,19 @@ describe("FloatingWindow", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("does not close on outside pointerdown when the opt-in prop is explicitly false", () => {
+    const onClose = vi.fn();
+    render(
+      <FloatingWindow windowKey="outside-disabled" title="Outside disabled" onClose={onClose} closeOnOutsidePointerDown={false}>
+        <div>chat body</div>
+      </FloatingWindow>
+    );
+
+    fireEvent.pointerDown(document.body);
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("does not close when the outside target is another floating or dialog surface", () => {
     for (const surfaceClassOrRole of ["modal-overlay", "floating-window", "dialog-role"] as const) {
       const onClose = vi.fn();

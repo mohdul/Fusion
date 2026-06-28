@@ -540,6 +540,7 @@ function AppInner() {
     capacityRiskTodoThreshold,
     openTasksInRightSidebar,
     quickChatButtonMode,
+    quickChatCloseOnOutsideClick,
     maxTotalRetriesBeforeFail,
     prAuthAvailable,
     settingsLoaded,
@@ -1531,6 +1532,9 @@ function AppInner() {
 
       FNXC:ChatModal 2026-06-27-00:00:
       Quick Chat is a transient utility window, so it opts into FloatingWindow's outside-click dismissal in addition to minimize, close, and maximize controls. Task pop-outs intentionally do not opt in because they are persistent workspace windows that should survive page clicks.
+
+      FNXC:ChatModal 2026-06-28-00:00:
+      Outside-click dismissal is now governed by the project-scoped quickChatCloseOnOutsideClick setting, default-on to preserve FN-7152 behavior. Other FloatingWindow callers still do not pass closeOnOutsidePointerDown, so task pop-outs and utility windows remain persistent.
       */}
       {viewMode === "project" && currentProject && (
         <QuickChatFAB
@@ -1544,7 +1548,7 @@ function AppInner() {
           windowKey="chat-modal"
           title="Chat"
           onClose={() => setQuickChatOpen(false)}
-          closeOnOutsidePointerDown
+          closeOnOutsidePointerDown={quickChatCloseOnOutsideClick}
           hideHeader
           dragHandleSelector=".chat-view--floating .view-header"
           className="floating-window--chat"

@@ -520,6 +520,11 @@ export const DEFAULT_PROJECT_SETTINGS = {
   reflectionAfterTask: true,
   // reviewHandoffPolicy MOVED to workflow settings (U4) — see MOVED_SETTINGS_KEYS.
   quickChatButtonMode: "off",
+  /*
+  FNXC:ChatModal 2026-06-28-00:00:
+  Quick Chat outside-click dismissal remains default-on for upgrades, but it is now a project setting so operators can disable accidental board-click closes.
+  */
+  quickChatCloseOnOutsideClick: true,
   showQuickChatFAB: false,
   chatAutoCleanupDays: 0,
   mailAutoCleanupDays: 0,

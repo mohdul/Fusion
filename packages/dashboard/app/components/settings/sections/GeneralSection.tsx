@@ -131,6 +131,15 @@ export function GeneralSection({ scopeBanner, form, setForm, projectId, addToast
         </select>
         <small>{t("settings.general.quickChatLauncherHint", "Choose whether Quick Chat opens from the draggable floating button, a footer button beside Terminal, or stays hidden.")}</small>
       </div>
+      {/*
+        FNXC:ChatModal 2026-06-28-00:00:
+        Operators need a Settings > General toggle for Quick Chat outside-click dismissal because accidental board clicks can otherwise close active chat context. Default checked preserves the shipped FN-7152 interaction.
+      */}
+      <div className="form-group">
+        <label htmlFor="quickChatCloseOnOutsideClick" className="checkbox-label">
+          <input id="quickChatCloseOnOutsideClick" type="checkbox" checked={form.quickChatCloseOnOutsideClick !== false} onChange={(e) => setForm((f) => ({ ...f, quickChatCloseOnOutsideClick: e.target.checked }))}/>{t("settings.general.quickChatCloseOnOutsideClick", "Close Quick Chat on outside click")}</label>
+        <small>{t("settings.general.quickChatCloseOnOutsideClickHint", "When enabled, clicking outside the Quick Chat window closes it. Disable to keep it open until you close it explicitly.")}</small>
+      </div>
       <h4 className="settings-section-heading settings-section-heading--spaced">{t("settings.general.chatHistory", "Chat history")}</h4>
       <div className="form-group">
         <label htmlFor="chatAutoCleanupDays">{t("settings.general.autoCleanupOldChats", "Auto-cleanup old chats")}</label>

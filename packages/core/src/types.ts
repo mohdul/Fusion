@@ -4368,6 +4368,12 @@ export interface ProjectSettings {
   reviewHandoffPolicy?: "disabled" | "comment-triggered" | "always";
   /** Quick Chat launcher placement. "floating" shows the draggable FAB, "footer" shows a footer button, "off" hides both. */
   quickChatButtonMode?: "floating" | "footer" | "off";
+  /**
+   * FNXC:ChatModal 2026-06-28-00:00:
+   * Outside-click dismissal of Quick Chat is now user-configurable; default true preserves the prior always-on behavior from FN-7152.
+   * When true (default), the Quick Chat floating window closes when the user clicks outside it. Set false to keep it open until explicitly closed.
+   */
+  quickChatCloseOnOutsideClick?: boolean;
   /** Legacy Quick Chat FAB toggle. Prefer quickChatButtonMode for new callers. */
   showQuickChatFAB?: boolean;
   /** Number of days of chat inactivity before old chat sessions/rooms are auto-cleaned.

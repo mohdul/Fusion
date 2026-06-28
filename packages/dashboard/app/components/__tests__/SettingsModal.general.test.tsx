@@ -710,6 +710,14 @@ describe("SettingsModal", () => {
       },
       {
         section: "Project General",
+        label: "Close Quick Chat on outside click",
+        kind: "checkbox",
+        value: false,
+        scope: "project",
+        expectedKey: "quickChatCloseOnOutsideClick",
+      },
+      {
+        section: "Project General",
         label: "Operational log retention",
         kind: "select",
         value: 7,
