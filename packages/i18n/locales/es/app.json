@@ -1361,7 +1361,8 @@
     "unreadMessages": "Mensajes no leídos",
     "untitledSession": "Sin título",
     "workingStatus": "Trabajando…",
-    "you": "Tú"
+    "you": "Tú",
+    "contextWindowAria": "Estimated {{used}} of {{total}} context tokens"
   },
   "chatRooms": {
     "error": {
@@ -5465,7 +5466,16 @@
     "webhookPathPlaceholder": "/trigger/my-routine",
     "webhookSecretHint": "Secreto HMAC para verificación de firma. Deja vacío para webhooks sin autenticación.",
     "webhookSecretLabel": "Secreto del webhook (opcional)",
-    "webhookSecretPlaceholder": "Opcional: deja vacío para webhooks sin autenticación"
+    "webhookSecretPlaceholder": "Opcional: deja vacío para webhooks sin autenticación",
+    "allowedToolsHint": "AI prompt steps use all tools by default. Clear tools only when this automation should run without tool access.",
+    "allowedToolsLabel": "Allowed tools",
+    "clearTools": "Clear",
+    "liveOutput": "Live output",
+    "liveOutputRunning": "Live output — running",
+    "liveRunComplete": "Run complete",
+    "liveRunError": "Run failed",
+    "liveRunStarting": "Starting run…",
+    "selectAllTools": "Select all"
   },
   "scripts": {
     "title": ""
@@ -6111,7 +6121,12 @@
       "whenEnabledLockFilesPackageLockJsonPnpm2": "",
       "whenEnabledTasksThatPassReviewAreAutomatically": "",
       "whenEnabledTheMergedResultIsAutomaticallyPushed": "",
-      "whenUsingSmartPreferMainAutomaticallyPreferThe": ""
+      "whenUsingSmartPreferMainAutomaticallyPreferThe": "",
+      "planApprovalMode": "Plan approval mode",
+      "planApprovalModeAutoApproveAll": "Auto-approve all tasks",
+      "planApprovalModeHelp": "Project-wide override for the planning approval gate. Leave on workflow to use each workflow's Require plan approval setting, or force all approved specs to bypass or wait for manual approval.",
+      "planApprovalModeRequireAll": "Require approval for all tasks",
+      "planApprovalModeWorkflow": "Use workflow setting"
     },
     "mergeManually": "Fusionar manualmente",
     "mobileNav": {
@@ -7543,7 +7558,8 @@
       "routing": "Enrutamiento",
       "stats": "Estadísticas",
       "terminal": "",
-      "workflow": "Flujo de trabajo"
+      "workflow": "Flujo de trabajo",
+      "summary": "Summary"
     },
     "terminal": {
       "loading": ""
@@ -7574,7 +7590,33 @@
     },
     "workflowRuntime": "Tiempo de ejecución del flujo de trabajo",
     "workflowTimedSteps": "Pasos cronometrados del flujo de trabajo",
-    "yes": "Sí"
+    "yes": "Sí",
+    "summaryTab": {
+      "agentWorkHeading": "Work done by agents",
+      "cachedTokens": "Cached",
+      "changedHeading": "What changed",
+      "commit": "Commit",
+      "completedSteps": "Completed steps",
+      "completionHeading": "Completion summary",
+      "cost": "Cost",
+      "costUnavailable": "No pricing for this model",
+      "deletions": "Removed",
+      "filesChanged": "Files",
+      "inputTokens": "Input",
+      "insertions": "Added",
+      "model": "Model",
+      "noAgentWork": "No completed steps or workflow results are available for this task.",
+      "noChangedFiles": "No changed-file list is available for this task.",
+      "noCompletionSummary": "No completion summary was recorded for this task.",
+      "noTokenUsage": "No token usage recorded for this task yet.",
+      "outputTokens": "Output",
+      "retries": "Agents retried this task {{count}} time{{plural}}.",
+      "tokenCostHeading": "Token usage & cost",
+      "totalCost": "Total cost",
+      "totalTokens": "Total",
+      "unknownModel": "(unknown)",
+      "workflowResults": "Workflow results"
+    }
   },
   "taskDocuments": {
     "cancel": "Cancelar",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
-import type { Column } from "@fusion/core";
+import { render, screen, within } from "@testing-library/react";
+import type { Column, ModelPricingOverrides, TaskTokenUsage } from "@fusion/core";
 import {
   makeTask,
   noop,
@@ -8,14 +8,29 @@ import {
   noopMerge,
   noopMove,
   noopOpenDetail,
+  readDashboardStylesSource,
   setupTaskDetailModalHooks,
 } from "./TaskDetailModal.test-helpers";
 import { TaskDetailContent, TaskDetailModal } from "../TaskDetailModal";
+import { TaskSummaryTab } from "../TaskSummaryTab";
 
 setupTaskDetailModalHooks();
 
 function expectButtonActive(button: HTMLElement): void {
   expect(button.classList.contains("detail-tab-active")).toBe(true);
+}
+
+function tokenUsage(overrides: Partial<TaskTokenUsage> = {}): TaskTokenUsage {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens: 0,
+    firstUsedAt: "2026-01-01T00:00:00Z",
+    lastUsedAt: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
 }
 
 function doneTask(overrides = {}) {
@@ -155,6 +170,228 @@ describe("TaskDetailModal Summary tab", () => {
       expectButtonActive(screen.getByRole("button", { name: "Chat" }));
       rendered.unmount();
     }
+  });
+
+  it("omits the token-cost section when token usage is absent", () => {
+    render(<TaskSummaryTab task={doneTask({ tokenUsage: undefined })} />);
+
+    expect(screen.queryByText("Token usage & cost")).toBeNull();
+    expect(screen.queryByTestId("task-summary-token-cost-section")).toBeNull();
+  });
+
+  it("renders multi-model token counts with priced, unpriced, and unavailable total cost states", () => {
+    render(
+      <TaskSummaryTab
+        task={doneTask({
+          tokenUsage: tokenUsage({
+            inputTokens: 1_000_100,
+            outputTokens: 1_000_000,
+            cachedTokens: 0,
+            cacheWriteTokens: 0,
+            totalTokens: 2_000_100,
+            perModel: [
+              {
+                modelProvider: "anthropic",
+                modelId: "claude-sonnet-4-6",
+                inputTokens: 1_000_000,
+                outputTokens: 1_000_000,
+                cachedTokens: 0,
+                cacheWriteTokens: 0,
+                totalTokens: 2_000_000,
+                firstUsedAt: "2026-01-01T00:00:00Z",
+                lastUsedAt: "2026-01-01T00:00:00Z",
+              },
+              {
+                modelProvider: "unknown-provider",
+                modelId: "unpriced-model",
+                inputTokens: 100,
+                outputTokens: 0,
+                cachedTokens: 0,
+                cacheWriteTokens: 0,
+                totalTokens: 100,
+                firstUsedAt: "2026-01-01T00:00:00Z",
+                lastUsedAt: "2026-01-01T00:00:00Z",
+              },
+            ],
+          }),
+        })}
+      />,
+    );
+
+    const rows = screen.getAllByTestId("task-summary-token-row");
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]).getByText("claude-sonnet-4-6")).toBeTruthy();
+    expect(within(rows[0]).getAllByText("1,000,000")).toHaveLength(2);
+    expect(within(rows[0]).getByText("2,000,000")).toBeTruthy();
+    expect(within(rows[0]).getByText("$18.00")).toBeTruthy();
+    expect(within(rows[0]).getByTestId("anthropic-icon")).toBeTruthy();
+    expect(within(rows[1]).getByText("unpriced-model")).toBeTruthy();
+    expect(within(rows[1]).getByText("—")).toBeTruthy();
+    expect(screen.getByText("Total cost")).toBeTruthy();
+    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("$0.00")).toBeNull();
+  });
+
+  it("renders a numeric task total when all contributing models are priced", () => {
+    render(
+      <TaskSummaryTab
+        task={doneTask({
+          tokenUsage: tokenUsage({
+            inputTokens: 2_000_000,
+            outputTokens: 2_000_000,
+            cachedTokens: 0,
+            cacheWriteTokens: 0,
+            totalTokens: 4_000_000,
+            perModel: [
+              {
+                modelProvider: "anthropic",
+                modelId: "claude-sonnet-4-6",
+                inputTokens: 1_000_000,
+                outputTokens: 1_000_000,
+                cachedTokens: 0,
+                cacheWriteTokens: 0,
+                totalTokens: 2_000_000,
+                firstUsedAt: "2026-01-01T00:00:00Z",
+                lastUsedAt: "2026-01-01T00:00:00Z",
+              },
+              {
+                modelProvider: "openai",
+                modelId: "gpt-4o-mini",
+                inputTokens: 1_000_000,
+                outputTokens: 1_000_000,
+                cachedTokens: 0,
+                cacheWriteTokens: 0,
+                totalTokens: 2_000_000,
+                firstUsedAt: "2026-01-01T00:00:00Z",
+                lastUsedAt: "2026-01-01T00:00:00Z",
+              },
+            ],
+          }),
+        })}
+      />,
+    );
+
+    expect(screen.getByText("$18.00")).toBeTruthy();
+    expect(screen.getByText("$0.75")).toBeTruthy();
+    expect(screen.getByText("$18.75")).toBeTruthy();
+  });
+
+  it("synthesizes a single aggregate row when per-model buckets are absent", () => {
+    render(
+      <TaskSummaryTab
+        task={doneTask({
+          tokenUsage: tokenUsage({
+            inputTokens: 1234,
+            outputTokens: 5678,
+            cachedTokens: 90,
+            cacheWriteTokens: 12,
+            totalTokens: 7014,
+            perModel: [],
+          }),
+        })}
+      />,
+    );
+
+    const rows = screen.getAllByTestId("task-summary-token-row");
+    expect(rows).toHaveLength(1);
+    expect(within(rows[0]).getByText("(unknown)")).toBeTruthy();
+    expect(within(rows[0]).getByText("1,234")).toBeTruthy();
+    expect(within(rows[0]).getByText("5,678")).toBeTruthy();
+    expect(within(rows[0]).getByText("90")).toBeTruthy();
+    expect(within(rows[0]).getByText("7,014")).toBeTruthy();
+  });
+
+  it("applies pricing overrides passed into the summary component", () => {
+    const pricingOverrides: ModelPricingOverrides = {
+      "custom:override-model": {
+        inputPer1M: 2,
+        outputPer1M: 3,
+        cacheReadPer1M: 4,
+        cacheWritePer1M: 5,
+        source: "test override",
+      },
+    };
+
+    render(
+      <TaskSummaryTab
+        pricingOverrides={pricingOverrides}
+        task={doneTask({
+          tokenUsage: tokenUsage({
+            inputTokens: 1_000_000,
+            outputTokens: 1_000_000,
+            cachedTokens: 1_000_000,
+            cacheWriteTokens: 1_000_000,
+            totalTokens: 4_000_000,
+            perModel: [
+              {
+                modelProvider: "custom",
+                modelId: "override-model",
+                inputTokens: 1_000_000,
+                outputTokens: 1_000_000,
+                cachedTokens: 1_000_000,
+                cacheWriteTokens: 1_000_000,
+                totalTokens: 4_000_000,
+                firstUsedAt: "2026-01-01T00:00:00Z",
+                lastUsedAt: "2026-01-01T00:00:00Z",
+              },
+            ],
+          }),
+        })}
+      />,
+    );
+
+    expect(screen.getAllByText("$14.00").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("renders the shared token-cost section through embedded and full detail content entrypoints", () => {
+    const task = doneTask({
+      tokenUsage: tokenUsage({
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+        cachedTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 2_000_000,
+        modelProvider: "anthropic",
+        modelId: "claude-sonnet-4-6",
+      }),
+    });
+
+    const full = render(
+      <TaskDetailContent
+        task={task}
+        onMoveTask={noopMove}
+        onDeleteTask={noopDelete}
+        onMergeTask={noopMerge}
+        onOpenDetail={noopOpenDetail}
+        addToast={noop}
+      />,
+    );
+    expect(screen.getByText("Token usage & cost")).toBeTruthy();
+    expect(screen.getByText("claude-sonnet-4-6")).toBeTruthy();
+    full.unmount();
+
+    render(
+      <TaskDetailContent
+        task={task}
+        embedded
+        onMoveTask={noopMove}
+        onDeleteTask={noopDelete}
+        onMergeTask={noopMerge}
+        onOpenDetail={noopOpenDetail}
+        addToast={noop}
+      />,
+    );
+    expect(screen.getByText("Token usage & cost")).toBeTruthy();
+    expect(screen.getByText("claude-sonnet-4-6")).toBeTruthy();
+  });
+
+  it("keeps token-cost summary styling responsive without hardcoded colors", () => {
+    const css = readDashboardStylesSource();
+    expect(css).toContain(".task-summary-token-table");
+    expect(css).toContain("@media (max-width: 768px)");
+    expect(css).toContain(".task-summary-token-table td::before");
+    expect(css).toContain("var(--color-warning)");
+    expect(css).not.toMatch(/task-summary-token[^{}]*#[0-9a-fA-F]{3,8}/);
   });
 
   it("renders graceful empty states without orphaned changed-file headings", () => {

@@ -3,9 +3,12 @@ import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { TaskDetail, TaskStep, WorkflowStepResult } from "@fusion/core";
+import type { TaskDetail, TaskStep, TaskTokenUsagePerModel, WorkflowStepResult } from "@fusion/core";
+import { costFor, type CostResult, type ModelPricingOverrides } from "../../../core/src/model-pricing";
 import { createMermaidCodeComponent, sharedRehypePlugins } from "./markdownPipeline";
+import { ProviderIcon } from "./ProviderIcon";
 import { linkifyFilePaths, linkifyReactChildren } from "../utils/filePathLinkify";
+import { inferProviderIconKey } from "../utils/providerIconKey";
 
 const EMPTY_MARKDOWN_CHILD_SEPARATOR = "";
 const STRING_OBJECT_TAG = "[object String]";
@@ -27,6 +30,7 @@ const markdownLinkifyComponents: Components = {
 
 interface TaskSummaryTabProps {
   task: TaskDetail;
+  pricingOverrides?: ModelPricingOverrides;
 }
 
 function getCompletedSteps(steps: TaskStep[] | undefined): TaskStep[] {
@@ -37,11 +41,129 @@ function getRenderableWorkflowResults(results: WorkflowStepResult[] | undefined)
   return (results ?? []).filter((result) => result.status !== "pending");
 }
 
+interface TokenCostRow {
+  key: string;
+  label: string;
+  modelProvider?: string;
+  modelId?: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  cost: CostResult;
+}
+
+function formatCount(n: number): string {
+  return Number.isFinite(n) ? Math.round(n).toLocaleString() : "0";
+}
+
+function formatCost(usd: number | null, unavailable: boolean): string {
+  if (unavailable || usd === null || !Number.isFinite(usd)) {
+    return "—";
+  }
+  return `$${usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function toTokenBucketKey(bucket: Pick<TaskTokenUsagePerModel, "modelProvider" | "modelId">): string {
+  return `${bucket.modelProvider ?? ""}:${bucket.modelId ?? ""}`;
+}
+
+function toTokenCostRow(
+  bucket: Pick<TaskTokenUsagePerModel, "modelProvider" | "modelId" | "inputTokens" | "outputTokens" | "cachedTokens" | "cacheWriteTokens" | "totalTokens">,
+  unknownLabel: string,
+  now: number,
+  pricingOverrides?: ModelPricingOverrides,
+): TokenCostRow {
+  const modelId = bucket.modelId?.trim() || undefined;
+  const modelProvider = bucket.modelProvider?.trim() || undefined;
+  const label = modelId ?? unknownLabel;
+  return {
+    key: toTokenBucketKey({ modelProvider, modelId }),
+    label,
+    modelProvider,
+    modelId,
+    inputTokens: bucket.inputTokens,
+    outputTokens: bucket.outputTokens,
+    cachedTokens: bucket.cachedTokens,
+    cacheWriteTokens: bucket.cacheWriteTokens,
+    totalTokens: bucket.totalTokens,
+    cost: costFor(
+      {
+        inputTokens: bucket.inputTokens,
+        outputTokens: bucket.outputTokens,
+        cachedTokens: bucket.cachedTokens,
+        cacheWriteTokens: bucket.cacheWriteTokens,
+      },
+      { provider: modelProvider, model: modelId },
+      now,
+      pricingOverrides,
+    ),
+  };
+}
+
+/**
+ * FNXC:TaskDetailSummaryTokenCost 2026-06-27-00:00:
+ * Done-task Summary shows durable token usage broken down by model with derived USD cost. Use already-loaded task.tokenUsage.perModel buckets plus costFor and global pricing overrides threaded from TaskDetailModal; do not fetch or persist cost here. Unpriced models render “—” instead of $0 and make the task total unavailable so estimates are never understated.
+ */
+function buildTokenCostRows(task: TaskDetail, unknownLabel: string, pricingOverrides?: ModelPricingOverrides): TokenCostRow[] {
+  const tokenUsage = task.tokenUsage;
+  if (!tokenUsage) return [];
+
+  const buckets = tokenUsage.perModel?.length
+    ? tokenUsage.perModel
+    : [
+        {
+          modelProvider: tokenUsage.modelProvider,
+          modelId: tokenUsage.modelId,
+          inputTokens: tokenUsage.inputTokens,
+          outputTokens: tokenUsage.outputTokens,
+          cachedTokens: tokenUsage.cachedTokens,
+          cacheWriteTokens: tokenUsage.cacheWriteTokens,
+          totalTokens: tokenUsage.totalTokens,
+        },
+      ];
+
+  const merged = new Map<string, Pick<TaskTokenUsagePerModel, "modelProvider" | "modelId" | "inputTokens" | "outputTokens" | "cachedTokens" | "cacheWriteTokens" | "totalTokens">>();
+  buckets.forEach((bucket) => {
+    const modelProvider = bucket.modelProvider?.trim() || undefined;
+    const modelId = bucket.modelId?.trim() || undefined;
+    const key = toTokenBucketKey({ modelProvider, modelId });
+    const current = merged.get(key);
+    if (!current) {
+      merged.set(key, { ...bucket, modelProvider, modelId });
+      return;
+    }
+    current.inputTokens += bucket.inputTokens;
+    current.outputTokens += bucket.outputTokens;
+    current.cachedTokens += bucket.cachedTokens;
+    current.cacheWriteTokens += bucket.cacheWriteTokens;
+    current.totalTokens += bucket.totalTokens;
+  });
+
+  const now = Date.now();
+  return Array.from(merged.values()).map((bucket) => toTokenCostRow(bucket, unknownLabel, now, pricingOverrides));
+}
+
+function totalCostForRows(rows: TokenCostRow[]): { usd: number | null; unavailable: boolean } {
+  let usd = 0;
+  let unavailable = false;
+  rows.forEach((row) => {
+    if (row.totalTokens <= 0) return;
+    if (row.cost.unavailable || row.cost.usd === null || !Number.isFinite(row.cost.usd)) {
+      unavailable = true;
+      return;
+    }
+    usd += row.cost.usd;
+  });
+  return { usd: unavailable ? null : usd, unavailable };
+}
+
 /**
  * FNXC:TaskDetailSummaryTab 2026-06-27-00:00:
  * TaskSummaryTab aggregates read-only completion data already loaded on TaskDetail: agent-written summary, changed-file metadata, implementation steps, workflow-step outcomes, and retry counts. It does not fetch, persist, or generate AI content so done-task details remain a front-end composition only.
  */
-export function TaskSummaryTab({ task }: TaskSummaryTabProps) {
+export function TaskSummaryTab({ task, pricingOverrides }: TaskSummaryTabProps) {
   const { t } = useTranslation("app");
   const summary = task.summary?.trim();
   const changedFiles = task.mergeDetails?.landedFiles?.length
@@ -55,6 +177,8 @@ export function TaskSummaryTab({ task }: TaskSummaryTabProps) {
     || task.mergeDetails?.deletions != null;
   const hasChangedContent = changedFiles.length > 0 || hasChangedStats || Boolean(task.mergeDetails?.commitSha);
   const hasAgentWork = completedSteps.length > 0 || workflowResults.length > 0 || retryTotal > 0;
+  const tokenCostRows = buildTokenCostRows(task, t("taskDetail.summaryTab.unknownModel", "(unknown)"), pricingOverrides);
+  const totalCost = totalCostForRows(tokenCostRows);
 
   return (
     <div className="task-summary-tab" data-testid="task-summary-tab">
@@ -111,6 +235,55 @@ export function TaskSummaryTab({ task }: TaskSummaryTabProps) {
           ) : (
             <p className="task-summary-empty">{t("taskDetail.summaryTab.noChangedFiles", "No changed-file list is available for this task.")}</p>
           )}
+        </section>
+      ) : null}
+
+      {task.tokenUsage ? (
+        <section className="task-summary-section task-summary-section--tokens" data-testid="task-summary-token-cost-section">
+          <h4>{t("taskDetail.summaryTab.tokenCostHeading", "Token usage & cost")}</h4>
+          <div className="task-summary-token-table-wrap">
+            <table className="task-summary-token-table">
+              <thead>
+                <tr>
+                  <th>{t("taskDetail.summaryTab.model", "Model")}</th>
+                  <th>{t("taskDetail.summaryTab.inputTokens", "Input")}</th>
+                  <th>{t("taskDetail.summaryTab.outputTokens", "Output")}</th>
+                  <th>{t("taskDetail.summaryTab.cachedTokens", "Cached")}</th>
+                  <th>{t("taskDetail.summaryTab.totalTokens", "Total")}</th>
+                  <th>{t("taskDetail.summaryTab.cost", "Cost")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tokenCostRows.map((row) => (
+                  <tr key={row.key || row.label} data-testid="task-summary-token-row">
+                    <td data-label={t("taskDetail.summaryTab.model", "Model")}>
+                      <span className="task-summary-model-label">
+                        <ProviderIcon provider={inferProviderIconKey(row.modelId ?? "")} size="sm" />
+                        <span>{row.label}</span>
+                      </span>
+                    </td>
+                    <td data-label={t("taskDetail.summaryTab.inputTokens", "Input")}>{formatCount(row.inputTokens)}</td>
+                    <td data-label={t("taskDetail.summaryTab.outputTokens", "Output")}>{formatCount(row.outputTokens)}</td>
+                    <td data-label={t("taskDetail.summaryTab.cachedTokens", "Cached")}>{formatCount(row.cachedTokens)}</td>
+                    <td data-label={t("taskDetail.summaryTab.totalTokens", "Total")}>{formatCount(row.totalTokens)}</td>
+                    <td data-label={t("taskDetail.summaryTab.cost", "Cost")}>
+                      {row.cost.unavailable || row.cost.usd === null ? (
+                        <span className="task-summary-cost-unavailable" title={t("taskDetail.summaryTab.costUnavailable", "No pricing for this model")}>—</span>
+                      ) : (
+                        formatCost(row.cost.usd, row.cost.unavailable)
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th scope="row" colSpan={5}>{t("taskDetail.summaryTab.totalCost", "Total cost")}</th>
+                  <td data-label={t("taskDetail.summaryTab.totalCost", "Total cost")}>{formatCost(totalCost.usd, totalCost.unavailable)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </section>
       ) : null}
 

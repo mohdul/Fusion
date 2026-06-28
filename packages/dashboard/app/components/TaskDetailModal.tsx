@@ -3223,7 +3223,7 @@ export function TaskDetailContent({
             </div>
           ) : activeTab === "summary" && task.column === "done" ? (
             <div className="detail-section detail-section--summary">
-              <TaskSummaryTab task={workingTask} />
+              <TaskSummaryTab task={workingTask} pricingOverrides={globalSettings?.modelPricingOverrides} />
             </div>
           ) : activeTab === "chat" ? (
             <div className="detail-section detail-section--chat">
