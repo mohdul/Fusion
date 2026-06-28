@@ -70,6 +70,7 @@ export interface LogSinkTarget {
 export class DashboardLogSink {
   private tui: LogSinkTarget | null = null;
   private isTTY: boolean;
+  private silenced = false;
   private originalConsole: {
     log: typeof console.log;
     warn: typeof console.warn;
@@ -86,7 +87,28 @@ export class DashboardLogSink {
     this.isTTY = true;
   }
 
+  /*
+  FNXC:DashboardShutdown 2026-06-28-00:00:
+  Quit teardown spilled engine/mesh/dev-server log lines onto the user's
+  restored shell — after `q`, dispose() called releaseConsole() (re-pointing
+  console.* at the real terminal) and then tui.stop() left the alt-screen, so
+  every subsequent slow-teardown log painted over the recovered prompt. That
+  read as "the TUI keeps rendering after I get my terminal back."
+  silence() makes the sink — and console.* — drop everything from here to
+  process exit. It is irreversible by design; only shutdown calls it.
+  */
+  silence(): void {
+    this.silenced = true;
+    const noop = (): void => {};
+    // Drop direct console.* from engine teardown too (captureConsole patched
+    // these to route here at startup; repoint them to no-ops, not the shell).
+    console.log = noop;
+    console.warn = noop;
+    console.error = noop;
+  }
+
   log(message: string, prefix?: string): void {
+    if (this.silenced) return;
     const line = prefix ? `[${prefix}] ${message}` : message;
     if (this.tui && this.isTTY) {
       this.tui.log(message, prefix);
@@ -98,6 +120,7 @@ export class DashboardLogSink {
   }
 
   warn(message: string, prefix?: string): void {
+    if (this.silenced) return;
     const line = prefix ? `[${prefix}] ${message}` : message;
     if (this.tui && this.isTTY) {
       this.tui.warn(message, prefix);
@@ -109,6 +132,7 @@ export class DashboardLogSink {
   }
 
   error(message: string, prefix?: string): void {
+    if (this.silenced) return;
     const line = prefix ? `[${prefix}] ${message}` : message;
     if (this.tui && this.isTTY) {
       this.tui.error(message, prefix);

@@ -1128,7 +1128,11 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
   let currentShutdownStep: string | null = null;
   function armHardExitWatchdog(): void {
     setTimeout(() => {
-      if (currentShutdownStep) {
+      // Only surface the stall on stderr under FUSION_DEBUG_SHUTDOWN — by this
+      // point tui.stop() has restored the user's shell, so an unconditional
+      // write would itself paint the recovered prompt. The force-exit always
+      // happens regardless of the flag.
+      if (currentShutdownStep && process.env.FUSION_DEBUG_SHUTDOWN) {
         process.stderr.write(
           `fusion: graceful shutdown stalled on "${currentShutdownStep}" after ${SHUTDOWN_HARD_EXIT_GRACE_MS}ms — forcing exit\n`,
         );
@@ -1144,9 +1148,12 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
     try {
       await fn();
       const ms = Date.now() - startedAt;
-      if (debug) process.stderr.write(`fusion: shutdown step: ${label} done in ${ms}ms\n`);
-      else if (ms >= SHUTDOWN_STEP_SLOW_MS) {
-        process.stderr.write(`fusion: slow shutdown step: ${label} took ${ms}ms\n`);
+      // Per-step timing only under the debug flag. A non-debug stderr write for
+      // "slow" steps would paint the shell tui.stop() already restored; the
+      // SHUTDOWN_STEP_SLOW_MS threshold only governs debug emphasis now.
+      if (debug) {
+        const slow = ms >= SHUTDOWN_STEP_SLOW_MS ? " (slow)" : "";
+        process.stderr.write(`fusion: shutdown step: ${label} done in ${ms}ms${slow}\n`);
       }
     } catch (err) {
       // Best-effort teardown: log and continue so one failing step can't strand
@@ -1671,10 +1678,15 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
 
     // Stop TUI if active
     if (tui) {
-      // Restore console.* before stopping the TUI so any log lines emitted
-      // during teardown (or by late-firing listeners) go to the real terminal
-      // instead of a ring buffer that's about to disappear.
-      logSink.releaseConsole();
+      // FNXC:DashboardShutdown 2026-06-28-00:00:
+      // Silence (do NOT releaseConsole) before stopping the TUI. tui.stop()
+      // leaves the alt-screen and restores the user's shell prompt; releasing
+      // console here would re-point console.* at that restored shell, so the
+      // engine/mesh/dev-server logs emitted during the slow teardown that
+      // follows painted over the recovered prompt — the "TUI keeps rendering
+      // after q" regression. We are exiting; drop teardown output instead.
+      // FUSION_DEBUG_SHUTDOWN still surfaces per-step timing on stderr.
+      logSink.silence();
       void tui.stop();
     }
 
