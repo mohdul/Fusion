@@ -17,6 +17,7 @@ import { AppearanceSection } from "../components/settings/sections/AppearanceSec
 import { NotificationsSection } from "../components/settings/sections/NotificationsSection";
 import { ExperimentalSection } from "../components/settings/sections/ExperimentalSection";
 import { MovedSettingsStub } from "../components/settings/sections/MovedSettingsStub";
+import { ProjectModelsSection } from "../components/settings/sections/ProjectModelsSection";
 import { PromptsSection } from "../components/settings/sections/PromptsSection";
 import { SecretsSection } from "../components/settings/sections/SecretsSection";
 import { WorktreesSection } from "../components/settings/sections/WorktreesSection";
@@ -215,6 +216,59 @@ describe("WorktreesSection", () => {
 
     expect(screen.getByLabelText("File to copy into new worktrees")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Browse file to copy into new worktrees" })).toBeInTheDocument();
+  });
+});
+
+describe("ProjectModelsSection", () => {
+  const models = {
+    modelLanes: [],
+    getLaneStatus: () => "inherited" as const,
+    getLaneValue: () => "",
+    updateLaneValue: vi.fn(),
+    resetLaneValue: vi.fn(),
+    availableModels: [],
+    modelsLoading: false,
+    favoriteProviders: [],
+    favoriteModels: [],
+    onToggleFavorite: vi.fn(),
+    onToggleModelFavorite: vi.fn(),
+    editingPresetId: null,
+    setEditingPresetId: vi.fn(),
+    presetDraft: null,
+    setPresetDraft: vi.fn(),
+    onSavePresetDraft: vi.fn(),
+    confirmDelete: vi.fn(),
+  };
+
+  it("renders PR prompt guidance textareas and emits edits through setForm", () => {
+    function ProjectModelsHost() {
+      const [form, setFormState] = useState<SettingsFormState>({
+        prTitlePromptInstructions: "Keep it short.",
+        prDescriptionPromptInstructions: "Mention testing.",
+      } as SettingsFormState);
+      return (
+        <ProjectModelsSection
+          scopeBanner={null}
+          form={form}
+          setForm={setFormState as never}
+          models={models}
+          addToast={vi.fn()}
+        />
+      );
+    }
+
+    render(<ProjectModelsHost />);
+
+    const titleField = screen.getByLabelText("PR title prompt guidance") as HTMLTextAreaElement;
+    const descriptionField = screen.getByLabelText("PR description prompt guidance") as HTMLTextAreaElement;
+    expect(titleField.value).toBe("Keep it short.");
+    expect(descriptionField.value).toBe("Mention testing.");
+
+    fireEvent.change(titleField, { target: { value: "Use release style." } });
+    fireEvent.change(descriptionField, { target: { value: "Group by impact." } });
+
+    expect(titleField.value).toBe("Use release style.");
+    expect(descriptionField.value).toBe("Group by impact.");
   });
 });
 

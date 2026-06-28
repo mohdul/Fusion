@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_MAX_AUTO_MERGE_RETRIES, resolveMaxAutoMergeRetries } from "../in-review-stall.js";
 import { isExperimentalFeatureEnabled } from "../experimental-features.js";
-import { DEFAULT_GLOBAL_SETTINGS, DEFAULT_PROJECT_SETTINGS } from "../settings-schema.js";
+import { DEFAULT_GLOBAL_SETTINGS, DEFAULT_PROJECT_SETTINGS, GLOBAL_SETTINGS_KEYS, PROJECT_SETTINGS_KEYS } from "../settings-schema.js";
 import { isWorkflowColumnsEnabled } from "../workflow-columns-settings.js";
 import {
   __resetLegacyCwdMainWarningForTests,
@@ -97,6 +97,15 @@ describe("settings defaults invariants", () => {
   it("keeps github source issue auto-close disabled by default", () => {
     expect(DEFAULT_PROJECT_SETTINGS.githubCloseSourceIssueOnDone).toBe(false);
     expect("githubCloseSourceIssueOnDone" in DEFAULT_GLOBAL_SETTINGS).toBe(false);
+  });
+
+  it("defaults PR metadata prompt guidance to project-scoped unset strings", () => {
+    expect(DEFAULT_PROJECT_SETTINGS.prTitlePromptInstructions).toBeUndefined();
+    expect(DEFAULT_PROJECT_SETTINGS.prDescriptionPromptInstructions).toBeUndefined();
+    expect(PROJECT_SETTINGS_KEYS).toContain("prTitlePromptInstructions");
+    expect(PROJECT_SETTINGS_KEYS).toContain("prDescriptionPromptInstructions");
+    expect(GLOBAL_SETTINGS_KEYS).not.toContain("prTitlePromptInstructions");
+    expect(GLOBAL_SETTINGS_KEYS).not.toContain("prDescriptionPromptInstructions");
   });
 
   it("defaults AI merge commit summaries to enabled", () => {

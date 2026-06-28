@@ -66,6 +66,17 @@ function expectFallbackBody(body: string) {
   expect(body).toContain("Closes FN-4991");
 }
 
+function capturedSystemPrompt(): string {
+  const call = vi.mocked(createFnAgent).mock.calls.at(-1)?.[0] as { systemPrompt?: string } | undefined;
+  return call?.systemPrompt ?? "";
+}
+
+const BASE_PR_METADATA_SYSTEM_PROMPT = [
+  "Generate GitHub PR metadata.",
+  "Respond with strict JSON only.",
+  "Schema: {title, summary, changes, testing, linkedTask}",
+].join("\n");
+
 describe("generatePrMetadata", () => {
   let repoRoot: string;
 
@@ -127,6 +138,79 @@ describe("generatePrMetadata", () => {
     expect(result.body).toContain("## Linked Task");
     expect(result.templateUsed).toBe(false);
     expect(promptMock).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  });
+
+  it("keeps the base PR metadata system prompt unchanged when guidance is unset", async () => {
+    const result = await generatePrMetadata({
+      task: createTask(),
+      repoRoot,
+      settings: {} as never,
+    });
+
+    expect(capturedSystemPrompt()).toBe(BASE_PR_METADATA_SYSTEM_PROMPT);
+    expect(capturedSystemPrompt()).toContain("Schema: {title, summary, changes, testing, linkedTask}");
+    expect(result.title).toBe("feat: add routes");
+    expect(result.body).toContain("## Summary");
+  });
+
+  it("adds only title guidance when title instructions are set", async () => {
+    const result = await generatePrMetadata({
+      task: createTask(),
+      repoRoot,
+      settings: { prTitlePromptInstructions: "  Use conventional commit style.  " } as never,
+    });
+
+    expect(capturedSystemPrompt()).toBe(`${BASE_PR_METADATA_SYSTEM_PROMPT}\nTitle guidance: Use conventional commit style.`);
+    expect(capturedSystemPrompt()).not.toContain("Description guidance:");
+    expect(result.title).toBe("feat: add routes");
+    expect(result.body).toContain("- pnpm test");
+  });
+
+  it("adds only description guidance when description instructions are set", async () => {
+    const result = await generatePrMetadata({
+      task: createTask(),
+      repoRoot,
+      settings: { prDescriptionPromptInstructions: "  Mention user-facing behavior.  " } as never,
+    });
+
+    expect(capturedSystemPrompt()).toBe(`${BASE_PR_METADATA_SYSTEM_PROMPT}\nDescription guidance: Mention user-facing behavior.`);
+    expect(capturedSystemPrompt()).not.toContain("Title guidance:");
+    expect(result.title).toBe("feat: add routes");
+    expect(result.body).toContain("Summary text");
+  });
+
+  it("adds both title and description guidance when both instructions are set", async () => {
+    const result = await generatePrMetadata({
+      task: createTask(),
+      repoRoot,
+      settings: {
+        prTitlePromptInstructions: "Use release-note tone.",
+        prDescriptionPromptInstructions: "Group changes by operator impact.",
+      } as never,
+    });
+
+    expect(capturedSystemPrompt()).toBe([
+      BASE_PR_METADATA_SYSTEM_PROMPT,
+      "Title guidance: Use release-note tone.",
+      "Description guidance: Group changes by operator impact.",
+    ].join("\n"));
+    expect(result.title).toBe("feat: add routes");
+    expect(result.body).toContain("## Changes");
+  });
+
+  it("treats whitespace-only PR prompt guidance as unset", async () => {
+    const result = await generatePrMetadata({
+      task: createTask(),
+      repoRoot,
+      settings: {
+        prTitlePromptInstructions: "   \n\t  ",
+        prDescriptionPromptInstructions: "  ",
+      } as never,
+    });
+
+    expect(capturedSystemPrompt()).toBe(BASE_PR_METADATA_SYSTEM_PROMPT);
+    expect(result.title).toBe("feat: add routes");
+    expect(result.body).toContain("## Testing");
   });
 
   it("fills known sections when template exists and preserves unknown headings", async () => {

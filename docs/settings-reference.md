@@ -584,6 +584,8 @@ Default notes:
 | `titleSummarizerModelId` | `string` | `undefined` | Model ID for title summarization. |
 | `titleSummarizerFallbackProvider` | `string` | `undefined` | Fallback provider for title summarization. |
 | `titleSummarizerFallbackModelId` | `string` | `undefined` | Fallback model ID for title summarization. |
+| `prTitlePromptInstructions` | `string` | `undefined` | Optional project guidance appended to the Create PR dialog's AI metadata system prompt for the generated PR title. Blank or whitespace-only values are treated as unset and keep the default prompt behavior. |
+| `prDescriptionPromptInstructions` | `string` | `undefined` | Optional project guidance appended to the Create PR dialog's AI metadata system prompt for generated PR body fields (`summary`, `changes`, `testing`). Blank or whitespace-only values are treated as unset and keep the default prompt behavior. |
 | `scripts` | `Record<string, string>` | `undefined` | Named script map used by script-mode workflow steps and setup hooks. |
 | `setupScript` | `string` | `undefined` | Script key from `scripts` to run before task execution. |
 | `insightExtractionEnabled` | `boolean` | `false` | Enable scheduled memory insight extraction. |

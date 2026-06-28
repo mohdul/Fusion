@@ -483,6 +483,8 @@ export const DEFAULT_PROJECT_SETTINGS = {
   titleSummarizerModelId: undefined,
   titleSummarizerFallbackProvider: undefined,
   titleSummarizerFallbackModelId: undefined,
+  prTitlePromptInstructions: undefined,
+  prDescriptionPromptInstructions: undefined,
   scripts: undefined,
   setupScript: undefined,
   insightExtractionEnabled: false,

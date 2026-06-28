@@ -270,6 +270,23 @@ export async function generatePrMetadata(input: {
     const template = templateExists ? await raceWithAbort(readFile(templatePath, "utf8"), combinedSignal) : "";
 
     const model = resolveTitleSummarizerSettingsModel(settings as Partial<Settings>);
+    const systemPrompt = [
+      "Generate GitHub PR metadata.",
+      "Respond with strict JSON only.",
+      "Schema: {title, summary, changes, testing, linkedTask}",
+    ];
+    const titleGuidance = settings.prTitlePromptInstructions?.trim();
+    const descriptionGuidance = settings.prDescriptionPromptInstructions?.trim();
+    /*
+     * FNXC:PrMetadataGeneration 2026-06-27-00:00:
+     * Custom project guidance augments the Create PR metadata generator only after trimming; unset or whitespace-only values must leave the base three-line strict-JSON system prompt byte-for-byte unchanged so existing parse/fallback behavior remains stable.
+     */
+    if (titleGuidance) {
+      systemPrompt.push(`Title guidance: ${titleGuidance}`);
+    }
+    if (descriptionGuidance) {
+      systemPrompt.push(`Description guidance: ${descriptionGuidance}`);
+    }
     const mcpServers = (await raceWithAbort(resolveMcpServersForStore(store ?? {}), combinedSignal)).servers;
     let aiText = "";
     const { session } = await raceWithAbort(createFnAgent({
@@ -282,11 +299,7 @@ export async function generatePrMetadata(input: {
       mcpServers,
       defaultProvider: model.provider,
       defaultModelId: model.modelId,
-      systemPrompt: [
-        "Generate GitHub PR metadata.",
-        "Respond with strict JSON only.",
-        "Schema: {title, summary, changes, testing, linkedTask}",
-      ].join("\n"),
+      systemPrompt: systemPrompt.join("\n"),
       onText: (delta: string) => {
         aiText += delta;
       },

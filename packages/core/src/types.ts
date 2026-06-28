@@ -4229,6 +4229,18 @@ export interface ProjectSettings {
    *  planning fallback, then global fallback. Must be set together with
    *  `titleSummarizerFallbackProvider`. */
   titleSummarizerFallbackModelId?: string;
+  /**
+   * FNXC:PrMetadataGeneration 2026-06-27-00:00:
+   * Project operators can add title-specific guidance to the Create PR metadata prompt without replacing the strict JSON schema contract. Blank or whitespace-only values are treated as unset so the default prompt remains byte-for-byte unchanged.
+   * Optional project-scoped guidance appended to the PR metadata system prompt for the generated `title` field. Default: undefined.
+   */
+  prTitlePromptInstructions?: string;
+  /**
+   * FNXC:PrMetadataGeneration 2026-06-27-00:00:
+   * Project operators can add body-specific guidance to the Create PR metadata prompt without replacing the strict JSON schema contract. Blank or whitespace-only values are treated as unset so the default prompt remains byte-for-byte unchanged.
+   * Optional project-scoped guidance appended to the PR metadata system prompt for the generated `summary`, `changes`, and `testing` fields. Default: undefined.
+   */
+  prDescriptionPromptInstructions?: string;
   /** Named scripts that can be referenced by setupScript or other automation.
    *  A map of script name to shell command. */
   scripts?: Record<string, string>;

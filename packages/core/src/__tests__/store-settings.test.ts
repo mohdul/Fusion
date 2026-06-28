@@ -48,6 +48,25 @@ describe("TaskStore", () => {
     });
   });
 
+  describe("PR metadata prompt guidance settings", () => {
+    it("round-trips title and description prompt guidance via project settings", async () => {
+      await harness.store().updateSettings({
+        prTitlePromptInstructions: "Use release-note titles.",
+        prDescriptionPromptInstructions: "Group body bullets by operator impact.",
+      });
+
+      const settings = await harness.store().getSettings();
+      expect(settings.prTitlePromptInstructions).toBe("Use release-note titles.");
+      expect(settings.prDescriptionPromptInstructions).toBe("Group body bullets by operator impact.");
+
+      const { project, global } = await harness.store().getSettingsByScope();
+      expect(project.prTitlePromptInstructions).toBe("Use release-note titles.");
+      expect(project.prDescriptionPromptInstructions).toBe("Group body bullets by operator impact.");
+      expect("prTitlePromptInstructions" in global).toBe(false);
+      expect("prDescriptionPromptInstructions" in global).toBe(false);
+    });
+  });
+
   describe("worktreeCopyFiles setting", () => {
     it("round-trips populated copy-file paths via getSettings and project serialization", async () => {
       await harness.store().updateSettings({ worktreeCopyFiles: [".env", "config/local.env", "packages/api/.env.test"] });

@@ -475,6 +475,18 @@ export function ProjectModelsSection({ scopeBanner, form, setForm, models, proje
       {(form.autoSummarizeTitles || form.useAiMergeCommitSummary || form.githubTrackingEnabledByDefault || false) && (<p className="settings-description">
           {t("settings.movedStub.summarizerModelInline", "The summarization model lane above controls title auto-summarization, merge commit summaries, GitHub tracking titles, and PR metadata generation.")}
         </p>)}
+
+      <div className="form-group">
+        <label htmlFor="prTitlePromptInstructions">{t("settings.projectModels.prTitlePromptInstructions", "PR title prompt guidance")}</label>
+        <textarea id="prTitlePromptInstructions" value={form.prTitlePromptInstructions || ""} onChange={(e) => setForm((f) => ({ ...f, prTitlePromptInstructions: e.target.value }))} rows={3} placeholder={t("settings.projectModels.prTitlePromptInstructionsPlaceholder", "Example: Use conventional-commit style and keep titles under 72 characters.")}/>
+        <small>{t("settings.projectModels.prTitlePromptInstructionsHelp", "Guides the AI-generated Create PR title. Leave blank to use the default PR metadata prompt.")}</small>
+      </div>
+
+      <div className="form-group">
+        <label htmlFor="prDescriptionPromptInstructions">{t("settings.projectModels.prDescriptionPromptInstructions", "PR description prompt guidance")}</label>
+        <textarea id="prDescriptionPromptInstructions" value={form.prDescriptionPromptInstructions || ""} onChange={(e) => setForm((f) => ({ ...f, prDescriptionPromptInstructions: e.target.value }))} rows={4} placeholder={t("settings.projectModels.prDescriptionPromptInstructionsPlaceholder", "Example: Emphasize operator-facing behavior and list verification commands exactly.")}/>
+        <small>{t("settings.projectModels.prDescriptionPromptInstructionsHelp", "Guides the AI-generated Create PR summary, changes, and testing sections. Leave blank to use the default PR metadata prompt.")}</small>
+      </div>
     </>);
 }
 export default ProjectModelsSection;

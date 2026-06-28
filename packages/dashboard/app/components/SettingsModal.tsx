@@ -753,6 +753,8 @@ export function SettingsModal({
     webhookUrl: undefined,
     webhookFormat: "generic",
     webhookEvents: undefined,
+    prTitlePromptInstructions: "",
+    prDescriptionPromptInstructions: "",
   });
   const [loading, setLoading] = useState(true);
   // Guards the Save action against double-submit (rapid clicks / Enter) while the
@@ -2444,6 +2446,8 @@ export function SettingsModal({
         taskPrefix: form.taskPrefix?.trim() || undefined,
         githubTrackingDefaultRepo: form.githubTrackingDefaultRepo?.trim() || undefined,
         githubAuthToken: form.githubAuthToken?.trim() || undefined,
+        prTitlePromptInstructions: form.prTitlePromptInstructions?.trim() || undefined,
+        prDescriptionPromptInstructions: form.prDescriptionPromptInstructions?.trim() || undefined,
         overlapIgnorePaths: (form.overlapIgnorePaths ?? []).map((path) => path.trim()).filter((path) => path.length > 0),
         worktreeCopyFiles: normalizedWorktreeCopyFiles.length > 0 || initialScopedValues?.project?.worktreeCopyFiles !== undefined
           ? normalizedWorktreeCopyFiles
