@@ -375,6 +375,39 @@ export class AutomationStore extends EventEmitter<AutomationStoreEvents> {
   }
 
   /**
+   * Atomically claim one due schedule occurrence before execution.
+   *
+   * FNXC:Automations 2026-06-27-00:00:
+   * Claiming advances nextRunAt before executing the schedule so concurrent CronRunner pollers, overlapping scopes, and separate engine processes sharing one SQLite DB cannot double-fire the same due window. The conditional UPDATE is the cross-process claim boundary; losers observe zero changed rows and skip execution.
+   */
+  async claimDueSchedule(id: string, expectedNextRunAt: string): Promise<boolean> {
+    return this.withScheduleLock(id, async () => {
+      const row = this.db.prepare(
+        'SELECT id, cronExpression, enabled, nextRunAt FROM automations WHERE id = ?',
+      ).get(id) as unknown as Pick<ScheduleRow, "id" | "cronExpression" | "enabled" | "nextRunAt"> | undefined;
+
+      if (!row || row.enabled !== 1 || !row.nextRunAt) {
+        return false;
+      }
+
+      const nextRunAt = this.computeNextRun(row.cronExpression);
+      const updatedAt = new Date().toISOString();
+      const result = this.db.prepare(`
+        UPDATE automations
+        SET nextRunAt = ?, updatedAt = ?
+        WHERE id = ? AND enabled = 1 AND nextRunAt = ?
+      `).run(nextRunAt, updatedAt, id, expectedNextRunAt);
+
+      const changes = typeof result.changes === "bigint" ? Number(result.changes) : result.changes;
+      if (changes === 1) {
+        this.db.bumpLastModified();
+        return true;
+      }
+      return false;
+    });
+  }
+
+  /**
    * Record a run result for a schedule. Updates lastRunAt, lastRunResult,
    * nextRunAt, runCount, and appends to runHistory.
    */

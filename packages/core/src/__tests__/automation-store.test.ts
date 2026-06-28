@@ -596,6 +596,83 @@ describe("AutomationStore", () => {
     });
   });
 
+  // ── claimDueSchedule ──────────────────────────────────────────────
+
+  describe("claimDueSchedule", () => {
+    it("claims the current due window once and advances nextRunAt", async () => {
+      const schedule = await store.createSchedule({
+        name: "Claim once",
+        command: "echo claim",
+        scheduleType: "hourly",
+      });
+      const dueAt = new Date(Date.now() - 60_000).toISOString();
+      store["db"].prepare("UPDATE automations SET nextRunAt = ? WHERE id = ?").run(dueAt, schedule.id);
+
+      const firstClaim = await store.claimDueSchedule(schedule.id, dueAt);
+      const afterFirst = await store.getSchedule(schedule.id);
+      const secondClaim = await store.claimDueSchedule(schedule.id, dueAt);
+      const afterSecond = await store.getSchedule(schedule.id);
+
+      expect(firstClaim).toBe(true);
+      expect(Date.parse(afterFirst.nextRunAt!)).toBeGreaterThan(Date.parse(dueAt));
+      expect(secondClaim).toBe(false);
+      expect(afterSecond.nextRunAt).toBe(afterFirst.nextRunAt);
+    });
+
+    it("returns false for disabled schedules", async () => {
+      const schedule = await store.createSchedule({
+        name: "Disabled claim",
+        command: "echo disabled",
+        scheduleType: "hourly",
+      });
+      const dueAt = new Date(Date.now() - 60_000).toISOString();
+      store["db"].prepare("UPDATE automations SET enabled = 0, nextRunAt = ? WHERE id = ?").run(dueAt, schedule.id);
+
+      await expect(store.claimDueSchedule(schedule.id, dueAt)).resolves.toBe(false);
+      expect((await store.getSchedule(schedule.id)).nextRunAt).toBe(dueAt);
+    });
+
+    it("returns false when nextRunAt is NULL", async () => {
+      const schedule = await store.createSchedule({
+        name: "Null nextRunAt claim",
+        command: "echo null",
+        scheduleType: "hourly",
+      });
+      store["db"].prepare("UPDATE automations SET nextRunAt = NULL WHERE id = ?").run(schedule.id);
+
+      await expect(store.claimDueSchedule(schedule.id, new Date(Date.now() - 60_000).toISOString())).resolves.toBe(false);
+      expect((await store.getSchedule(schedule.id)).nextRunAt).toBeUndefined();
+    });
+
+    it("allows only one file-backed store instance to claim a shared due row", async () => {
+      const diskRoot = makeTmpDir();
+      try {
+        const firstStore = new AutomationStore(diskRoot);
+        const secondStore = new AutomationStore(diskRoot);
+        await firstStore.init();
+        await secondStore.init();
+
+        const schedule = await firstStore.createSchedule({
+          name: "Shared file claim",
+          command: "echo shared",
+          scheduleType: "hourly",
+        });
+        const dueAt = new Date(Date.now() - 60_000).toISOString();
+        firstStore["db"].prepare("UPDATE automations SET nextRunAt = ? WHERE id = ?").run(dueAt, schedule.id);
+
+        const results = await Promise.all([
+          firstStore.claimDueSchedule(schedule.id, dueAt),
+          secondStore.claimDueSchedule(schedule.id, dueAt),
+        ]);
+
+        expect(results.filter(Boolean)).toHaveLength(1);
+        expect(Date.parse((await firstStore.getSchedule(schedule.id)).nextRunAt!)).toBeGreaterThan(Date.parse(dueAt));
+      } finally {
+        await rm(diskRoot, { recursive: true, force: true });
+      }
+    });
+  });
+
   // ── getDueSchedules ───────────────────────────────────────────────
 
   describe("getDueSchedules", () => {

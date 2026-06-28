@@ -378,8 +378,6 @@ export class CronRunner {
           continue;
         }
 
-        log.log(`Executing ${schedule.name} (${schedule.id}) [scope: ${scheduleScope}]`);
-
         // Re-check pause on each schedule (may have changed mid-loop)
         const currentSettings = await this.store.getSettings();
         if (currentSettings.globalPause || currentSettings.enginePaused) {
@@ -387,6 +385,22 @@ export class CronRunner {
           break;
         }
 
+        if (!schedule.nextRunAt) {
+          log.warn(`Skipping ${schedule.name} (${schedule.id}) — missing nextRunAt for due claim`);
+          continue;
+        }
+
+        /*
+         * FNXC:Automations 2026-06-27-00:00:
+         * Cron execution must claim the due window in SQLite before running so two runner instances, overlapping project/all pollers, or separate engine processes cannot execute the same still-due row. The in-memory inFlight guard remains useful within one process but is not the cross-process authority.
+         */
+        const claimed = await this.automationStore.claimDueSchedule(schedule.id, schedule.nextRunAt);
+        if (!claimed) {
+          log.log(`Skipping ${schedule.name} (${schedule.id}) — claim lost to another poller`);
+          continue;
+        }
+
+        log.log(`Executing ${schedule.name} (${schedule.id}) [scope: ${scheduleScope}]`);
         await this.executeSchedule(schedule);
       }
     } catch (err) {

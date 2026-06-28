@@ -642,6 +642,7 @@ See [Memory Plugin Contract](./memory-plugin-contract.md) for the full plan.
 - `RoutineRunner` (`routine-runner.ts`) — executes routine steps
 - `RoutineScheduler` (`routine-scheduler.ts`) — schedules due routines
 - `CronRunner` (`cron-runner.ts`) — cron-based AI/script jobs
+- FNXC:Automations 2026-06-27-00:00: Scheduled automations use an atomic claim-then-run CAS in `AutomationStore.claimDueSchedule()` to advance `nextRunAt` before execution; this prevents duplicate runs when project/global/all-scope pollers or multiple engine processes observe the same due row.
 
 ### Sandbox backend seam (FN-4636)
 - Engine user-configured command runners now route through `packages/engine/src/sandbox/` via a shared `SandboxBackend` abstraction (`resolveSandboxBackend()`), currently implemented only by the transparent `NativeSandboxBackend` passthrough (no behavior change).

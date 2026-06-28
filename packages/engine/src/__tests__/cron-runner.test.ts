@@ -83,12 +83,23 @@ function createMockSchedule(overrides: Partial<ScheduledTask> = {}): ScheduledTa
   };
 }
 
+function makeStep(overrides: Partial<AutomationStep> = {}): AutomationStep {
+  return {
+    id: randomUUID(),
+    type: "command",
+    name: "Test Step",
+    command: "echo step",
+    ...overrides,
+  };
+}
+
 function createMockStore(settingsOverrides: Partial<Settings> = {}): TaskStore {
   return {
     getSettings: vi.fn().mockResolvedValue({
       ...DEFAULT_SETTINGS,
       ...settingsOverrides,
     }),
+    getFusionDir: vi.fn().mockReturnValue("/tmp/fusion-test/.fusion"),
     on: vi.fn(),
     off: vi.fn(),
   } as unknown as TaskStore;
@@ -98,6 +109,7 @@ function createMockAutomationStore(schedules: ScheduledTask[] = []): AutomationS
   return {
     getDueSchedules: vi.fn().mockResolvedValue(schedules),
     getDueSchedulesAllScopes: vi.fn().mockResolvedValue(schedules),
+    claimDueSchedule: vi.fn().mockResolvedValue(true),
     recordRun: vi.fn().mockResolvedValue(undefined),
     getSchedule: vi.fn().mockImplementation(async (id: string) => {
       const s = schedules.find((s) => s.id === id);
@@ -351,11 +363,109 @@ describe("CronRunner", () => {
 
       await runner.tick();
 
+      expect(automationStore.claimDueSchedule).toHaveBeenCalledWith(schedule.id, schedule.nextRunAt);
       expect(automationStore.recordRun).toHaveBeenCalledTimes(1);
       const [id, result] = (automationStore.recordRun as ReturnType<typeof vi.fn>).mock.calls[0] as [string, AutomationRunResult];
       expect(id).toBe(schedule.id);
       expect(result.success).toBe(true);
       expect(result.output).toContain("test-output");
+    });
+
+    it("skips due schedules when the atomic claim is lost", async () => {
+      const store = createMockStore();
+      const schedule = createMockSchedule({ command: "echo should-not-run" });
+      const automationStore = createMockAutomationStore([schedule]);
+      (automationStore.claimDueSchedule as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+      runner = new CronRunner(store, automationStore);
+
+      await runner.tick();
+
+      expect(automationStore.claimDueSchedule).toHaveBeenCalledTimes(1);
+      expect(automationStore.recordRun).not.toHaveBeenCalled();
+    });
+
+    it("does not claim or execute schedules missing nextRunAt", async () => {
+      const store = createMockStore();
+      const schedule = createMockSchedule({ nextRunAt: undefined });
+      const automationStore = createMockAutomationStore([schedule]);
+      runner = new CronRunner(store, automationStore);
+
+      await runner.tick();
+
+      expect(automationStore.claimDueSchedule).not.toHaveBeenCalled();
+      expect(automationStore.recordRun).not.toHaveBeenCalled();
+    });
+
+    it("executes a legacy-command due window at most once across two runners", async () => {
+      const store = createMockStore();
+      const schedule = createMockSchedule({ command: "echo legacy-once" });
+      const automationStore = createMockAutomationStore([schedule]);
+      (automationStore.claimDueSchedule as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false);
+      const runnerA = new CronRunner(store, automationStore);
+      const runnerB = new CronRunner(store, automationStore);
+
+      await Promise.all([runnerA.tick(), runnerB.tick()]);
+
+      expect(automationStore.claimDueSchedule).toHaveBeenCalledTimes(2);
+      expect(automationStore.recordRun).toHaveBeenCalledTimes(1);
+      const [, result] = (automationStore.recordRun as ReturnType<typeof vi.fn>).mock.calls[0] as [string, AutomationRunResult];
+      expect(result.output).toContain("legacy-once");
+    });
+
+    it("executes a step-based due window at most once across two runners", async () => {
+      const store = createMockStore();
+      const schedule = createMockSchedule({
+        command: "",
+        steps: [makeStep({ name: "Only step", command: "echo step-once" })],
+      });
+      const automationStore = createMockAutomationStore([schedule]);
+      (automationStore.claimDueSchedule as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false);
+      const runnerA = new CronRunner(store, automationStore);
+      const runnerB = new CronRunner(store, automationStore);
+
+      await Promise.all([runnerA.tick(), runnerB.tick()]);
+
+      expect(automationStore.recordRun).toHaveBeenCalledTimes(1);
+      const [, result] = (automationStore.recordRun as ReturnType<typeof vi.fn>).mock.calls[0] as [string, AutomationRunResult];
+      expect(result.stepResults).toHaveLength(1);
+      expect(result.output).toContain("step-once");
+    });
+
+    it("executes an in-process legacy intercept at most once across two runners", async () => {
+      const store = createMockStore();
+      const schedule = createMockSchedule({ command: "fn backup --create" });
+      const automationStore = createMockAutomationStore([schedule]);
+      (automationStore.claimDueSchedule as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false);
+      const runnerA = new CronRunner(store, automationStore);
+      const runnerB = new CronRunner(store, automationStore);
+
+      await Promise.all([runnerA.tick(), runnerB.tick()]);
+
+      expect(coreModuleMocks.runBackupCommand).toHaveBeenCalledTimes(1);
+      expect(automationStore.recordRun).toHaveBeenCalledTimes(1);
+    });
+
+    it("deduplicates overlapping all-scope and project-scope pollers via the claim", async () => {
+      const store = createMockStore();
+      const schedule = createMockSchedule({ scope: "project", command: "echo scoped-once" });
+      const automationStore = createMockAutomationStore([schedule]);
+      (automationStore.claimDueSchedule as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false);
+      const allRunner = new CronRunner(store, automationStore, { scope: "all" });
+      const projectRunner = new CronRunner(store, automationStore, { scope: "project" });
+
+      await Promise.all([allRunner.tick(), projectRunner.tick()]);
+
+      expect(automationStore.getDueSchedulesAllScopes).toHaveBeenCalledTimes(1);
+      expect(automationStore.getDueSchedules).toHaveBeenCalledWith("project");
+      expect(automationStore.recordRun).toHaveBeenCalledTimes(1);
     });
 
     it("re-entrance guard prevents overlapping ticks", async () => {
