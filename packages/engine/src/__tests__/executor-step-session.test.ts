@@ -481,15 +481,15 @@ describe("Workflow Steps Execution", () => {
     expect(store.moveTask).toHaveBeenCalledWith("FN-001", "in-review");
   });
 
-  it("routes exhausted prompt-mode workflow hard failures back to remediation and only reopens the last step", async () => {
+  it("routes exhausted prompt-mode workflow hard failures back to remediation and reopens actionable steps", async () => {
     // This test was previously written as an end-to-end run through
     // executor.execute(...) with vi.useFakeTimers(), but that path hung
     // deterministically under the 15 s budget: createResolvedAgentSession's
     // workflow-step Promise.race used a frozen 360 s setTimeout, and the
     // rejection from the mock prompt never reached the catch block in time.
     // The behavior we actually need to lock down is:
-    //   1. sendTaskBackForFix re-opens only the last completed step
-    //      (reopenLastStepForRevision) — earlier done steps stay done.
+    //   1. sendTaskBackForFix re-opens the actionable implementation step plus
+    //      any trailing verification/delivery step, not just a trivial last step.
     //   2. The rerun bounce uses preserveResumeState so step progress and
     //      the worktree survive the in-progress → todo hop.
     //   3. PROMPT.md gains the Workflow Step Failure section with the
@@ -519,8 +519,8 @@ describe("Workflow Steps Execution", () => {
       column: "in-progress" as const,
       dependencies: [] as string[],
       steps: [
-        { name: "Step 0", status: "done" as const },
-        { name: "Step 1", status: "done" as const },
+        { name: "Implementation", status: "done" as const },
+        { name: "Documentation & Delivery", status: "done" as const },
       ],
       currentStep: 1,
       log: [] as any[],
@@ -590,7 +590,10 @@ describe("Workflow Steps Execution", () => {
       "Workflow step failed",
     );
 
-    // (1) failure comment + only the last step re-opened
+    // (1) failure comment + the implementation-bearing step is re-opened with the trailing delivery step.
+    // Before FN-7162, reopenLastStepForRevision returned only [1] here, so a
+    // Code Review / Browser Verification REVISE could re-run Documentation &
+    // Delivery against unchanged implementation work and loop until budget exhaustion.
     expect(store.addTaskComment).toHaveBeenCalledWith(
       "FN-001",
       expect.stringContaining("Workflow step failed"),
@@ -599,8 +602,7 @@ describe("Workflow Steps Execution", () => {
     const reopenedStepIndexes = store.updateStep.mock.calls
       .filter((call: any[]) => call[0] === "FN-001" && call[2] === "pending")
       .map((call: any[]) => call[1]);
-    expect(reopenedStepIndexes).toContain(1);
-    expect(reopenedStepIndexes).not.toContain(0);
+    expect(reopenedStepIndexes).toEqual([0, 1]);
 
     // performWorkflowRerunBounce was invoked synchronously by the spy
     // above; flush microtasks so its awaited store calls settle before
@@ -631,6 +633,105 @@ describe("Workflow Steps Execution", () => {
     // watchdog timer, so there's nothing to clear here.
     scheduleSpy.mockRestore();
     injectSpy.mockRestore();
+  });
+
+  it("keeps post-verdict reopening bounded across all-done, mixed, and single-step states", async () => {
+    const cases = [
+      {
+        id: "all-done-terminal",
+        steps: [
+          { name: "Implementation", status: "done" as const },
+          { name: "Documentation & Delivery", status: "done" as const },
+        ],
+        expectedIndexes: [0, 1],
+        expectedCurrent: 0,
+      },
+      {
+        id: "mixed-terminal-pending",
+        steps: [
+          { name: "Implementation", status: "done" as const },
+          { name: "Documentation & Delivery", status: "pending" as const },
+        ],
+        expectedIndexes: [0],
+        expectedCurrent: 0,
+      },
+      {
+        id: "single-step",
+        steps: [{ name: "Implementation", status: "done" as const }],
+        expectedIndexes: [0],
+        expectedCurrent: 0,
+      },
+    ];
+
+    for (const testCase of cases) {
+      const store = createMockStore();
+      const mutableTask = {
+        id: `FN-7162-${testCase.id}`,
+        title: "Test",
+        description: "Test task",
+        column: "in-progress" as const,
+        dependencies: [] as string[],
+        steps: testCase.steps.map((step) => ({ ...step })),
+        currentStep: testCase.steps.length - 1,
+        log: [] as any[],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      store.updateStep.mockImplementation(async (_taskId: string, stepIndex: number, status: string) => {
+        mutableTask.steps[stepIndex]!.status = status as any;
+        return {};
+      });
+
+      const executor = new TaskExecutor(store, "/tmp/test");
+      const reopened = await (executor as unknown as {
+        reopenLastStepForRevision: (
+          taskId: string,
+          task: typeof mutableTask,
+        ) => Promise<{ index: number; name: string; indexes: number[] } | null>;
+      }).reopenLastStepForRevision(mutableTask.id, mutableTask);
+
+      expect(reopened?.indexes).toEqual(testCase.expectedIndexes);
+      expect(reopened?.index).toBe(testCase.expectedCurrent);
+      expect(store.updateStep.mock.calls.map((call: any[]) => call[1])).toEqual(testCase.expectedIndexes);
+      expect(store.updateTask).toHaveBeenCalledWith(mutableTask.id, { currentStep: testCase.expectedCurrent });
+      expect(mutableTask.steps.some((step) => step.status === "pending")).toBe(true);
+    }
+  });
+
+  it("reopens terminal verification and delivery suffix with the implementation step", async () => {
+    const store = createMockStore();
+    const mutableTask = {
+      id: "FN-7162-SUFFIX",
+      title: "Test",
+      description: "Test task",
+      column: "in-progress" as const,
+      dependencies: [] as string[],
+      steps: [
+        { name: "Implementation", status: "done" as const },
+        { name: "Testing & Verification", status: "done" as const },
+        { name: "Documentation & Delivery", status: "done" as const },
+      ],
+      currentStep: 2,
+      log: [] as any[],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    store.updateStep.mockImplementation(async (_taskId: string, stepIndex: number, status: string) => {
+      mutableTask.steps[stepIndex]!.status = status as any;
+      return {};
+    });
+
+    const executor = new TaskExecutor(store, "/tmp/test");
+    const reopened = await (executor as unknown as {
+      reopenLastStepForRevision: (
+        taskId: string,
+        task: typeof mutableTask,
+      ) => Promise<{ index: number; name: string; indexes: number[] } | null>;
+    }).reopenLastStepForRevision(mutableTask.id, mutableTask);
+
+    expect(reopened).toEqual({ index: 0, name: "Implementation", indexes: [0, 1, 2] });
+    expect(store.updateStep.mock.calls.map((call: any[]) => call[1])).toEqual([0, 1, 2]);
+    expect(store.updateTask).toHaveBeenCalledWith("FN-7162-SUFFIX", { currentStep: 0 });
   });
 
   // FNXC:WorkflowOptionalStepFix 2026-06-27-13:30:

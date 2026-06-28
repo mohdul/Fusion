@@ -558,8 +558,8 @@ For pre-merge gate hard failures, the graph executor drives remediation through 
 
 1. Retry the failing check up to `MAX_WORKFLOW_STEP_RETRIES` within the same execution lifecycle
 2. On retry exhaustion, add a steering comment with failure details and inject a `Workflow Step Failure` section into `PROMPT.md`
-3. Reopen only the last implementation step (`pending`) so prior completed work remains preserved
-4. Schedule `todo → in-progress` after guard unwind, triggering a fresh executor remediation run
+3. Reopen the terminal verification/delivery suffix plus the nearest preceding implementation step (`pending`) so the resumed pass can address feedback without discarding unrelated completed work
+4. Schedule `todo → in-progress` after guard unwind, triggering a fresh executor remediation run that must complete every reopened step before the workflow step re-evaluates
 
 Tasks are not parked in `in-review` for this remediable path unless additional terminal failures occur.
 
@@ -590,9 +590,12 @@ Enabled PRE-merge optional-group REVISE findings should be acted on before revie
 
 FNXC:WorkflowOptionalStepRevisionBudget 2026-06-27-12:55:
 Workflow authors can override the global optional-step remediation budget per optional-group via `maxRevisions`, including `"unbounded"` for loops that should continue until the step approves. Document both inline executor and self-healing semantics because they must resolve the same budget for parked review recovery.
+
+FNXC:WorkflowOptionalStepFix 2026-06-27-22:51:
+A post-verdict bounce from Code Review or Browser Verification must not reopen only a trivial trailing documentation step. The next executor pass reopens the actionable implementation step plus terminal verification/delivery steps, completes them to `done`, and only then lets the optional group re-evaluate across both in-progress and in-review bounce sources.
 -->
 
-During a live graph run, an enabled **pre-merge** optional step that returns `REVISE` (including the built-in **Code Review** / `code-review` and **Browser Verification** / `browser-verification` groups) sends the task back to the executor for a fix pass before the graph continues to review or merge. The workflow graph restarts on the next executor pass, so the optional step re-runs against the fixed diff; the cycle repeats until the step returns `APPROVE` / `APPROVE_WITH_NOTES` or the resolved revision budget is exhausted. By default, each step uses the workflow/project `maxPostReviewFixes` value (built-in default: 3 fix passes). A workflow author can override that for a specific `optional-group` with `config.maxRevisions`: a non-negative integer sets that step's ceiling, `0` disables automatic fixes for that step, and `"unbounded"` removes the ceiling check. The counter remains the task's shared `postReviewFixCount`; per-step counters are not maintained.
+During a live graph run, an enabled **pre-merge** optional step that returns `REVISE` (including the built-in **Code Review** / `code-review` and **Browser Verification** / `browser-verification` groups) sends the task back to the executor for a fix pass before the graph continues to review or merge. The workflow graph restarts on the next executor pass, re-launches task execution, and reopens the terminal verification/delivery suffix plus the nearest preceding implementation step so the verdict-demanded fix can be made rather than merely replaying a trivial trailing step. The optional step re-runs only after the executor drives those reopened steps back to `done`; the cycle repeats until the step returns `APPROVE` / `APPROVE_WITH_NOTES` or the resolved revision budget is exhausted. By default, each step uses the workflow/project `maxPostReviewFixes` value (built-in default: 3 fix passes). A workflow author can override that for a specific `optional-group` with `config.maxRevisions`: a non-negative integer sets that step's ceiling, `0` disables automatic fixes for that step, and `"unbounded"` removes the ceiling check. The counter remains the task's shared `postReviewFixCount`; per-step counters are not maintained.
 
 The same resolved per-step budget is used by self-healing when it revives an `in-review` task that is parked with a failed pre-merge workflow result. If the failed step's IR cannot be resolved, self-healing falls back to `maxPostReviewFixes` so existing behavior is preserved. `"unbounded"` relies on the optional step eventually approving; a step that always returns `REVISE` will continue cycling until a human intervenes or another guard (pause, worktree/lease, auto-merge policy, dependency blocker) stops recovery. When the budget is exhausted or disabled, behavior falls through to the prior semantics: advisory results remain non-blocking and gate failures remain failed/parked.
 

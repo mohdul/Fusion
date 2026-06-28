@@ -11913,34 +11913,63 @@ export class TaskExecutor {
   }
 
   /**
-   * Re-open the last non-pending step so a revision/failure handler gives the
-   * executor exactly one pending slot to re-enter through. Returns the index
-   * and name of the step that was flipped to `pending`, or null when there
-   * was nothing to re-open.
+   * Re-open the implementation-bearing slice of work for a revision/failure
+   * handler. Returns the earliest reopened step and all reopened indexes, or
+   * null when there was nothing to re-open.
    */
   private async reopenLastStepForRevision(
     taskId: string,
     task: Task,
-  ): Promise<{ index: number; name: string } | null> {
+  ): Promise<{ index: number; name: string; indexes: number[] } | null> {
     const steps = task.steps;
     if (steps.length === 0) return null;
 
-    let targetIndex = -1;
+    let lastNonPendingIndex = -1;
     for (let i = steps.length - 1; i >= 0; i--) {
       if (steps[i].status !== "pending") {
-        targetIndex = i;
+        lastNonPendingIndex = i;
         break;
       }
     }
 
-    if (targetIndex === -1) {
+    if (lastNonPendingIndex === -1) {
       await this.store.updateTask(taskId, { currentStep: 0 });
       return null;
     }
 
-    await this.store.updateStep(taskId, targetIndex, "pending");
-    await this.store.updateTask(taskId, { currentStep: targetIndex });
-    return { index: targetIndex, name: steps[targetIndex].name };
+    // Match step-title words rather than arbitrary substrings so an implementation step
+    // like "DataVerificationLayer" is not treated as a trailing delivery/check step.
+    const isTerminalVerificationOrDeliveryStep = (name: string): boolean =>
+      /(^|[^a-z])(testing|verification|documentation|delivery)([^a-z]|$)/i.test(name);
+
+    const resetIndexes = new Set<number>([lastNonPendingIndex]);
+    if (isTerminalVerificationOrDeliveryStep(steps[lastNonPendingIndex].name)) {
+      let cursor = lastNonPendingIndex;
+      while (cursor >= 0 && isTerminalVerificationOrDeliveryStep(steps[cursor].name)) {
+        resetIndexes.add(cursor);
+        cursor--;
+      }
+      while (cursor >= 0 && steps[cursor].status === "pending") {
+        cursor--;
+      }
+      if (cursor >= 0) {
+        resetIndexes.add(cursor);
+      }
+    }
+
+    const indexes = [...resetIndexes].sort((a, b) => a - b);
+    /*
+    FNXC:WorkflowOptionalStepFix 2026-06-27-18:03:
+    Code Review / Browser Verification REVISE bounces must reopen the step that can actually make the requested code change, not only a trailing Documentation & Delivery or Testing & Verification step. Otherwise the graph rerun can complete a trivial terminal step, re-evaluate the optional group against unchanged code, and loop or strand pending work. Reopen the trailing verification/delivery suffix plus the nearest preceding implementation step so both in-progress and in-review bounce sources re-launch execution on actionable work before optional-step re-evaluation.
+    */
+    for (const index of indexes) {
+      if (steps[index].status !== "pending") {
+        await this.store.updateStep(taskId, index, "pending");
+      }
+    }
+    const currentStep = indexes[0] ?? lastNonPendingIndex;
+    await this.store.updateTask(taskId, { currentStep });
+    return { index: currentStep, name: steps[currentStep].name, indexes };
   }
 
   /**

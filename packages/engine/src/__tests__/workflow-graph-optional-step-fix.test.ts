@@ -38,6 +38,66 @@ describe("TaskExecutor pre-merge optional-step fix seam", () => {
     resetExecutorMocks();
   });
 
+  it("sends Code Review, Browser Verification, and gate-promoted pre-merge revisions back for remediation", async () => {
+    const cases = [
+      { stepName: "Code Review", status: "advisory_failure" as const, feedback: "review finding" },
+      { stepName: "Browser Verification", status: "advisory_failure" as const, feedback: "browser finding" },
+      { stepName: "Code Review", status: "failed" as const, feedback: "gate-promoted finding" },
+    ];
+
+    for (const testCase of cases) {
+      const store = createMockStore();
+      const liveTask = task({ postReviewFixCount: 0, worktree: "/tmp/fusion/fn-7066" });
+      store.getTask.mockResolvedValue(liveTask);
+      store.getSettings.mockResolvedValue({ maxPostReviewFixes: 3 });
+      const executor = new TaskExecutor(store, "/tmp/test");
+      const sendBack = vi.spyOn(executor as any, "sendTaskBackForFix").mockResolvedValue(undefined);
+
+      const scheduled = await (executor as any).requestPreMergeOptionalStepFix(liveTask.id, liveTask, {
+        ...reviseInfo,
+        stepName: testCase.stepName,
+        status: testCase.status,
+        feedback: testCase.feedback,
+      });
+
+      expect(scheduled).toBe(true);
+      expect(sendBack).toHaveBeenCalledWith(
+        liveTask,
+        "/tmp/fusion/fn-7066",
+        testCase.feedback,
+        testCase.stepName,
+        expect.stringContaining("requested revision"),
+      );
+    }
+  });
+
+  it("does not bounce post-merge, fast-mode skipped, approved, or non-revision optional outcomes", async () => {
+    const cases = [
+      { phase: "post-merge" as const, status: "advisory_failure" as const, verdict: "REVISE" },
+      { phase: "pre-merge" as const, status: "passed" as const, verdict: "APPROVE" },
+      { phase: "pre-merge" as const, status: "passed" as const, verdict: "workflow-step-skipped" },
+      { phase: "pre-merge" as const, status: "advisory_failure" as const, verdict: "APPROVE_WITH_NOTES" },
+    ];
+
+    for (const testCase of cases) {
+      const store = createMockStore();
+      const liveTask = task({ postReviewFixCount: 0 });
+      store.getTask.mockResolvedValue(liveTask);
+      store.getSettings.mockResolvedValue({ maxPostReviewFixes: 3 });
+      const executor = new TaskExecutor(store, "/tmp/test");
+      const sendBack = vi.spyOn(executor as any, "sendTaskBackForFix").mockResolvedValue(undefined);
+
+      const scheduled = await (executor as any).requestPreMergeOptionalStepFix(liveTask.id, liveTask, {
+        ...reviseInfo,
+        ...testCase,
+      });
+
+      expect(scheduled).toBe(false);
+      expect(sendBack).not.toHaveBeenCalled();
+      expect(store.updateTask).not.toHaveBeenCalledWith(liveTask.id, expect.objectContaining({ postReviewFixCount: expect.any(Number) }), undefined);
+    }
+  });
+
   it("consumes budget before sending the task back for optional-step remediation", async () => {
     const store = createMockStore();
     const liveTask = task({ postReviewFixCount: 0 });
