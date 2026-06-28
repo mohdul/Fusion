@@ -1,8 +1,42 @@
+import type { AgentPermissionPolicy } from "@fusion/core";
 import { describe, expect, it } from "vitest";
 import {
   classifyPermanentAgentToolCall,
   resolvePermanentAgentToolDecision,
 } from "../permanent-agent-gating.js";
+
+const unrestrictedPolicy: AgentPermissionPolicy = {
+  presetId: "unrestricted",
+  rules: {
+    git_write: "allow",
+    file_write_delete: "allow",
+    command_execution: "allow",
+    network_api: "allow",
+    task_agent_mutation: "allow",
+  },
+};
+
+const approvalRequiredPolicy: AgentPermissionPolicy = {
+  presetId: "approval-required",
+  rules: {
+    git_write: "require-approval",
+    file_write_delete: "require-approval",
+    command_execution: "require-approval",
+    network_api: "require-approval",
+    task_agent_mutation: "require-approval",
+  },
+};
+
+const blockedPolicy: AgentPermissionPolicy = {
+  presetId: "locked-down",
+  rules: {
+    git_write: "block",
+    file_write_delete: "block",
+    command_execution: "block",
+    network_api: "block",
+    task_agent_mutation: "block",
+  },
+};
 
 const FN_7111_GOVERNED_TOOLS = [
   ["fn_workflow_select", "task_agent_mutation"],
@@ -30,6 +64,7 @@ const FN_3548_COORDINATION_TOOLS = [
   "fn_list_agents",
   "fn_agent_show",
   "fn_agent_org_chart",
+  "fn_ask_question",
   "fn_send_message",
   "fn_read_messages",
   "fn_post_room_message",
@@ -70,6 +105,7 @@ describe("permanent-agent-gating", () => {
     expect(classifyPermanentAgentToolCall("fn_task_show").category).toBe("none");
     expect(classifyPermanentAgentToolCall("fn_research_get").category).toBe("none");
     expect(classifyPermanentAgentToolCall("fn_heartbeat_done")).toEqual({ category: "none", recognized: true });
+    expect(classifyPermanentAgentToolCall("fn_ask_question")).toEqual({ category: "none", recognized: true });
     expect(classifyPermanentAgentToolCall("fn_send_message")).toEqual({ category: "none", recognized: true });
     expect(classifyPermanentAgentToolCall("fn_read_messages")).toEqual({ category: "none", recognized: true });
   });
@@ -146,6 +182,20 @@ describe("permanent-agent-gating", () => {
 
     expect(decision.disposition).toBe("allow");
   });
+
+  it.each([unrestrictedPolicy, approvalRequiredPolicy, blockedPolicy])(
+    "allows fn_ask_question under %s permanent-agent policy",
+    (permissionPolicy) => {
+      expect(resolvePermanentAgentToolDecision({
+        toolName: "fn_ask_question",
+        gating: { permissionPolicy },
+      })).toMatchObject({
+        category: "none",
+        disposition: "allow",
+        recognized: true,
+      });
+    },
+  );
 
   it.each(FN_3548_COORDINATION_TOOLS)("classifies FN-3548 coordination tool %s as recognized none", (toolName) => {
     expect(classifyPermanentAgentToolCall(toolName)).toEqual({ category: "none", recognized: true });

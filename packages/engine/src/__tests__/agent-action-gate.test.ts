@@ -20,6 +20,7 @@ const FN_3548_COORDINATION_TOOLS = [
   "fn_list_agents",
   "fn_agent_show",
   "fn_agent_org_chart",
+  "fn_ask_question",
   "fn_send_message",
   "fn_read_messages",
   "fn_memory_search",
@@ -119,6 +120,7 @@ describe("agent-action-gate", () => {
     expect(evaluateAgentActionGate({ agentId: "a1", toolName: "fn_update_agent_config", args: {}, permissionPolicy: unrestrictedPolicy }).category).toBe("task_agent_mutation");
     expect(evaluateAgentActionGate({ agentId: "a1", toolName: "fn_task_import_github", args: {}, permissionPolicy: unrestrictedPolicy }).category).toBe("task_agent_mutation");
     expect(evaluateAgentActionGate({ agentId: "a1", toolName: "fn_task_import_github_issue", args: {}, permissionPolicy: unrestrictedPolicy }).category).toBe("task_agent_mutation");
+    expect(evaluateAgentActionGate({ agentId: "a1", toolName: "fn_ask_question", args: {}, permissionPolicy: unrestrictedPolicy }).category).toBe("exempt");
     expect(evaluateAgentActionGate({ agentId: "a1", toolName: "fn_update_identity", args: {}, permissionPolicy: unrestrictedPolicy }).category).toBe("exempt");
     expect(evaluateAgentActionGate({ agentId: "a1", toolName: "fn_spawn_agent", args: {}, permissionPolicy: unrestrictedPolicy }).category).toBe("task_agent_mutation");
   });
@@ -239,6 +241,18 @@ describe("agent-action-gate", () => {
     const decision = evaluateAgentActionGate({ agentId: "a1", toolName, args: {}, permissionPolicy: lockedDownPolicy });
     expect(decision.disposition).toBe("allow");
     expect(decision.category).toBe("exempt");
+  });
+
+  it("allows fn_ask_question as an action-gate coordination exemption under locked-down policy", () => {
+    expect(evaluateAgentActionGate({
+      agentId: "a1",
+      toolName: "fn_ask_question",
+      args: {},
+      permissionPolicy: lockedDownPolicy,
+    })).toMatchObject({
+      category: "exempt",
+      disposition: "allow",
+    });
   });
 
   it("keeps FN-3548 coordination tool list in exempt registry", () => {

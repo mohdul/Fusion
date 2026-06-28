@@ -122,6 +122,7 @@ describe("gating-classifications parity", () => {
         "fn_artifact_list",
         "fn_artifact_register",
         "fn_artifact_view",
+        "fn_ask_question",
         "fn_goal_list",
         "fn_goal_show",
         "fn_heartbeat_done",
@@ -149,6 +150,11 @@ describe("gating-classifications parity", () => {
         "read",
       ]
     `);
+  });
+
+  it("classifies fn_ask_question in both gate source sets", () => {
+    expect(READONLY_FN_TOOLS.has("fn_ask_question")).toBe(true);
+    expect((COORDINATION_EXEMPT_TOOLS as readonly string[]).includes("fn_ask_question")).toBe(true);
   });
 
   it("ensures coordination exempt tools are recognized and allowed in permanent gating", () => {

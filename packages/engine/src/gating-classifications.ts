@@ -154,6 +154,11 @@ export const READONLY_FN_TOOLS: ReadonlySet<string> = new Set([
   "fn_task_done",
   "fn_heartbeat_done",
   "fn_memory_append",
+  /**
+   * FNXC:ToolGovernance 2026-06-28-00:00:
+   * FN-7191 requires permanent agents to call fn_ask_question directly without an approval gate. The tool only posts a structured question to the user's inbox, so it has the same trust level as fn_send_message and must be positively recognized in both gate paths.
+   */
+  "fn_ask_question",
   "fn_send_message",
   "fn_read_messages",
   "fn_post_room_message",
@@ -196,6 +201,11 @@ export const COORDINATION_EXEMPT_TOOLS = [
   "fn_agent_show",
   "fn_agent_org_chart",
   "fn_workflow_list",
+  /**
+   * FNXC:ToolGovernance 2026-06-28-00:00:
+   * FN-7191 requires fn_ask_question to bypass permanent-agent approval gates like other user-messaging coordination tools; membership here makes the action gate classify it as exempt/allow even under locked-down policies.
+   */
+  "fn_ask_question",
   "fn_send_message",
   "fn_post_room_message",
   "fn_memory_append",
