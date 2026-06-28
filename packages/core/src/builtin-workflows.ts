@@ -6,8 +6,8 @@ import { BUILTIN_STEPWISE_CODING_WORKFLOW_IR } from "./builtin-stepwise-coding-w
 import { BUILTIN_WORKFLOW_SETTINGS } from "./builtin-workflow-settings.js";
 import { builtinPromptConfig } from "./builtin-workflow-prompts.js";
 import type { WorkflowDefinition } from "./workflow-definition-types.js";
-import type { WorkflowIr } from "./workflow-ir-types.js";
-import { parseWorkflowIr } from "./workflow-ir.js";
+import type { WorkflowIr, WorkflowIrNode } from "./workflow-ir-types.js";
+import { DEFAULT_WORKFLOW_COLUMN_IDS, parseWorkflowIr } from "./workflow-ir.js";
 
 /** Prefix marking a workflow as a read-only built-in template. */
 export const BUILTIN_WORKFLOW_ID_PREFIX = "builtin:";
@@ -51,6 +51,16 @@ interface BuiltinSpec {
   nodes: Array<{ id: string; kind: WorkflowIr["nodes"][number]["kind"]; config?: Record<string, unknown> }>;
 }
 
+const V1_LINEAR_NODE_KINDS = new Set<WorkflowIrNode["kind"]>(["start", "prompt", "script", "gate", "end"]);
+
+function defaultColumnForLinearNode(node: WorkflowIrNode): string {
+  const seam = node.config?.seam;
+  if (seam === "execute") return "in-progress";
+  if (seam === "review") return "in-review";
+  if (seam === "merge") return "in-review";
+  return "todo";
+}
+
 /** Build a linear IR (start → nodes… → end) with simple x-spaced layout. */
 function linear(spec: BuiltinSpec): WorkflowDefinition {
   const nodes: WorkflowIr["nodes"] = [
@@ -72,7 +82,16 @@ function linear(spec: BuiltinSpec): WorkflowDefinition {
   nodes.forEach((node, i) => {
     layout[node.id] = { x: 60 + i * 170, y: 160 };
   });
-  const ir = parseWorkflowIr({ version: "v1", name: spec.name, nodes, edges });
+  const hasV2OnlyNode = nodes.some((node) => !V1_LINEAR_NODE_KINDS.has(node.kind));
+  const ir = hasV2OnlyNode
+    ? parseWorkflowIr({
+        version: "v2",
+        name: spec.name,
+        columns: DEFAULT_WORKFLOW_COLUMN_IDS.map((id) => ({ id, name: id, traits: [] })),
+        nodes: nodes.map((node) => (node.column ? node : { ...node, column: defaultColumnForLinearNode(node) })),
+        edges,
+      })
+    : parseWorkflowIr({ version: "v1", name: spec.name, nodes, edges });
   // Attach the moved-key settings catalog (U1/U3, R4) so every built-in workflow
   // carries its declarations through the resolver path (resolveWorkflowIrById →
   // resolveEffectiveSettings). v1 graphs upgrade to v2 on parse, so the parsed IR
@@ -195,7 +214,36 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
           // fn_spawn_agent (registered only for coding-mode steps). It is not
           // meant to write — see the accepted write-capability posture (Risk-1).
           toolMode: "coding",
-          prompt: "Run /ce-plan to produce a short implementation plan for this task before any code is written.",
+          prompt: "Run /ce-plan to produce the CE plan document artifact for this task under docs/plans/ before any code is written.",
+        },
+      },
+      {
+        /*
+         * FNXC:Workflows 2026-06-27-00:00:
+         * FN-7144 requires compound-engineering to expose the markdown-only ce-doc-review pass as an optional non-blocking stage after planning. This preserves the WHAT/HOW boundary: ce-plan writes the HOW plan doc, ce-doc-review checks coherence and scope alignment, and merge-blocking code review remains the later ce-code-review gate.
+         */
+        id: "ce-doc-review",
+        kind: "optional-group",
+        config: {
+          name: "CE Doc Review",
+          defaultOn: false,
+          template: {
+            nodes: [
+              {
+                id: "ce-doc-review-step",
+                kind: "prompt",
+                config: {
+                  name: "CE Doc Review",
+                  executor: "skill",
+                  skillName: "compound-engineering:ce-doc-review",
+                  toolMode: "coding",
+                  gateMode: "advisory",
+                  prompt: "Run /ce-doc-review in headless advisory mode against the markdown CE plan document produced by /ce-plan (normally the latest docs/plans artifact). Apply only safe markdown fixes; if no markdown CE plan is available, report the skip as notes without blocking execution.",
+                },
+              },
+            ],
+            edges: [],
+          },
         },
       },
       {
@@ -246,8 +294,12 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
           // push / PR creation; it does NOT perform the board-state merge — that
           // stays with Fusion's merge seam below (workflow-owned merge), so the
           // two never race the same branch state.
+          /*
+           * FNXC:Workflows 2026-06-27-00:00:
+           * FN-7144 confirms the autoMerge-off CE route: ce-commit-push-pr and ce-resolve-pr-feedback prepare the human PR flow, while the later Fusion merge seam no-ops into manual review instead of forcing an unattended board merge.
+           */
           toolMode: "coding",
-          prompt: "Run /ce-commit-push-pr to commit the work in logical commits, push the branch, and open a pull request with a value-first description.",
+          prompt: "Run /ce-commit-push-pr to commit the work in logical commits, push the branch, and open a pull request with a value-first description. When project autoMerge is off, this PR is the human merge/review path; do not perform the Fusion board-state merge here.",
         },
       },
       {

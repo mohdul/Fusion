@@ -407,10 +407,12 @@ describe("built-in workflows", () => {
     const ce = getBuiltinWorkflow("builtin:compound-engineering")!;
     const steps = compileWorkflowToSteps(ce.ir);
     // plan + execute (ce-work) + code-review (pre-merge) + commit-pr +
-    // resolve-feedback + document (post-merge) — merge seams are skipped.
+    // resolve-feedback + document (post-merge) — merge seams and graph-native
+    // optional-groups are skipped by the legacy step compiler.
     expect(steps.length).toBeGreaterThanOrEqual(6);
     expect(steps.some((s) => s.name === "Plan")).toBe(true);
     expect(steps.filter((s) => s.skillName === "compound-engineering:ce-code-review")).toHaveLength(1);
+    expect(steps.some((s) => s.name === "CE Doc Review")).toBe(false);
     expect(steps.some((s) => s.name === "Review" && !s.skillName)).toBe(false);
   });
 
@@ -443,6 +445,8 @@ describe("built-in workflows", () => {
     for (const [nodeId, slashCommand] of expectedPrompts) {
       expect(String(byId(nodeId)?.config?.prompt ?? "")).toContain(slashCommand);
     }
+    const docReviewTemplate = byId("ce-doc-review")?.config?.template as { nodes?: Array<{ config?: Record<string, unknown> }> } | undefined;
+    expect(String(docReviewTemplate?.nodes?.[0]?.config?.prompt ?? "")).toContain("/ce-doc-review");
     expect(String(byId("merge")?.config?.prompt ?? "")).not.toContain("/ce-");
   });
 
@@ -452,8 +456,11 @@ describe("built-in workflows", () => {
     expect(byId("commit-pr")?.config?.skillName).toBe("compound-engineering:ce-commit-push-pr");
     expect(byId("commit-pr")?.config?.toolMode).toBe("coding");
     expect(byId("resolve-feedback")?.config?.skillName).toBe("compound-engineering:ce-resolve-pr-feedback");
+    expect(String(byId("commit-pr")?.config?.prompt ?? "")).toContain("When project autoMerge is off");
+    expect(String(byId("commit-pr")?.config?.prompt ?? "")).toContain("do not perform the Fusion board-state merge");
     // KTD-6: the Fusion board-merge seam is preserved (CE prepares the PR, Fusion
-    // owns the merge transition).
+    // owns the merge transition). With autoMerge:false, the runtime seam no-ops
+    // into manual review; the CE PR skills are still ordered before this seam.
     expect(byId("merge")?.config?.seam).toBe("merge");
     // Ordering: commit-pr → resolve-feedback → merge → document.
     const ids = ce.ir.nodes.map((n) => n.id);
@@ -468,6 +475,7 @@ describe("built-in workflows", () => {
     const authoredNodeIds = ce.ir.nodes.filter((node) => node.id !== "start" && node.id !== "end").map((node) => node.id);
     expect(authoredNodeIds).toEqual([
       "plan",
+      "ce-doc-review",
       "execute",
       "code-review",
       "commit-pr",
@@ -476,6 +484,21 @@ describe("built-in workflows", () => {
       "document",
     ]);
     expect(ce.ir.nodes.some((node) => node.config?.seam === "review")).toBe(false);
+
+    const docReview = byId("ce-doc-review");
+    expect(docReview?.kind).toBe("optional-group");
+    expect(docReview?.config?.name).toBe("CE Doc Review");
+    expect(docReview?.config?.defaultOn).toBe(false);
+    const docReviewTemplate = docReview?.config?.template as { nodes?: Array<{ id: string; kind: string; config?: Record<string, unknown> }> } | undefined;
+    expect(docReviewTemplate?.nodes?.[0]).toMatchObject({
+      id: "ce-doc-review-step",
+      kind: "prompt",
+      config: {
+        skillName: "compound-engineering:ce-doc-review",
+        toolMode: "coding",
+        gateMode: "advisory",
+      },
+    });
 
     const codeReview = byId("code-review");
     expect(codeReview?.kind).toBe("gate");
@@ -489,6 +512,8 @@ describe("built-in workflows", () => {
     for (let i = 1; i < ce.ir.nodes.length; i += 1) {
       expect(layout[ce.ir.nodes[i].id].x - layout[ce.ir.nodes[i - 1].id].x).toBe(170);
     }
+    expect(ce.ir.edges.some((edge) => edge.from === "plan" && edge.to === "ce-doc-review")).toBe(true);
+    expect(ce.ir.edges.some((edge) => edge.from === "ce-doc-review" && edge.to === "execute")).toBe(true);
     expect(ce.ir.edges.some((edge) => edge.from === "execute" && edge.to === "code-review")).toBe(true);
     expect(ce.ir.edges.some((edge) => edge.from === "code-review" && edge.to === "commit-pr")).toBe(true);
   });

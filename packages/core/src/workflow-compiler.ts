@@ -312,7 +312,8 @@ export function compileWorkflowToSteps(ir: WorkflowIr): WorkflowStepInput[] {
 
     if (seam === "merge") {
       phase = "post-merge";
-    } else if (!seam && node.kind !== "start" && node.kind !== "end") {
+    } else if (!seam && node.kind !== "start" && node.kind !== "end" && node.kind !== "optional-group") {
+      // FNXC:WorkflowOptionalGroup 2026-06-27-00:00: Optional-group nodes are graph-native enable containers keyed by node id; compiling them into legacy WorkflowStepInput rows would create an empty duplicate step and bypass the per-task toggle semantics.
       steps.push(nodeToStepInput(node, phase));
     }
 

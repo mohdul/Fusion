@@ -148,6 +148,7 @@ describe("U1: normalized CE skill request-form resolution", () => {
     mkdirSync(projectRootDir, { recursive: true });
     mkdirSync(agentDir, { recursive: true });
     materialize("ce-work");
+    materialize("ce-doc-review");
   });
 
   afterEach(() => {
@@ -177,6 +178,13 @@ describe("U1: normalized CE skill request-form resolution", () => {
     expect(resolved).toContain("ce-work");
     // No duplicate skill entries from the two request forms.
     expect(resolved.filter((n) => n === "ce-work")).toHaveLength(1);
+  });
+
+  it("optional ce-doc-review resolves from bare and namespaced workflow-step requests", () => {
+    expect(resolveFor(["ce-doc-review"])).toContain("ce-doc-review");
+    expect(resolveFor(["compound-engineering:ce-doc-review"])).toContain("ce-doc-review");
+    const resolved = resolveFor(["compound-engineering:ce-doc-review", "ce-doc-review"]);
+    expect(resolved.filter((n) => n === "ce-doc-review")).toHaveLength(1);
   });
 
   it("without the install dir on the discovery path, the request does NOT resolve", () => {

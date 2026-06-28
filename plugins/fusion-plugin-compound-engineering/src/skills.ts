@@ -59,6 +59,19 @@ export const COMPOUND_ENGINEERING_SKILLS: PluginSkillContribution[] = [
     triggerPatterns: ["do the work", "implement", "execute the plan", "finish this feature"],
   },
   {
+    /*
+     * FNXC:CompoundEngineering 2026-06-27-00:00:
+     * FN-7144 bundles ce-doc-review because ce-plan and ce-brainstorm invoke it as a named markdown document-review skill, and the built-in CE workflow now exposes it as an optional advisory stage after planning.
+     */
+    skillId: "ce-doc-review",
+    name: "ce-doc-review",
+    description:
+      "Review CE markdown plan documents for coherence, feasibility, scope alignment, and safe markdown-only fixes.",
+    skillFiles: ["skills/ce-doc-review/SKILL.md"],
+    enabled: true,
+    triggerPatterns: ["doc review", "document review", "review the plan", "pressure-test the requirements"],
+  },
+  {
     skillId: "ce-code-review",
     name: "ce-code-review",
     description:

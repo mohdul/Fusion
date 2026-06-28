@@ -67,12 +67,13 @@ describe("interpreter merge seam", () => {
       };
     }
 
-    it("returns merged:false and does NOT force a merge when autoMerge is off", async () => {
+    it("returns merged:false/noOp and does NOT force a merge when autoMerge is off", async () => {
       const onMerge = vi.fn();
       const fakeEngine = fakeEngineWith({ autoEligible: false, onMerge });
       const result = await (ProjectEngine.prototype as any).requestInterpreterMerge.call(fakeEngine, "FN-3");
 
       expect(result.merged).toBe(false);
+      expect(result.noOp).toBe(true);
       expect(onMerge).not.toHaveBeenCalled(); // the human "merge now" bypass is never invoked
     });
 
