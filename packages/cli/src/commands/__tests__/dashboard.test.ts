@@ -873,6 +873,18 @@ function resetGitHubMocks() {
   mockCreatePr.mockReset();
   mockGetPrMergeStatus.mockReset();
   mockMergePr.mockReset();
+  mockExecFileSync.mockReset();
+
+  mockExecFileSync.mockImplementation((file: string, args: readonly string[] = [], options?: { cwd?: string }) => {
+    if (file === "git" && args.join(" ") === "remote get-url origin") {
+      const effectiveCwd = options?.cwd ?? process.cwd();
+      if (effectiveCwd !== "/repo" && effectiveCwd !== process.cwd()) {
+        throw new Error(`unexpected repository cwd: ${options?.cwd ?? "<unset>"}`);
+      }
+      return "https://github.com/owner/repo.git\n";
+    }
+    return "";
+  });
 
   mockFindPrForBranch.mockResolvedValue(null);
   mockCreatePr.mockResolvedValue({
@@ -925,17 +937,6 @@ beforeEach(() => {
   resetGitHubMocks();
   mockExecSync.mockReset();
   mockExecSync.mockReturnValue("");
-  mockExecFileSync.mockReset();
-  mockExecFileSync.mockImplementation((file: string, args: readonly string[] = [], options?: { cwd?: string }) => {
-    if (file === "git" && args.join(" ") === "remote get-url origin") {
-      const effectiveCwd = options?.cwd ?? process.cwd();
-      if (effectiveCwd !== "/repo" && effectiveCwd !== process.cwd()) {
-        throw new Error(`unexpected repository cwd: ${options?.cwd ?? "<unset>"}`);
-      }
-      return "https://github.com/owner/repo.git\n";
-    }
-    return "";
-  });
   mockExec.mockClear();
   mockListen.mockReset();
   mockListen.mockImplementation((port: number) => {
