@@ -1296,6 +1296,7 @@ function AppInner() {
   const dashboardBannersProps: DashboardBannersProps = {
     viewMode,
     currentProject,
+    authTokenRecoveryOpen,
     isTestMode,
     dashboardHealth,
     setDashboardHealth,
