@@ -315,6 +315,59 @@ describe("auto-merge proven finalization helper", () => {
     );
   });
 
+  it("treats a successful merged result as finalization proof even before mergeConfirmed is persisted", async () => {
+    const strandedTask = {
+      id: "FN-MERGED-PROOF",
+      title: "Merged proof",
+      description: "Test",
+      column: "in-progress",
+      status: null,
+      error: null,
+      blockedBy: null,
+      overlapBlockedBy: null,
+      dependencies: [],
+      steps: [{ status: "done" }],
+      currentStep: 0,
+      log: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      mergeDetails: undefined,
+    } as Task;
+    const doneTask = {
+      ...strandedTask,
+      column: "done",
+      mergeDetails: { mergeConfirmed: true, commitSha: "abc123" },
+    } as Task;
+    const store = createMockStore(strandedTask) as unknown as TaskStore & {
+      getTask: ReturnType<typeof vi.fn>;
+      updateTask: ReturnType<typeof vi.fn>;
+      moveTask: ReturnType<typeof vi.fn>;
+      recordRunAuditEvent: ReturnType<typeof vi.fn>;
+    };
+    store.getTask.mockResolvedValue(strandedTask);
+    store.moveTask.mockResolvedValue(doneTask);
+
+    const result = await finalizeProvenAutoMergeTask({
+      store,
+      taskId: "FN-MERGED-PROOF",
+      result: { task: strandedTask, ok: true, merged: true, commitSha: "abc123" } as MergeResult,
+      source: "workflow-graph-merge-finalize",
+    });
+
+    expect(result.outcome).toBe("done");
+    expect(store.updateTask).toHaveBeenCalledWith(
+      "FN-MERGED-PROOF",
+      expect.objectContaining({
+        mergeDetails: expect.objectContaining({ commitSha: "abc123", mergeConfirmed: true }),
+      }),
+    );
+    expect(store.moveTask).toHaveBeenCalledWith(
+      "FN-MERGED-PROOF",
+      "done",
+      expect.objectContaining({ recoveryRehome: true, preserveProgress: true }),
+    );
+  });
+
   it("treats already-done landed rows as idempotent success", async () => {
     const doneTask = {
       id: "FN-DONE",
@@ -3405,4 +3458,3 @@ describe("aiMergeTask post-squash audit gate", () => {
     ).toBe(false);
   });
 });
-

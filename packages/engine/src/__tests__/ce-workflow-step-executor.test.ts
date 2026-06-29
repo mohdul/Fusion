@@ -141,8 +141,17 @@ type CeSkillStep = {
 function compoundEngineeringSkillSteps(): CeSkillStep[] {
   const workflow = BUILTIN_WORKFLOWS.find((wf) => wf.id === "builtin:compound-engineering");
   if (!workflow) throw new Error("builtin:compound-engineering workflow not found");
-  return workflow.ir.nodes
-    .filter((node: any) => typeof node.config?.skillName === "string" && node.config.skillName.trim())
+  const nodes: any[] = [];
+  const visit = (node: any) => {
+    nodes.push(node);
+    const templateNodes = node.config?.template?.nodes;
+    if (Array.isArray(templateNodes)) {
+      for (const child of templateNodes) visit(child);
+    }
+  };
+  for (const node of workflow.ir.nodes as any[]) visit(node);
+  return nodes
+    .filter((node) => typeof node.config?.skillName === "string" && node.config.skillName.trim())
     .map((node: any) => {
       const skillName = node.config.skillName.trim();
       return {
@@ -418,6 +427,7 @@ describe("CE workflow-step executor integration", () => {
     it("derives every skill-bearing step from the built-in compound-engineering workflow", () => {
       expect(ceSkillSteps.map((step) => step.skillName)).toEqual([
         "compound-engineering:ce-plan",
+        "compound-engineering:ce-doc-review",
         "compound-engineering:ce-work",
         "compound-engineering:ce-code-review",
         "compound-engineering:ce-commit-push-pr",

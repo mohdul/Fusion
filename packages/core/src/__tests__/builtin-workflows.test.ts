@@ -101,6 +101,15 @@ describe("built-in workflows", () => {
     }
   });
 
+  it("built-in workflow layouts cover every authored node", () => {
+    for (const workflow of BUILTIN_WORKFLOWS) {
+      const missingLayoutNodes = workflow.ir.nodes
+        .map((node) => node.id)
+        .filter((nodeId) => !workflow.layout[nodeId]);
+      expect(missingLayoutNodes, workflow.id).toEqual([]);
+    }
+  });
+
   it("does not expose lowercase Code review step names in built-in workflow nodes", () => {
     for (const workflow of BUILTIN_WORKFLOWS) {
       for (const node of workflow.ir.nodes) {

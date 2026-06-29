@@ -66,6 +66,12 @@ async function recordFinalizationAudit(args: {
 
 function buildFinalizationMergeDetails(task: Task, result?: MergeResult): NonNullable<Task["mergeDetails"]> {
   const mergedAt = task.mergeDetails?.mergedAt ?? new Date().toISOString();
+  /*
+   * FNXC:WorkflowMerge 2026-06-29-08:33:
+   * Workflow graph merge nodes receive the direct merge result shape. Some merge callers prove landing with `merged:true` before durable task metadata is refreshed, so finalization must promote that result into `mergeConfirmed` instead of failing the graph at the merge-finalize boundary.
+   */
+  const mergeConfirmed =
+    result?.mergeConfirmed === true || result?.merged === true || task.mergeDetails?.mergeConfirmed === true;
   return {
     ...(task.mergeDetails ?? {}),
     ...(result?.commitSha ? { commitSha: result.commitSha } : {}),
@@ -76,7 +82,7 @@ function buildFinalizationMergeDetails(task: Task, result?: MergeResult): NonNul
     ...(typeof result?.deletions === "number" ? { deletions: result.deletions } : {}),
     ...(result?.mergeCommitMessage ? { mergeCommitMessage: result.mergeCommitMessage } : {}),
     mergedAt,
-    mergeConfirmed: result?.mergeConfirmed === true || task.mergeDetails?.mergeConfirmed === true,
+    mergeConfirmed,
     ...(result?.noOp ? { noOpMerge: true, noOpReason: result.reason } : {}),
   };
 }
@@ -106,7 +112,7 @@ export async function finalizeProvenAutoMergeTask({
   }
 
   const mergeDetails = buildFinalizationMergeDetails(latest, result);
-  const hasProof = mergeDetails.mergeConfirmed === true || result?.mergeConfirmed === true || result?.noOp === true;
+  const hasProof = mergeDetails.mergeConfirmed === true || result?.mergeConfirmed === true || result?.merged === true || result?.noOp === true;
   if (!hasProof) {
     const reason = "missing-merge-confirmation";
     await recordFinalizationAudit({
