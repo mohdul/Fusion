@@ -2934,6 +2934,7 @@ describe("SelfHealingManager", () => {
       });
       (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
         taskStuckTimeoutMs: 60_000,
+        autoMerge: true,
       });
       const staleUpdatedAt = new Date(Date.now() - 6 * 60_000).toISOString();
 
@@ -4635,6 +4636,43 @@ describe("SelfHealingManager", () => {
         mutationType: "task:auto-merge-finalize-column-mismatch-reconciled",
         metadata: expect.objectContaining({ previousColumn: "todo", overlapBlockedBy: "FN-ACTIVE", commitSha: "landed123" }),
       }));
+
+      managerWithRecovery.stop();
+    });
+
+    it("moves failed in-review tasks with incomplete steps back to todo immediately after restart", async () => {
+      const managerWithRecovery = new SelfHealingManager(store, {
+        rootDir: "/tmp/test-project",
+      });
+      (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+        taskStuckTimeoutMs: 60_000,
+      });
+      (store.listTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
+        {
+          id: "FN-7229",
+          column: "in-review",
+          paused: false,
+          status: "failed",
+          autoMerge: true,
+          error: "Workflow graph terminated with failure at node 'parse'",
+          updatedAt: new Date().toISOString(),
+          steps: [
+            { name: "Preflight", status: "done" },
+            { name: "Documentation & Delivery", status: "in-progress" },
+          ],
+          workflowStepResults: [],
+          log: [],
+        },
+      ]);
+
+      const result = await managerWithRecovery.recoverStaleIncompleteReviewTasks();
+
+      expect(result).toBe(1);
+      expect(store.moveTask).toHaveBeenCalledWith("FN-7229", "todo", {
+        preserveProgress: true,
+        moveSource: "engine",
+        recoveryRehome: true,
+      });
 
       managerWithRecovery.stop();
     });

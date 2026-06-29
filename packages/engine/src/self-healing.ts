@@ -6328,14 +6328,21 @@ export class SelfHealingManager {
 
       const now = Date.now();
       const tasks = await this.store.listTasks({ column: "in-review", slim: true });
+      /*
+       * FNXC:WorkflowLifecycle 2026-06-29-11:27:
+       * Restart recovery must not leave errored review-column cards with unfinished
+       * steps. FN-7228/FN-7229 persisted `column:"in-review"` plus incomplete steps
+       * after graph failures; failed rows should re-enter `todo` immediately with
+       * progress preserved instead of waiting for the stale timeout.
+       */
       const staleIncomplete = tasks.filter((task) =>
         task.column === "in-review" &&
         allowsAutoMergeProcessing(task, settings) &&
         !task.paused &&
-        !task.status &&
+        (!task.status || task.status === "failed") &&
         task.steps.length > 0 &&
         task.steps.some((step) => NON_TERMINAL_STEP_STATUSES.has(step.status)) &&
-        now - new Date(task.columnMovedAt ?? task.updatedAt).getTime() >= timeoutMs
+        (task.status === "failed" || now - new Date(task.columnMovedAt ?? task.updatedAt).getTime() >= timeoutMs)
       );
 
       if (staleIncomplete.length === 0) return 0;
@@ -6345,11 +6352,13 @@ export class SelfHealingManager {
       let recovered = 0;
       for (const task of staleIncomplete) {
         try {
+          const failedReviewRow = task.status === "failed";
           const proof = await this.evaluateBackwardMoveTripleProof(task, {
             stage: "stale-incomplete-review",
-            graceMs: timeoutMs,
+            graceMs: failedReviewRow ? 0 : timeoutMs,
             stalenessAnchor: task.columnMovedAt ?? task.updatedAt,
-            reason: "stale-incomplete-review-candidate",
+            reason: failedReviewRow ? "failed-incomplete-review-candidate" : "stale-incomplete-review-candidate",
+            extra: { failedReviewRow },
           });
           if (!proof.ok) {
             await this.emitBackwardMoveNoAction(task, "stale-incomplete-review", "task:stale-incomplete-review-no-action", proof);

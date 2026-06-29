@@ -1991,11 +1991,13 @@ export class TaskExecutor {
   /**
    * Stable handoff reasons used on task:handoff audit events.
    * Keep values greppable for executor/self-healing forensics: review-handoff-requested,
-   * completed-task-recovered, worktree-liveness-failed, step-session-completed,
-   * step-session-failed, transient-retries-exhausted, paused-after-completion,
-   * fn_task_done, fn_task_done-retry-completed, max-task-done-retries-exhausted,
-   * execution-failed, implicit-fn_task_done-refused, invariant-check-failed,
-   * fn_task_done-refused.
+   * completed-task-recovered, step-session-completed, paused-after-completion,
+   * fn_task_done, fn_task_done-retry-completed.
+   *
+   * FNXC:WorkflowLifecycle 2026-06-29-11:20:
+   * Failed execution is not a review handoff. Error paths must either requeue
+   * executable work for resume or fail in-place; `in-review` is reserved for
+   * clean completion handoffs.
    */
   private async handoffTaskToReview(task: Task, reason: string, runId = this.getRunContextFor(task.id)?.runId): Promise<Task> {
     const agentId = this.getRunContextFor(task.id)?.agentId;
@@ -7666,6 +7668,9 @@ export class TaskExecutor {
       if (failedNode === "parse" && failureValue === "pin-mismatch" && await this.routeResetParsePinMismatchToRetry(live)) {
         return;
       }
+      if (await this.routeGraphFailureToExecutionResume(live, failedNode ?? "unknown", failureValue)) {
+        return;
+      }
       if (live.column !== "in-progress") {
         const benignMessage = `Workflow graph run ended after task already advanced to '${live.column}' — no further action needed`;
         executorLog.log(`${task.id}: ${benignMessage}`);
@@ -7719,12 +7724,52 @@ export class TaskExecutor {
       // FN-5704-style loop of re-running the graph from scratch.
       await this.store.updateTask(task.id, { error: message, status: "failed" }, this.getRunContextFor(task.id));
       await this.persistTokenUsage(task.id);
-      await this.handoffTaskToReview(live, "workflow-graph-failed");
     } catch (err) {
       executorLog.error(
         `${task.id}: failed to park graph-failed task: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+  }
+
+  private async routeGraphFailureToExecutionResume(
+    live: TaskDetail,
+    failedNode: string,
+    failureValue: string | undefined,
+  ): Promise<boolean> {
+    /*
+     * FNXC:WorkflowLifecycle 2026-06-29-11:08:
+     * A workflow graph failure is not a completion handoff. FN-7228/FN-7229 showed
+     * restart-time parse failures and incomplete steps being parked in `in-review`
+     * with errors, which blocks the engine from resuming the correct unfinished
+     * step. Keep executable work in the executable queue: clear graph failure
+     * markers and move review-column rows with unfinished work back to `todo`
+     * preserving step progress. Generic graph failures that remain in-progress
+     * are left failed in-place by the caller; they must never be handed to review.
+     */
+    if (live.deletedAt) return false;
+    if (live.paused || live.userPaused === true) return false;
+    if (live.column === "done" || live.column === "archived") return false;
+    const incompleteSteps = hasNonTerminalWorkflowSteps(live);
+    if (live.column !== "in-review" && !(incompleteSteps && live.column === "todo")) return false;
+
+    const message = incompleteSteps
+      ? `Workflow graph failed at node '${failedNode}'${failureValue ? ` (${failureValue})` : ""} with incomplete steps — moved back to todo for execution resume`
+      : `Workflow graph failed at node '${failedNode}'${failureValue ? ` (${failureValue})` : ""} before a clean review handoff — moved back to todo for workflow retry`;
+    executorLog.warn(`${live.id}: ${message}`);
+    await this.store.logEntry(live.id, message, undefined, this.getRunContextFor(live.id));
+    await this.store.updateTask(live.id, {
+      status: null,
+      error: null,
+    }, this.getRunContextFor(live.id));
+    if (live.column !== "todo") {
+      await this.store.moveTask(live.id, "todo", {
+        preserveProgress: true,
+        moveSource: "engine",
+        recoveryRehome: true,
+      });
+    }
+    await this.persistTokenUsage(live.id);
+    return true;
   }
 
   private async routeResetParsePinMismatchToRetry(live: TaskDetail): Promise<boolean> {
@@ -8409,10 +8454,9 @@ export class TaskExecutor {
             paused: false,
             pausedByAgentId: null,
           });
-          await this.store.logEntry(task.id, `${failureMessage} — moved to in-review for inspection`, undefined, this.getRunContextFor(task.id));
+          await this.store.logEntry(task.id, `${failureMessage} — execution failed after worktree liveness retry budget was exhausted`, undefined, this.getRunContextFor(task.id));
           await this.persistTokenUsage(task.id);
-          await this.handoffTaskToReview(task, "worktree-liveness-failed");
-          executorLog.log(`✗ ${task.id} worktree liveness failed — moved to in-review`);
+          executorLog.log(`✗ ${task.id} worktree liveness failed`);
         }
         this.options.onError?.(task, new Error(failureMessage));
         return;
@@ -8828,9 +8872,11 @@ export class TaskExecutor {
           } else {
             const failedSteps = results.filter(r => !r.success);
             const errorSummary = failedSteps.map(r => `Step ${r.stepIndex}: ${r.error || "unknown error"}`).join("; ");
-            await this.store.updateTask(task.id, { status: "failed", error: errorSummary });
-            await this.handoffTaskToReview(task, "step-session-failed");
-            executorLog.log(`✗ ${task.id} step-session failed → in-review: ${errorSummary}`);
+            await this.store.updateTask(task.id, { status: null, error: null });
+            await this.store.logEntry(task.id, `Step-session failed — requeued for execution resume: ${errorSummary}`, undefined, this.getRunContextFor(task.id));
+            this.markGraphExecuteSelfRequeued(task.id);
+            await this.store.moveTask(task.id, "todo", { preserveProgress: true, moveSource: "engine", recoveryRehome: true });
+            executorLog.log(`✗ ${task.id} step-session failed → todo resume: ${errorSummary}`);
             this.options.onError?.(task, new Error(errorSummary));
           }
         };
@@ -8930,8 +8976,7 @@ export class TaskExecutor {
             if (accumulatedStepTokenUsage) {
               await this.store.updateTask(task.id, { tokenUsage: accumulatedStepTokenUsage });
             }
-            await this.handoffTaskToReview(task, "transient-retries-exhausted");
-            executorLog.log(`✗ ${task.id} transient retries exhausted → in-review`);
+            executorLog.log(`✗ ${task.id} transient retries exhausted — failed in execution`);
             this.options.onError?.(task, err instanceof Error ? err : new Error(errorMessage));
           } else {
             if (accumulatedStepTokenUsage) {
@@ -8942,9 +8987,10 @@ export class TaskExecutor {
             }
             executorLog.error(`✗ ${task.id} step-session execution failed:`, errorDetail);
             await this.store.logEntry(task.id, `Step-session execution failed: ${errorMessage}`, errorStack ?? errorDetail, this.getRunContextFor(task.id));
-            await this.store.updateTask(task.id, { status: "failed", error: errorMessage });
-            await this.handoffTaskToReview(task, "step-session-failed");
-            executorLog.log(`✗ ${task.id} step-session execution failed → in-review`);
+            await this.store.updateTask(task.id, { status: null, error: null });
+            this.markGraphExecuteSelfRequeued(task.id);
+            await this.store.moveTask(task.id, "todo", { preserveProgress: true, moveSource: "engine", recoveryRehome: true });
+            executorLog.log(`✗ ${task.id} step-session execution failed → todo resume`);
             this.options.onError?.(task, err instanceof Error ? err : new Error(errorMessage));
           }
         } finally {
@@ -9949,10 +9995,9 @@ export class TaskExecutor {
                 executorLog.log(`✗ ${task.id} failed after ${MAX_TASK_DONE_SESSION_RETRIES} retries — requeued to todo (${nextRequeueCount}/${MAX_TASK_DONE_REQUEUE_RETRIES})`);
               } else {
                 await this.store.updateTask(task.id, { status: "failed", error: errorMessage });
-                await this.store.logEntry(task.id, `${errorMessage} — moved to in-review for inspection`, undefined, this.getRunContextFor(task.id));
+                await this.store.logEntry(task.id, `${errorMessage} — execution failed after task-done retry budget was exhausted`, undefined, this.getRunContextFor(task.id));
                 await this.persistTokenUsage(task.id);
-                await this.handoffTaskToReview(task, "max-task-done-retries-exhausted");
-                executorLog.log(`✗ ${task.id} failed after ${MAX_TASK_DONE_SESSION_RETRIES} retries — no fn_task_done → in-review`);
+                executorLog.log(`✗ ${task.id} failed after ${MAX_TASK_DONE_SESSION_RETRIES} retries — no fn_task_done`);
               }
               this.options.onError?.(task, new Error(errorMessage));
             }
@@ -10624,8 +10669,7 @@ export class TaskExecutor {
             nextRecoveryAt: null,
           });
           await this.persistTokenUsage(task.id);
-          await this.handoffTaskToReview(task, "transient-retries-exhausted");
-          executorLog.log(`✗ ${task.id} transient retries exhausted → in-review`);
+          executorLog.log(`✗ ${task.id} transient retries exhausted — failed in execution`);
           this.options.onError?.(task, err instanceof Error ? err : new Error(errorMessage));
           return;
         }
@@ -10636,8 +10680,7 @@ export class TaskExecutor {
         await this.store.logEntry(task.id, `Execution failed: ${terminalError}`, errorStack ?? errorDetail, this.getRunContextFor(task.id));
         await this.store.updateTask(task.id, { status: "failed", error: terminalError });
         await this.persistTokenUsage(task.id);
-        await this.handoffTaskToReview(task, "execution-failed");
-        executorLog.log(`✗ ${task.id} execution failed → in-review`);
+        executorLog.log(`✗ ${task.id} execution failed`);
         this.options.onError?.(task, err instanceof Error ? err : new Error(errorMessage));
       }
     } finally {
@@ -11804,9 +11847,8 @@ export class TaskExecutor {
         branch: null,
         sessionFile: null,
       });
-      await this.store.logEntry(task.id, `${refusal.message} — moved to in-review for inspection`, undefined, this.getRunContextFor(task.id));
+      await this.store.logEntry(task.id, `${refusal.message} — execution failed because implicit fn_task_done was refused`, undefined, this.getRunContextFor(task.id));
       await this.persistTokenUsage(task.id);
-      await this.handoffTaskToReview(task, "implicit-fn_task_done-refused");
     }
 
     this.deleteActiveSession(task.id);
@@ -11906,17 +11948,9 @@ export class TaskExecutor {
               branch: null,
               sessionFile: null,
             });
-            await store.logEntry(taskId, `${refusalMessage} — moved to in-review for inspection`, undefined, this.getRunContextFor(task.id));
+            await store.logEntry(taskId, `${refusalMessage} — invariant-check retry budget exhausted`, undefined, this.getRunContextFor(task.id));
             await this.persistTokenUsage(taskId);
-            await store.handoffToReview(taskId, {
-              ownerAgentId: this.getRunContextFor(task.id)?.agentId ?? null,
-              evidence: {
-                reason: "invariant-check-failed",
-                runId: this.getRunContextFor(task.id)?.runId,
-                agentId: this.getRunContextFor(task.id)?.agentId,
-              },
-            });
-            executorLog.log(`✗ ${taskId} failed invariant check — moved to in-review`);
+            executorLog.log(`✗ ${taskId} failed invariant check`);
           }
 
           return {
@@ -11964,17 +11998,9 @@ export class TaskExecutor {
               branch: null,
               sessionFile: null,
             });
-            await store.logEntry(taskId, `${refusalMessage} — moved to in-review for inspection`, undefined, this.getRunContextFor(task.id));
+            await store.logEntry(taskId, `${refusalMessage} — fn_task_done refusal retry budget exhausted`, undefined, this.getRunContextFor(task.id));
             await this.persistTokenUsage(taskId);
-            await store.handoffToReview(taskId, {
-              ownerAgentId: this.getRunContextFor(task.id)?.agentId ?? null,
-              evidence: {
-                reason: "fn_task_done-refused",
-                runId: this.getRunContextFor(task.id)?.runId,
-                agentId: this.getRunContextFor(task.id)?.agentId,
-              },
-            });
-            executorLog.log(`✗ ${taskId} fn_task_done refusal (${taskDoneRefusal.refusalClass}) — moved to in-review for inspection`);
+            executorLog.log(`✗ ${taskId} fn_task_done refusal (${taskDoneRefusal.refusalClass})`);
           }
 
           return {
@@ -16674,6 +16700,10 @@ export interface PseudoPauseResult {
   kind: "regex" | "structural" | "none";
   /** The matched text or pattern description when kind is not "none". */
   matched?: string;
+}
+
+function hasNonTerminalWorkflowSteps(task: Pick<TaskDetail, "steps">): boolean {
+  return task.steps.length > 0 && task.steps.some((step) => step.status !== "done" && step.status !== "skipped");
 }
 
 /**
