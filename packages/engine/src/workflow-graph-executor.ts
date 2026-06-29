@@ -328,7 +328,7 @@ export class WorkflowGraphExecutor {
 
   public async run(
     task: TaskDetail,
-    settings: Pick<Settings, "experimentalFeatures"> | undefined,
+    settings: (Pick<Settings, "experimentalFeatures"> & Partial<Pick<Settings, "autoMerge">>) | undefined,
     ir: WorkflowIr = BUILTIN_CODING_WORKFLOW_IR,
   ): Promise<WorkflowGraphExecutorResult> {
     const startNode = ir.nodes.find((node) => node.kind === "start");
@@ -598,7 +598,13 @@ export class WorkflowGraphExecutor {
           const enabled = Array.isArray(task.enabledWorkflowSteps)
             ? task.enabledWorkflowSteps.includes(node.id)
             : node.config?.defaultOn === true;
-          if (!enabled) {
+          const requiresAutoMergeOff = node.config?.requiresAutoMergeOff === true;
+          const autoMergeOff = task.autoMerge === false || (settings?.autoMerge === false && task.autoMerge !== true);
+          /*
+           * FNXC:WorkflowPrPolicy 2026-06-29-16:42:
+           * Manual PR review lanes are operator-selected workflow branches, not the default CE/automerge path. An optional-group with `requiresAutoMergeOff` is inert unless the task explicitly enables the group and effective auto-merge is off, so selected manual PR creation cannot hijack the normal Fusion auto-merge route.
+           */
+          if (!enabled || (requiresAutoMergeOff && !autoMergeOff)) {
             // FNXC:WorkflowOptionalGroup 2026-06-21-16:30: record the group's own
             // outcome on bypass too (mirrors the enabled path + every other node
             // kind), so a downstream node reading `node:<id>:outcome` from context

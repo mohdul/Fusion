@@ -22,6 +22,7 @@ export type WorkflowSeamName =
   | "planning"
   | "execute"
   | "review"
+  | "review-handoff"
   | "merge"
   | "schedule"
   | "step-execute";
@@ -33,6 +34,7 @@ export interface WorkflowLegacySeams {
   planning: (task: TaskDetail, context: Record<string, unknown>) => Promise<WorkflowNodeResult>;
   execute: (task: TaskDetail, context: Record<string, unknown>) => Promise<WorkflowNodeResult>;
   review: (task: TaskDetail, context: Record<string, unknown>) => Promise<WorkflowNodeResult>;
+  "review-handoff"?: (task: TaskDetail, context: Record<string, unknown>) => Promise<WorkflowNodeResult>;
   merge: (task: TaskDetail, context: Record<string, unknown>) => Promise<WorkflowNodeResult>;
   schedule: (task: TaskDetail, context: Record<string, unknown>) => Promise<WorkflowNodeResult>;
   /**
@@ -211,6 +213,7 @@ export function resolveSeamName(node: { config?: Record<string, unknown> }): Wor
     seam === "planning" ||
     seam === "execute" ||
     seam === "review" ||
+    seam === "review-handoff" ||
     seam === "merge" ||
     seam === "schedule" ||
     seam === "step-execute"
@@ -353,6 +356,15 @@ export function createPrimitivePromptLikeHandler(
       }
       if (seam === "review") {
         const result = await primitives.runReview(primitiveCtx, context.task, { type: "code" });
+        return { outcome: result.outcome, value: result.value, contextPatch: result.contextPatch };
+      }
+      if (seam === "review-handoff") {
+        const result = await primitives.transitionTask(primitiveCtx, context.task, {
+          column: "in-review",
+          status: null,
+          reason: "workflow-review-handoff",
+          preserveProgress: true,
+        });
         return { outcome: result.outcome, value: result.value, contextPatch: result.contextPatch };
       }
       if (seam === "merge") {
@@ -960,6 +972,7 @@ export function createNoopLegacySeams(): WorkflowLegacySeams {
     execute: success,
     // U4 (KTD-2): no `workflow-step` seam — workflow gates run as graph nodes.
     review: success,
+    "review-handoff": success,
     merge: success,
     schedule: success,
   };

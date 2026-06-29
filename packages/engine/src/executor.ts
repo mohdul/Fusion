@@ -5879,7 +5879,7 @@ export class TaskExecutor {
     task: TaskDetail,
     metadata: { reason: string; nodeId: string; workflowId: string; runId: string },
   ): Promise<TaskDetail> {
-    const live = await this.store.getTask(task.id);
+    let live = await this.store.getTask(task.id);
     if (!live) return task;
     if (live.column === "in-review" || live.column === "done") return live;
     if (live.paused || live.userPaused) return live;
@@ -5887,7 +5887,32 @@ export class TaskExecutor {
     /*
     FNXC:WorkflowMerge 2026-06-29-10:15:
     User-authored workflows may legitimately route execution directly to a merge node without an explicit review node. Reaching that node is the workflow-owned merge boundary, so the engine must establish the durable in-review/merge lifecycle handoff before requesting merge instead of assuming a prior node already moved the card.
+
+    FNXC:WorkflowMerge 2026-06-29-15:28:
+    Compound Engineering and similar graph-native workflows execute skill nodes instead of legacy parsed task steps. The graph records those nodes as `workflowStepResults.source = "node"`; at the merge boundary, project a successful graph-native run onto the legacy checklist so `task has incomplete steps` cannot block a workflow that already completed its authoritative nodes.
     */
+    if (this.shouldCompleteChecklistAtWorkflowMerge(live)) {
+      const completedSteps = live.steps.map((step) =>
+        step.status === "done" || step.status === "skipped"
+          ? step
+          : { ...step, status: "done" as const },
+      );
+      const updated = await this.store.updateTask(
+        live.id,
+        {
+          steps: completedSteps,
+          currentStep: Math.max(0, completedSteps.length - 1),
+        } as Partial<TaskDetail>,
+        this.getRunContextFor(live.id),
+      );
+      live = (updated as TaskDetail | undefined) ?? { ...live, steps: completedSteps, currentStep: Math.max(0, completedSteps.length - 1) };
+      await this.store.logEntry(
+        live.id,
+        "Workflow merge boundary completed graph-native task checklist before requesting merge",
+        undefined,
+        this.getRunContextFor(live.id),
+      );
+    }
     const moveOptions = {
       preserveProgress: true,
       moveSource: "engine" as const,
@@ -5905,6 +5930,18 @@ export class TaskExecutor {
     await this.store.updateTask(live.id, { column: "in-review" } as Partial<TaskDetail>, this.getRunContextFor(live.id));
     await this.store.logEntry(live.id, "Workflow merge boundary moved task to in-review before requesting merge", undefined, this.getRunContextFor(live.id));
     return { ...live, column: "in-review" };
+  }
+
+  private shouldCompleteChecklistAtWorkflowMerge(task: TaskDetail): boolean {
+    if (!Array.isArray(task.steps) || task.steps.length === 0) return false;
+    if (task.steps.every((step) => step.status === "done" || step.status === "skipped")) return false;
+
+    const graphNodeResults = (task.workflowStepResults ?? []).filter((result) =>
+      result.source === "node" && (result.phase ?? "pre-merge") === "pre-merge"
+    );
+    if (graphNodeResults.length === 0) return false;
+
+    return graphNodeResults.every((result) => result.status === "passed" || result.status === "skipped");
   }
 
   public createAuthoritativeWorkflowSeams(_settings: Settings): WorkflowLegacySeams {
@@ -5962,6 +5999,16 @@ export class TaskExecutor {
         const live = await this.store.getTask(seamTask.id);
         await this.persistTokenUsage(seamTask.id);
         await this.handoffTaskToReview(live, "workflow-graph-review");
+        return { outcome: "success", value: "in-review" };
+      },
+      "review-handoff": async (seamTask) => {
+        /*
+         * FNXC:WorkflowPrPolicy 2026-06-29-16:42:
+         * Compound Engineering can run an optional manual PR review lane after implementation. That lane must start from the review column without invoking the generic reviewer again; this seam is a pure lifecycle handoff so PR creation/feedback nodes run while the card is visibly in review.
+         */
+        const live = await this.store.getTask(seamTask.id);
+        await this.persistTokenUsage(seamTask.id);
+        await this.handoffTaskToReview(live, "workflow-graph-review-handoff");
         return { outcome: "success", value: "in-review" };
       },
       merge: async (seamTask) => {
@@ -6655,12 +6702,27 @@ export class TaskExecutor {
   ): Promise<void> {
     if (!requirement.requiresWorktree) return;
     const live = await this.store.getTask(nodeTask.id);
-    if (live.worktree) return;
+    if (live.worktree && existsSync(live.worktree)) return;
+    const taskForAcquisition = live.worktree
+      ? ({ ...live, worktree: undefined, sessionFile: undefined } as TaskDetail)
+      : live;
+    if (live.worktree) {
+      /*
+      FNXC:WorkflowExecution 2026-06-29-15:28:
+      A graph-native skill node such as Compound Engineering `plan` may be the first write-capable node. A stale task row can still point at a removed checkout after reset/retry/self-healing; a truthy `worktree` field is not proof of node readiness. Fall through to fresh acquisition when the directory is missing so the graph starts a session instead of failing immediately at the first CE node.
+      */
+      await this.store.logEntry(
+        live.id,
+        `Workflow node '${node.id}' assigned worktree is missing — reacquiring before node execution`,
+        live.worktree,
+        this.getRunContextFor(live.id),
+      );
+    }
     /*
     FNXC:WorkflowExecution 2026-06-29-09:50:
     The workflow graph decides which nodes require pre-execution lifecycle resources. This adapter only fulfills a graph-declared worktree requirement with executor-owned git mechanics; custom-node handlers remain ordinary node execution and no longer decide when to bootstrap task isolation.
     */
-    await this.ensureGraphCustomNodeWorktree(live, settings, node.id);
+    await this.ensureGraphCustomNodeWorktree(taskForAcquisition, settings, node.id);
   }
 
   private async finalizeMergeConfirmedWorkflowGraphTask(taskId: string, reason: string): Promise<boolean> {

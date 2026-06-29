@@ -85,6 +85,56 @@ function ceCodeReviewOptionalGroupNode(column: string): WorkflowIrNode {
   };
 }
 
+function ceManualPrReviewOptionalGroupNode(column: string): WorkflowIrNode {
+  return {
+    id: "manual-pr-review",
+    kind: "optional-group",
+    column,
+    config: {
+      /*
+       * FNXC:WorkflowPrPolicy 2026-06-29-16:42:
+       * Compound Engineering's PR path is manual-review policy, not the default delivery path. Keep it default-off and require effective auto-merge to be off; when enabled, CE commits the work while Fusion PR nodes open/link the PR and own feedback response so the dashboard, PR monitor, and merge gates see first-class PR state.
+       */
+      name: "Manual PR Review",
+      defaultOn: false,
+      requiresAutoMergeOff: true,
+      template: {
+        nodes: [
+          {
+            id: "commit",
+            kind: "prompt",
+            config: {
+              name: "Commit",
+              executor: "skill",
+              skillName: "compound-engineering:ce-commit",
+              toolMode: "coding",
+              prompt: "Run /ce-commit to commit the completed work in logical commits. Do not push or open a pull request; the following Fusion PR node owns PR creation and dashboard linkage.",
+            },
+          },
+          {
+            id: "open-pr",
+            kind: "pr-create",
+            config: {
+              name: "Open PR",
+            },
+          },
+          {
+            id: "resolve-feedback",
+            kind: "pr-respond",
+            config: {
+              name: "Resolve PR feedback",
+            },
+          },
+        ],
+        edges: [
+          { from: "commit", to: "open-pr", condition: "success" },
+          { from: "open-pr", to: "resolve-feedback", condition: "success" },
+        ],
+      },
+    },
+  };
+}
+
 export function isBuiltinWorkflowEnabled(id: string, enabledIds?: readonly string[]): boolean {
   if (!isBuiltinWorkflowId(id)) return true;
   if (!enabledIds) return true;
@@ -470,38 +520,11 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
       browserVerificationOptionalGroupNode("in-progress"),
       ceCodeReviewOptionalGroupNode("in-progress"),
       {
-        id: "commit-pr",
+        id: "review-handoff",
         kind: "prompt",
-        config: {
-          name: "Commit & open PR",
-          executor: "skill",
-          skillName: "compound-engineering:ce-commit-push-pr",
-          // Coding mode: this step runs git + gh. Per KTD-6 it OWNS commit /
-          // push / PR creation; it does NOT perform the board-state merge — that
-          // stays with Fusion's merge seam below (workflow-owned merge), so the
-          // two never race the same branch state.
-          /*
-           * FNXC:Workflows 2026-06-27-00:00:
-           * FN-7144 confirms the autoMerge-off CE route: ce-commit-push-pr and ce-resolve-pr-feedback prepare the human PR flow, while the later Fusion merge seam no-ops into manual review instead of forcing an unattended board merge.
-           */
-          toolMode: "coding",
-          prompt: "Run /ce-commit-push-pr to commit the work in logical commits, push the branch, and open a pull request with a value-first description. When project autoMerge is off, this PR is the human merge/review path; do not perform the Fusion board-state merge here.",
-        },
+        config: { seam: "review-handoff", name: "Review handoff", prompt: "" },
       },
-      {
-        id: "resolve-feedback",
-        kind: "prompt",
-        config: {
-          name: "Resolve PR feedback",
-          executor: "skill",
-          skillName: "compound-engineering:ce-resolve-pr-feedback",
-          toolMode: "coding",
-          // Resolves open PR review threads. On the first autonomous pass there
-          // may be no feedback yet (review is async); the skill no-ops when there
-          // are no threads, and a re-run picks up later feedback.
-          prompt: "Run /ce-resolve-pr-feedback to resolve open PR review feedback: evaluate each thread, fix valid issues, and reply.",
-        },
-      },
+      ceManualPrReviewOptionalGroupNode("in-review"),
       { id: "merge", kind: "prompt", config: builtinPromptConfig("merge", "Merge boundary") },
       {
         id: "document",

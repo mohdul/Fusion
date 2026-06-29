@@ -80,7 +80,7 @@ describe("built-in workflows", () => {
       "builtin:quick-fix": { "plan-review": false, "code-review": false, "browser-verification": false },
       "builtin:review-heavy": { "plan-review": true, "code-review": true, "browser-verification": false },
       "builtin:design": { "plan-review": true, "code-review": true, "browser-verification": false },
-      "builtin:compound-engineering": { "plan-review": true, "code-review": true, "browser-verification": false },
+      "builtin:compound-engineering": { "plan-review": true, "code-review": true, "browser-verification": false, "manual-pr-review": false },
       "builtin:stepwise-coding": { "plan-review": true, "code-review": true, "browser-verification": false },
     };
 
@@ -773,8 +773,6 @@ describe("built-in workflows", () => {
     const expectedPrompts = new Map([
       ["plan", "/ce-plan"],
       ["execute", "/ce-work"],
-      ["commit-pr", "/ce-commit-push-pr"],
-      ["resolve-feedback", "/ce-resolve-pr-feedback"],
       ["document", "/ce-compound"],
     ]);
 
@@ -785,25 +783,35 @@ describe("built-in workflows", () => {
     expect(String(docReviewTemplate?.nodes?.[0]?.config?.prompt ?? "")).toContain("/ce-doc-review");
     const codeReviewTemplate = byId("code-review")?.config?.template as { nodes?: Array<{ config?: Record<string, unknown> }> } | undefined;
     expect(String(codeReviewTemplate?.nodes?.[0]?.config?.prompt ?? "")).toContain("/ce-code-review");
+    const manualPrTemplate = byId("manual-pr-review")?.config?.template as { nodes?: Array<{ config?: Record<string, unknown> }> } | undefined;
+    expect(String(manualPrTemplate?.nodes?.[0]?.config?.prompt ?? "")).toContain("/ce-commit");
     expect(String(byId("merge")?.config?.prompt ?? "")).not.toContain("/ce-");
   });
 
-  it("compound-engineering merge stage uses the CE commit/PR + resolve-feedback skills", () => {
+  it("compound-engineering manual PR lane is selected-only, auto-merge-off-only, and uses Fusion PR nodes", () => {
     const ce = getBuiltinWorkflow("builtin:compound-engineering")!;
     const byId = (id: string) => ce.ir.nodes.find((n) => n.id === id);
-    expect(byId("commit-pr")?.config?.skillName).toBe("compound-engineering:ce-commit-push-pr");
-    expect(byId("commit-pr")?.config?.toolMode).toBe("coding");
-    expect(byId("resolve-feedback")?.config?.skillName).toBe("compound-engineering:ce-resolve-pr-feedback");
-    expect(String(byId("commit-pr")?.config?.prompt ?? "")).toContain("When project autoMerge is off");
-    expect(String(byId("commit-pr")?.config?.prompt ?? "")).toContain("do not perform the Fusion board-state merge");
-    // KTD-6: the Fusion board-merge seam is preserved (CE prepares the PR, Fusion
-    // owns the merge transition). With autoMerge:false, the runtime seam no-ops
-    // into manual review; the CE PR skills are still ordered before this seam.
+    const manualPr = byId("manual-pr-review");
+    expect(manualPr?.kind).toBe("optional-group");
+    expect(manualPr?.column).toBe("in-review");
+    expect(manualPr?.config?.defaultOn).toBe(false);
+    expect(manualPr?.config?.requiresAutoMergeOff).toBe(true);
+    const template = manualPr?.config?.template as { nodes?: Array<{ id: string; kind: string; config?: Record<string, unknown> }>; edges?: Array<{ from: string; to: string; condition?: string }> } | undefined;
+    expect(template?.nodes?.map((node) => [node.id, node.kind])).toEqual([
+      ["commit", "prompt"],
+      ["open-pr", "pr-create"],
+      ["resolve-feedback", "pr-respond"],
+    ]);
+    expect(template?.nodes?.[0]?.config?.skillName).toBe("compound-engineering:ce-commit");
+    expect(template?.edges).toEqual([
+      { from: "commit", to: "open-pr", condition: "success" },
+      { from: "open-pr", to: "resolve-feedback", condition: "success" },
+    ]);
+    expect(byId("review-handoff")?.config?.seam).toBe("review-handoff");
     expect(byId("merge")?.config?.seam).toBe("merge");
-    // Ordering: commit-pr → resolve-feedback → merge → document.
     const ids = ce.ir.nodes.map((n) => n.id);
-    expect(ids.indexOf("commit-pr")).toBeLessThan(ids.indexOf("resolve-feedback"));
-    expect(ids.indexOf("resolve-feedback")).toBeLessThan(ids.indexOf("merge"));
+    expect(ids.indexOf("review-handoff")).toBeLessThan(ids.indexOf("manual-pr-review"));
+    expect(ids.indexOf("manual-pr-review")).toBeLessThan(ids.indexOf("merge"));
     expect(ids.indexOf("merge")).toBeLessThan(ids.indexOf("document"));
   });
 
@@ -818,8 +826,8 @@ describe("built-in workflows", () => {
       "execute",
       "browser-verification",
       "code-review",
-      "commit-pr",
-      "resolve-feedback",
+      "review-handoff",
+      "manual-pr-review",
       "completion-summary",
       "merge",
       "post-merge-verification",
@@ -870,7 +878,9 @@ describe("built-in workflows", () => {
     expect(ce.ir.edges.some((edge) => edge.from === "plan-review" && edge.to === "execute")).toBe(true);
     expect(ce.ir.edges.some((edge) => edge.from === "execute" && edge.to === "browser-verification")).toBe(true);
     expect(ce.ir.edges.some((edge) => edge.from === "browser-verification" && edge.to === "code-review")).toBe(true);
-    expect(ce.ir.edges.some((edge) => edge.from === "code-review" && edge.to === "commit-pr")).toBe(true);
+    expect(ce.ir.edges.some((edge) => edge.from === "code-review" && edge.to === "review-handoff")).toBe(true);
+    expect(ce.ir.edges.some((edge) => edge.from === "review-handoff" && edge.to === "manual-pr-review")).toBe(true);
+    expect(ce.ir.edges.some((edge) => edge.from === "manual-pr-review" && edge.to === "completion-summary")).toBe(true);
   });
 
   it("non-default coding built-ins retain their generic review nodes", () => {

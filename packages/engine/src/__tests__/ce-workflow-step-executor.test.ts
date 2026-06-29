@@ -32,6 +32,7 @@ import {
   createMockStore,
   mockedCreateFnAgent,
   mockedExecSync,
+  mockedExistsSync,
   resetExecutorMocks,
 } from "./executor-test-helpers.js";
 
@@ -283,6 +284,79 @@ describe("CE workflow-step executor integration", () => {
       expect(live.worktree).toBe("/tmp/test/.worktrees/swift-falcon");
     });
 
+    it("reacquires a task worktree when a CE graph node finds a stale missing checkout", async () => {
+      const store = createMockStore();
+      mockedExistsSync.mockImplementation((path) => path !== "/tmp/test/.worktrees/missing-ce-checkout");
+      let live = baseStepTask({
+        worktree: "/tmp/test/.worktrees/missing-ce-checkout",
+        branch: "fusion/fn-ce-1",
+        steps: [{ name: "Preflight", status: "pending" }],
+      });
+      store.getTask.mockImplementation(async () => live as any);
+      store.updateTask.mockImplementation(async (_id: string, patch: Record<string, unknown>) => {
+        live = { ...live, ...patch };
+        return live as any;
+      });
+      const { executor } = makeExecutor(store);
+      vi.spyOn(executor as any, "createWorktree").mockResolvedValue({
+        path: "/tmp/test/.worktrees/fresh-ce-checkout",
+        branch: "fusion/fn-ce-1",
+      });
+      vi.spyOn(executor as any, "captureBaseCommitSha").mockResolvedValue(undefined);
+
+      const captured: { worktreePath?: string } = {};
+      vi.spyOn(executor as any, "executeWorkflowStep").mockImplementation(async (...args: any[]) => {
+        captured.worktreePath = args[2];
+        return { success: true, output: "ok" };
+      });
+
+      const node = {
+        id: "plan",
+        kind: "prompt",
+        column: "in-progress",
+        config: {
+          executor: "skill",
+          skillName: "compound-engineering:ce-plan",
+          toolMode: "coding",
+          prompt: "Run /ce-plan.",
+        },
+      };
+      const ir: WorkflowIr = {
+        version: "v2",
+        name: "ce-plan-stale-worktree-test",
+        columns: [{ id: "in-progress", name: "In Progress", traits: [] }],
+        nodes: [
+          { id: "start", kind: "start" },
+          node as any,
+          { id: "end", kind: "end" },
+        ],
+        edges: [
+          { from: "start", to: "plan" },
+          { from: "plan", to: "end", condition: "success" },
+        ],
+      };
+      const settings = await store.getSettings();
+      const graph = new WorkflowGraphExecutor({
+        prepareNodeExecution: (graphNode, task, requirement) =>
+          (executor as any).prepareGraphNodeExecution(graphNode, task, settings, requirement),
+        runCustomNode: (graphNode, task, context) =>
+          (executor as any).runGraphCustomNode(graphNode, task, settings, undefined, context),
+      });
+
+      const result = await graph.run(live as any, settings, ir);
+
+      expect(result.outcome).toBe("success");
+      expect((executor as any).createWorktree).toHaveBeenCalled();
+      expect(captured.worktreePath).toBe("/tmp/test/.worktrees/fresh-ce-checkout");
+      expect(live.worktree).toBe("/tmp/test/.worktrees/fresh-ce-checkout");
+      expect(store.logEntry).toHaveBeenCalledWith(
+        "FN-CE-1",
+        "Workflow node 'plan' assigned worktree is missing — reacquiring before node execution",
+        "/tmp/test/.worktrees/missing-ce-checkout",
+        undefined,
+      );
+    });
+
     it("finalizes a merge-confirmed workflow graph task that is stranded before done", async () => {
       const store = createMockStore();
       let live = baseStepTask({
@@ -408,6 +482,115 @@ describe("CE workflow-step executor integration", () => {
       );
       expect(mergeRequester).toHaveBeenCalledWith("FN-CE-1", expect.objectContaining({ signal: expect.any(AbortSignal) }));
       expect(live.column).toBe("in-review");
+    });
+
+    it("completes graph-native checklist projection before a workflow merge request", async () => {
+      const store = createMockStore();
+      let live = baseStepTask({
+        column: "in-progress",
+        steps: [
+          { name: "Diagnose", status: "pending" },
+          { name: "Implement", status: "pending" },
+        ],
+        workflowStepResults: [
+          {
+            workflowStepId: "plan",
+            workflowStepName: "Plan",
+            phase: "pre-merge",
+            source: "node",
+            status: "passed",
+          },
+        ],
+      });
+      store.getTask.mockImplementation(async () => live as any);
+      store.updateTask.mockImplementation(async (_id: string, patch: Record<string, unknown>) => {
+        live = { ...live, ...patch };
+        return live as any;
+      });
+      store.moveTask.mockImplementation(async (_id: string, column: string) => {
+        live = { ...live, column };
+        return live as any;
+      });
+      const { executor } = makeExecutor(store);
+      const mergeRequester = vi.fn(async () => ({
+        task: live,
+        branch: "fusion/fn-ce-1",
+        merged: false,
+        noOp: false,
+        reason: "queued",
+      }));
+      executor.setMergeRequester(mergeRequester as any);
+      const settings = await store.getSettings();
+      const primitives = (executor as any).createAuthoritativeWorkflowPrimitives(settings);
+
+      await primitives.requestMerge(
+        {
+          run: { runId: "run-merge", taskId: "FN-CE-1", workflowId: "builtin:compound-engineering" },
+          node: { node: { id: "merge", kind: "prompt", column: "in-review", config: { seam: "merge" } }, context: {} },
+        },
+        live,
+      );
+
+      expect(store.updateTask).toHaveBeenCalledWith(
+        "FN-CE-1",
+        expect.objectContaining({
+          steps: [
+            { name: "Diagnose", status: "done" },
+            { name: "Implement", status: "done" },
+          ],
+          currentStep: 1,
+        }),
+        undefined,
+      );
+      expect(mergeRequester).toHaveBeenCalledWith("FN-CE-1", expect.objectContaining({ signal: expect.any(AbortSignal) }));
+      expect(live.steps.every((step: any) => step.status === "done")).toBe(true);
+      expect(live.column).toBe("in-review");
+    });
+
+    it("skips manual PR optional groups while effective auto-merge is on", async () => {
+      const store = createMockStore();
+      const live = baseStepTask({
+        autoMerge: true,
+        enabledWorkflowSteps: ["manual-pr-review"],
+      });
+      store.getTask.mockResolvedValue(live as any);
+      const { executor } = makeExecutor(store);
+      const runCustomNode = vi.spyOn(executor as any, "runGraphCustomNode").mockResolvedValue({ outcome: "success", value: "ran" });
+      const graph = new WorkflowGraphExecutor({
+        runCustomNode: (graphNode, task, context) =>
+          (executor as any).runGraphCustomNode(graphNode, task, {}, undefined, context),
+      });
+      const ir: WorkflowIr = {
+        version: "v2",
+        name: "manual-pr-automerge-skip",
+        columns: [{ id: "in-review", name: "In Review", traits: [] }],
+        nodes: [
+          { id: "start", kind: "start" },
+          {
+            id: "manual-pr-review",
+            kind: "optional-group",
+            column: "in-review",
+            config: {
+              defaultOn: false,
+              requiresAutoMergeOff: true,
+              template: {
+                nodes: [{ id: "commit", kind: "prompt", config: { prompt: "commit" } }],
+                edges: [],
+              },
+            },
+          },
+          { id: "end", kind: "end" },
+        ],
+        edges: [
+          { from: "start", to: "manual-pr-review" },
+          { from: "manual-pr-review", to: "end", condition: "success" },
+        ],
+      };
+
+      const result = await graph.run(live as any, { experimentalFeatures: {}, autoMerge: true }, ir);
+
+      expect(result.outcome).toBe("success");
+      expect(runCustomNode).not.toHaveBeenCalled();
     });
 
     it("clears stale workflow input markers when a resumed graph restarts before the original node", async () => {
@@ -569,8 +752,7 @@ describe("CE workflow-step executor integration", () => {
         "compound-engineering:ce-doc-review",
         "compound-engineering:ce-work",
         "compound-engineering:ce-code-review",
-        "compound-engineering:ce-commit-push-pr",
-        "compound-engineering:ce-resolve-pr-feedback",
+        "compound-engineering:ce-commit",
         "compound-engineering:ce-compound",
       ]);
     });
