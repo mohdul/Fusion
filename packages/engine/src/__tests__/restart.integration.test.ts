@@ -869,6 +869,68 @@ describe("In-progress task resume after restart", () => {
     // Must NOT silently finalize to review as a success.
     expect(store.moveTask).not.toHaveBeenCalledWith("FN-963", "in-review");
   });
+
+  // FNXC:WorkflowOptionalStepFix 2026-06-28-12:00 (FN-7210 regression):
+  // A pre-merge optional/advisory REVISE reopens plan steps to `pending` and
+  // schedules a remediation bounce so the executor can finish them. recoverCompletedTask
+  // must NOT re-enter the workflow graph (and thus the merge node) while the live task
+  // still has incomplete steps — otherwise the re-run re-passes the advisory step
+  // (fix budget exhausted), advances to merge, and the merge gate refuses forever with
+  // "task has incomplete steps".
+  it("recoverCompletedTask() refuses graph re-entry when the live task has incomplete steps", async () => {
+    const store = createMockStore({
+      getTask: vi.fn().mockResolvedValue(makeTaskDetail("FN-7210", "in-review", {
+        worktree: "/tmp/wt/FN-7210",
+        steps: makeSteps("done", "done", "pending"),
+      })),
+    });
+    const task = makeTask("FN-7210", "in-review", {
+      worktree: "/tmp/wt/FN-7210",
+      steps: makeSteps("done", "done", "pending"),
+    });
+
+    const executor = new TaskExecutor(store, "/tmp/test");
+    vi.spyOn(executor as any, "captureModifiedFiles").mockResolvedValue([]);
+    const graphEntry = vi
+      .spyOn(executor as any, "maybeExecuteWorkflowGraph")
+      .mockResolvedValue(true);
+
+    const recovered = await executor.recoverCompletedTask(task);
+
+    expect(recovered).toBe(false);
+    expect(graphEntry).not.toHaveBeenCalled();
+  });
+
+  // FNXC:WorkflowOptionalStepFix 2026-06-28-12:00 (FN-7210 regression):
+  // While a remediation bounce is scheduled (scheduleWorkflowRerun registers a
+  // rerun watchdog synchronously), recoverCompletedTask must yield to it rather than
+  // racing a competing graph re-entry to the merge node.
+  it("recoverCompletedTask() yields to a scheduled workflow remediation bounce", async () => {
+    const store = createMockStore({
+      getTask: vi.fn().mockResolvedValue(makeTaskDetail("FN-7211", "in-review", {
+        worktree: "/tmp/wt/FN-7211",
+        steps: makeSteps("done"),
+      })),
+    });
+    const task = makeTask("FN-7211", "in-review", {
+      worktree: "/tmp/wt/FN-7211",
+      steps: makeSteps("done"),
+    });
+
+    const executor = new TaskExecutor(store, "/tmp/test");
+    vi.spyOn(executor as any, "captureModifiedFiles").mockResolvedValue([]);
+    const graphEntry = vi
+      .spyOn(executor as any, "maybeExecuteWorkflowGraph")
+      .mockResolvedValue(true);
+    // Simulate a bounce already scheduled for this task.
+    (executor as any).workflowRerunWatchdogs.set("FN-7211", setTimeout(() => {}, 0));
+
+    const recovered = await executor.recoverCompletedTask(task);
+
+    expect(recovered).toBe(false);
+    expect(graphEntry).not.toHaveBeenCalled();
+    clearTimeout((executor as any).workflowRerunWatchdogs.get("FN-7211"));
+  });
 });
 
 // ── Step 3: In-review merge re-queue tests ────────────────────────────────

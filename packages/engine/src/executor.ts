@@ -3720,6 +3720,36 @@ export class TaskExecutor {
         executorLog.log(`${task.id}: skipping recoverCompletedTask — task has active execution in flight`);
         return false;
       }
+
+      /*
+      FNXC:WorkflowOptionalStepFix 2026-06-28-12:00:
+      A pre-merge optional/advisory step REVISE (Code Review / Browser Verification) reopens
+      plan steps to `pending` and schedules a remediation bounce (sendTaskBackForFix →
+      scheduleWorkflowRerun) that moves the task in-review → todo → in-progress so the executor
+      can finish the reopened steps. Re-entering the workflow graph here while that bounce is
+      still scheduled — or while the live task already carries incomplete plan steps — preempts
+      the executor's single fix cycle: the re-run re-passes the advisory step (its fix budget is
+      now exhausted), advances to the `merge` node, and the merge gate refuses with
+      "task has incomplete steps" forever (observed on FN-7210; the FN-7122 bounce fix handled
+      the column race but not this competing graph re-entry). recoverCompletedTask only owns
+      tasks whose work is genuinely COMPLETE, so refuse re-entry when a remediation bounce is in
+      flight or the live task has non-terminal steps, and let the bounce / stale-incomplete-review
+      recovery re-launch execution instead.
+      */
+      if (this.workflowRerunWatchdogs.has(task.id) || this.workflowRerunPending.has(task.id)) {
+        executorLog.log(`${task.id}: skipping recoverCompletedTask — workflow remediation bounce already scheduled`);
+        return false;
+      }
+      const liveForCompletenessCheck = await this.store.getTask(task.id).catch(() => task);
+      if (
+        liveForCompletenessCheck
+        && (liveForCompletenessCheck.steps?.length ?? 0) > 0
+        && !this.isTaskWorkComplete(liveForCompletenessCheck)
+      ) {
+        executorLog.log(`${task.id}: skipping recoverCompletedTask — task has incomplete steps awaiting executor remediation`);
+        return false;
+      }
+
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) {
         executorLog.log(
