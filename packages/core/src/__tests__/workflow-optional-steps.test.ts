@@ -110,9 +110,9 @@ describe("resolveWorkflowOptionalSteps (optional-group nodes)", () => {
   });
 
   it("resolves the built-in coding/stepwise optional-groups in execution order", () => {
-    // Legacy/default/stepwise engineering workflows expose the same three toggles
+    // Legacy/default/stepwise engineering workflows expose the same toggles
     // in execution order: plan review before execution, then browser verification
-    // and code review after implementation.
+    // and code review after implementation, then post-merge verification after merge proof.
     const engineeringExpected = [
       {
         templateId: "plan-review",
@@ -134,6 +134,13 @@ describe("resolveWorkflowOptionalSteps (optional-group nodes)", () => {
         description: "",
         phase: "pre-merge" as const,
         defaultOn: true,
+      },
+      {
+        templateId: "post-merge-verification",
+        name: "Post-merge verification",
+        description: "",
+        phase: "post-merge" as const,
+        defaultOn: false,
       },
     ];
     expect(resolveWorkflowOptionalSteps(BUILTIN_CODING_WORKFLOW_IR)).toEqual(engineeringExpected);
