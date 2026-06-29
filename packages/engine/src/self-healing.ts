@@ -10381,10 +10381,10 @@ export class SelfHealingManager {
   }
 
   /**
-   * Recover triage tasks that already have an approved specification but were
+   * Recover triage tasks that already have a written specification but were
    * left stuck in `status: "planning"` without an active triage session.
    *
-   * This catches the mirror-image of executor recovery: the review completed,
+   * This catches the mirror-image of executor recovery: planning completed,
    * but the final transition to `todo` / `awaiting-approval` never happened.
    */
   async recoverApprovedTriageTasks(): Promise<number> {
@@ -10406,27 +10406,26 @@ export class SelfHealingManager {
         t.status === "planning" &&
         !t.paused &&
         !planningIds.has(t.id) &&
-        now - new Date(t.updatedAt).getTime() >= APPROVED_TRIAGE_RECOVERY_GRACE_MS &&
-        hasLatestSpecReviewApproval(t),
+        now - new Date(t.updatedAt).getTime() >= APPROVED_TRIAGE_RECOVERY_GRACE_MS
       );
 
       if (orphanedApproved.length === 0) return 0;
 
-      log.warn(`Found ${orphanedApproved.length} approved triage task(s) stuck in planning`);
+      log.warn(`Found ${orphanedApproved.length} specified triage task candidate(s) stuck in planning`);
 
       let recovered = 0;
       for (const task of orphanedApproved) {
-        log.log(`Recovering approved triage task ${task.id}: ${task.title || task.description?.slice(0, 60) || "(untitled)"}`);
+        log.log(`Recovering specified triage task ${task.id}: ${task.title || task.description?.slice(0, 60) || "(untitled)"}`);
         const success = await recoverFn(task);
         if (success) recovered++;
       }
 
       if (recovered > 0) {
-        log.log(`Recovered ${recovered} approved triage task(s) out of planning`);
+        log.log(`Recovered ${recovered} specified triage task(s) out of planning`);
       }
       return recovered;
     } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
-      log.error(`Approved triage recovery failed: ${errorMessage}`);
+      log.error(`Specified triage recovery failed: ${errorMessage}`);
       return 0;
     }
   }
@@ -10611,12 +10610,12 @@ export class SelfHealingManager {
 
   /**
    * Recover triage tasks stuck in `status: "planning"` whose agent session
-   * died before producing an approved spec.
+   * died before producing a recoverable spec.
    *
    * These tasks fall through two cracks:
    * - The stuck task detector only monitors tasks with active tracked sessions.
    *   If the session crashed or was never started, the task is never tracked.
-   * - `recoverApprovedTriageTasks` only handles tasks with an approved spec.
+   * - `recoverApprovedTriageTasks` only handles tasks with a valid written PROMPT.md.
    *
    * Recovery clears the status back to `null` so the next triage poll picks
    * them up for a fresh planning attempt.
@@ -10637,13 +10636,12 @@ export class SelfHealingManager {
         t.status === "planning" &&
         !t.paused &&
         !planningIds.has(t.id) &&
-        now - new Date(t.updatedAt).getTime() >= APPROVED_TRIAGE_RECOVERY_GRACE_MS &&
-        !hasLatestSpecReviewApproval(t),
+        now - new Date(t.updatedAt).getTime() >= APPROVED_TRIAGE_RECOVERY_GRACE_MS
       );
 
       if (orphaned.length === 0) return 0;
 
-      log.warn(`Found ${orphaned.length} orphaned planning triage task(s) without approval`);
+      log.warn(`Found ${orphaned.length} orphaned planning triage task(s) without a recoverable prompt`);
 
       let recovered = 0;
       for (const task of orphaned) {
@@ -11269,16 +11267,6 @@ export class SelfHealingManager {
       log.error(`Worktree cap enforcement failed: ${errorMessage}`);
     }
   }
-}
-
-function hasLatestSpecReviewApproval(task: Task): boolean {
-  for (let i = task.log.length - 1; i >= 0; i--) {
-    const action = task.log[i]?.action ?? "";
-    if (action.startsWith("Spec review: ")) {
-      return action === "Spec review: APPROVE";
-    }
-  }
-  return false;
 }
 
 function isTaskWorkComplete(task: Task): boolean {

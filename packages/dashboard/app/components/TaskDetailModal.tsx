@@ -933,7 +933,7 @@ export function TaskDetailContent({
   // Workflow results state
   const [workflowResults, setWorkflowResults] = useState<WorkflowStepResult[]>([]);
   const [workflowResultsLoading, setWorkflowResultsLoading] = useState(false);
-  const [workflowEnabledSteps, setWorkflowEnabledSteps] = useState<string[]>(task.enabledWorkflowSteps || []);
+  const [workflowEnabledSteps, setWorkflowEnabledSteps] = useState<string[] | undefined>(task.enabledWorkflowSteps);
   const isNodeOverrideLocked = task.column === "in-progress" || ACTIVE_STATUSES.has(task.status as string);
 
   // Reset edit state when task changes
@@ -956,7 +956,7 @@ export function TaskDetailContent({
   }, [task.id, task.title, task.description, task.branch, task.baseBranch, task.sourceIssue, task.executionMode, workingTask.githubTracking]);
 
   useEffect(() => {
-    setWorkflowEnabledSteps(task.enabledWorkflowSteps || []);
+    setWorkflowEnabledSteps(task.enabledWorkflowSteps);
   }, [task.id, task.enabledWorkflowSteps]);
 
   useEffect(() => {

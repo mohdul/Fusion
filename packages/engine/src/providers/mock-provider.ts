@@ -208,11 +208,7 @@ const DEFAULT_SCRIPTS: Record<MockSessionPurpose, MockScript> = {
         await mkdir(join(projectRoot, ".fusion", "tasks", taskId), { recursive: true });
         await writeFile(promptPath, content, "utf8");
       }
-      if (ctx.tools.some((tool) => tool.name === "fn_review_spec")) {
-        await ctx.invokeTool("fn_review_spec", {});
-      } else {
-        ctx.options.onText?.("APPROVE");
-      }
+      ctx.options.onText?.("Mock triage wrote PROMPT.md; workflow Plan Review owns optional approval.");
     },
   },
   reviewer: {

@@ -330,7 +330,8 @@ describe("workflow routes (U4)", () => {
     expect(detail.enabledWorkflowSteps ?? []).toHaveLength(0);
 
     const read = await get(`/api/tasks/${task.id}/workflow`);
-    expect((read.body as { workflowId: string }).workflowId).toBe(wfId);
+    expect((read.body as { workflowId: string; enabledWorkflowSteps: string[] }).workflowId).toBe(wfId);
+    expect((read.body as { workflowId: string; enabledWorkflowSteps: string[] }).enabledWorkflowSteps).toEqual([]);
   });
 
   it("PUT /tasks/:taskId/workflow rejects an omitted workflowId but clears on explicit null", async () => {
@@ -353,6 +354,7 @@ describe("workflow routes (U4)", () => {
     expect((cleared.body as { workflowId: string | null }).workflowId).toBeNull();
     const read = await get(`/api/tasks/${task.id}/workflow`);
     expect((read.body as { workflowId: string | null }).workflowId).toBeNull();
+    expect((read.body as { workflowId: string | null; enabledWorkflowSteps: string[] | null }).enabledWorkflowSteps).toBeNull();
   });
 
   it.each([123, true, {}, []])(

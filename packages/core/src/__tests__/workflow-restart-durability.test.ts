@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { BUILTIN_CODING_WORKFLOW_IR } from "../builtin-coding-workflow-ir.js";
+import { BUILTIN_STEPWISE_FINAL_REVIEW_CODING_WORKFLOW_IR } from "../builtin-stepwise-final-review-coding-workflow-ir.js";
 import type { TaskStore } from "../store.js";
 import type { WorkflowRunStepInstance } from "../types.js";
 import type { WorkflowIr } from "../workflow-ir-types.js";
@@ -233,20 +234,20 @@ describe("workflow restart durability for explicit selections", () => {
 
   // FNXC:WorkflowStepCRUD 2026-06-26-14:00: U7c — explicit selection of an
   // interpreter-deferred builtin now seeds its DEFAULT-ON optional-group ids (here
-  // `code-review`), consistent with the create-time selection path. (The pre-U7c
+  // `plan-review` and `code-review`), consistent with the create-time selection path. (The pre-U7c
   // selectTaskWorkflow returned [] for this case — an inconsistency with create-time
   // seeding — because it only returned materialized step ids, which no longer exist.)
   it("persists interpreter-deferred builtin selection seeding its default-on group across restart", async () => {
     const task = await store().createTask({ description: "builtin selection", enabledWorkflowSteps: [] });
 
-    await expect(store().selectTaskWorkflow(task.id, "builtin:coding")).resolves.toEqual(["code-review"]);
+    await expect(store().selectTaskWorkflow(task.id, "builtin:coding")).resolves.toEqual(["plan-review", "code-review"]);
 
     await reopenAsDiskBackedStore();
 
-    expect(store().getTaskWorkflowSelection(task.id)).toEqual({ workflowId: "builtin:coding", stepIds: ["code-review"] });
-    expect((await store().getTask(task.id)).enabledWorkflowSteps ?? []).toEqual(["code-review"]);
-    expect((await taskJsonEnabledWorkflowSteps(task.id)) ?? []).toEqual(["code-review"]);
-    expect(privateStore().resolveTaskWorkflowIrSync(task.id)).toEqual(BUILTIN_CODING_WORKFLOW_IR);
+    expect(store().getTaskWorkflowSelection(task.id)).toEqual({ workflowId: "builtin:coding", stepIds: ["plan-review", "code-review"] });
+    expect((await store().getTask(task.id)).enabledWorkflowSteps ?? []).toEqual(["plan-review", "code-review"]);
+    expect((await taskJsonEnabledWorkflowSteps(task.id)) ?? []).toEqual(["plan-review", "code-review"]);
+    expect(privateStore().resolveTaskWorkflowIrSync(task.id)).toEqual(BUILTIN_STEPWISE_FINAL_REVIEW_CODING_WORKFLOW_IR);
   });
 
   it("persists create-time workflowId selections for custom and builtin workflows across restart", async () => {
@@ -257,9 +258,9 @@ describe("workflow restart durability for explicit selections", () => {
     const customSelectionBefore = store().getTaskWorkflowSelection(customTask.id);
     expect(customSelectionBefore?.workflowId).toBe(workflow.id);
     expect(customSelectionBefore?.stepIds).toEqual(["review-group"]);
-    // FNXC:CodeReviewStep — builtin:coding carries the DEFAULT-ON `code-review`
-    // optional-group, so the create-time workflowId path seeds it into the selection.
-    expect(store().getTaskWorkflowSelection(builtinTask.id)).toEqual({ workflowId: "builtin:coding", stepIds: ["code-review"] });
+    // FNXC:PlanReview 2026-06-29-01:52:
+    // builtin:coding carries DEFAULT-ON `plan-review` and `code-review` optional groups, so the create-time workflowId path seeds both into the selection.
+    expect(store().getTaskWorkflowSelection(builtinTask.id)).toEqual({ workflowId: "builtin:coding", stepIds: ["plan-review", "code-review"] });
 
     await reopenAsDiskBackedStore();
 
@@ -267,9 +268,9 @@ describe("workflow restart durability for explicit selections", () => {
     expect(customSelection).toEqual(customSelectionBefore);
     expect((await store().getTask(customTask.id)).enabledWorkflowSteps).toEqual(customSelectionBefore?.stepIds);
     expect(await taskJsonEnabledWorkflowSteps(customTask.id)).toEqual(customSelectionBefore?.stepIds);
-    expect(store().getTaskWorkflowSelection(builtinTask.id)).toEqual({ workflowId: "builtin:coding", stepIds: ["code-review"] });
-    expect((await store().getTask(builtinTask.id)).enabledWorkflowSteps ?? []).toEqual(["code-review"]);
-    expect((await taskJsonEnabledWorkflowSteps(builtinTask.id)) ?? []).toEqual(["code-review"]);
+    expect(store().getTaskWorkflowSelection(builtinTask.id)).toEqual({ workflowId: "builtin:coding", stepIds: ["plan-review", "code-review"] });
+    expect((await store().getTask(builtinTask.id)).enabledWorkflowSteps ?? []).toEqual(["plan-review", "code-review"]);
+    expect((await taskJsonEnabledWorkflowSteps(builtinTask.id)) ?? []).toEqual(["plan-review", "code-review"]);
   });
 
   it("fails closed when a selected custom workflow definition is missing without corrupting the dangling selection", async () => {

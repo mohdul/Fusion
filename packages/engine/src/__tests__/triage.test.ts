@@ -721,13 +721,10 @@ describe("FN-5893 invariant regression wording", () => {
     }
   });
 
-  it("requires a Surface Enumeration section and proves missing sections are blocking REVISEs for bug-fix specs", () => {
-    const missingSectionRevisePattern =
-      /For bug fixes and UI-affordance add\/remove tasks, the spec MUST include a `## Surface Enumeration` section\. During self-review via `fn_review_spec\(\)`, treat a missing section on a bug-fix or UI-affordance add\/remove spec as a blocking REVISE\./;
-
+  it("requires a Surface Enumeration section and routes validation through workflow Plan Review", () => {
     for (const prompt of [TRIAGE_POLICY_PROMPT, FAST_PLANNING_PROMPT]) {
       expect(prompt).toContain("## Surface Enumeration");
-      expect(prompt).toMatch(missingSectionRevisePattern);
+      expect(prompt).toContain("workflow Plan Review");
       expect(prompt).toContain("docs/testing.md");
       expect(prompt).toContain("duplicate / populated data states");
       expect(prompt).toContain("shared hooks/components/modules/helpers");
@@ -740,7 +737,7 @@ describe("FN-5893 invariant regression wording", () => {
 
     expect(corePromptSource).toContain("## Surface Enumeration");
     expect(corePromptSource).toContain("spec MUST include a \\`## Surface Enumeration\\` section");
-    expect(corePromptSource).toContain("blocking REVISE");
+    expect(corePromptSource).toContain("workflow Plan Review");
     expect(corePromptSource).toContain("docs/testing.md");
     expect(corePromptSource).toContain("duplicate / populated data states");
     expect(corePromptSource).toContain("shared hooks/components/modules/helpers");
@@ -800,7 +797,8 @@ describe("fast-mode triage", () => {
     expect(typeof FAST_PLANNING_PROMPT).toBe("string");
     expect(FAST_PLANNING_PROMPT.length).toBeGreaterThan(0);
     expect(FAST_PLANNING_PROMPT).toContain("This task is running in **fast mode**");
-    expect(FAST_PLANNING_PROMPT).toContain("fn_review_spec()");
+    expect(FAST_PLANNING_PROMPT).toContain("workflow Plan Review");
+    expect(FAST_PLANNING_PROMPT).toContain("Do not call `fn_review_spec()`");
     expect(FAST_PLANNING_PROMPT).not.toContain("## Review Level");
     expect(FAST_PLANNING_PROMPT).not.toContain("## Triage subtask breakdown");
     expect(FAST_PLANNING_PROMPT).not.toContain("## Proactive Subtask Breakdown");
@@ -974,116 +972,7 @@ describe("fast-mode triage", () => {
     expect(capturedSystemPrompt).toContain("## Plugin: plugin-fast");
   });
 
-  it("auto-approves fn_review_spec in fast mode without calling reviewer", async () => {
-    const rootDir = await createTriageFixtureRoot("fusion-triage-fast-review-");
-    try {
-      const taskId = "FN-FAST-003";
-      await mkdir(join(rootDir, ".fusion", "tasks", taskId), { recursive: true });
-      await writeFile(join(rootDir, ".fusion", "tasks", taskId, "PROMPT.md"), "# Task\n\nSpec");
-
-      const store = createMockStore({
-        getTask: vi.fn().mockResolvedValue({ ...mockTaskDetail, id: taskId, comments: [] }),
-      });
-      const processor = new TriageProcessor(store, rootDir);
-      const verdictRef = { current: null as any };
-      const approvedCommentFingerprintRef = { current: "" };
-
-      const tool = (processor as any).createReviewSpecTool(
-        taskId,
-        `.fusion/tasks/${taskId}/PROMPT.md`,
-        { current: null },
-        { current: null },
-        verdictRef,
-        approvedCommentFingerprintRef,
-        {},
-        true,
-      );
-
-      const result = await tool.execute({});
-
-      expect(mockReviewStep).not.toHaveBeenCalled();
-      expect(verdictRef.current).toBe("APPROVE");
-      expect(result.content[0]?.text).toBe("APPROVE");
-      expect(store.logEntry).toHaveBeenCalledWith(taskId, "Spec review: APPROVE (auto-approve spec)");
-    } finally {
-      await cleanupTriageFixtureRoot(rootDir);
-    }
-  });
-
-  it("threads global fallback model settings into spec reviewer sessions", async () => {
-    const rootDir = await createTriageFixtureRoot("fusion-triage-review-fallback-");
-    try {
-      const taskId = "FN-REVIEW-FALLBACK";
-      await mkdir(join(rootDir, ".fusion", "tasks", taskId), { recursive: true });
-      await writeFile(
-        join(rootDir, ".fusion", "tasks", taskId, "PROMPT.md"),
-        "# Task\n\n## Mission\n\nDo the work.\n\n## Steps\n\n### Step 0: Implement\n\nShip it.",
-      );
-      mockReviewStep.mockResolvedValue({ verdict: "APPROVE", review: "ok", summary: "ok" });
-
-      const store = createMockStore({
-        getTask: vi.fn().mockResolvedValue({
-          ...mockTaskDetail,
-          id: taskId,
-          comments: [],
-          modelProvider: "task-executor-provider",
-          modelId: "task-executor-model",
-          validatorModelProvider: "task-reviewer-provider",
-          validatorModelId: "task-reviewer-model",
-        }),
-        getSettings: vi.fn().mockResolvedValue({
-          maxConcurrent: 2,
-          maxWorktrees: 4,
-          pollIntervalMs: 10000,
-          groupOverlappingFiles: false,
-          autoMerge: true,
-          defaultProvider: "anthropic",
-          defaultModelId: "claude-opus-4-8",
-          defaultProviderOverride: "openai-codex",
-          defaultModelIdOverride: "gpt-5.5",
-          fallbackProvider: "openai-codex",
-          fallbackModelId: "gpt-5.5",
-          memoryEnabled: false,
-          agentPrompts: { roleAssignments: { reviewer: "custom-reviewer" } },
-        } as Settings),
-      });
-      const processor = new TriageProcessor(store, rootDir);
-      const tool = (processor as any).createReviewSpecTool(
-        taskId,
-        `.fusion/tasks/${taskId}/PROMPT.md`,
-        { current: null },
-        { current: null },
-        { current: null },
-        { current: "" },
-        {},
-        false,
-      );
-
-      await tool.execute({});
-
-      const reviewOptions = mockReviewStep.mock.calls[0]?.[7];
-      expect(reviewOptions).toMatchObject({
-        taskValidatorProvider: "task-reviewer-provider",
-        taskValidatorModelId: "task-reviewer-model",
-        projectDefaultOverrideProvider: "openai-codex",
-        projectDefaultOverrideModelId: "gpt-5.5",
-        fallbackProvider: "openai-codex",
-        fallbackModelId: "gpt-5.5",
-        agentPrompts: { roleAssignments: { reviewer: "custom-reviewer" } },
-      });
-      expect(reviewOptions.taskValidatorProvider).not.toBe("task-executor-provider");
-      expect(reviewOptions.taskValidatorModelId).not.toBe("task-executor-model");
-      expect(reviewOptions.settings).toMatchObject({
-        memoryEnabled: false,
-        agentPrompts: { roleAssignments: { reviewer: "custom-reviewer" } },
-      });
-    } finally {
-      mockReviewStep.mockReset();
-      await cleanupTriageFixtureRoot(rootDir);
-    }
-  });
-
-  it("passes post-session gate in fast mode after fn_review_spec auto-approval", async () => {
+  it("finalizes fast planning without exposing a separate spec-review tool", async () => {
     const rootDir = await createTriageFixtureRoot("fusion-triage-fast-gate-");
     try {
       const task = createTriageTask({ id: "FN-FAST-004", executionMode: "fast" });
@@ -1125,10 +1014,8 @@ describe("fast-mode triage", () => {
         expect(capturedTools.some((tool: any) => tool.name === "fn_research_list")).toBe(true);
         expect(capturedTools.some((tool: any) => tool.name === "fn_research_get")).toBe(true);
         expect(capturedTools.some((tool: any) => tool.name === "fn_research_cancel")).toBe(true);
+        expect(capturedTools.some((tool: any) => tool.name === "fn_review_spec")).toBe(false);
         await writeFile(promptPath, "# Task: FN-FAST-004 - Fast\n\n## Mission\n\nShip it.");
-        const reviewTool = capturedTools.find((tool) => tool.name === "fn_review_spec");
-        expect(reviewTool).toBeDefined();
-        await reviewTool.execute({});
       });
 
       const processor = new TriageProcessor(store, rootDir);
@@ -1136,7 +1023,6 @@ describe("fast-mode triage", () => {
 
       expect(mockReviewStep).not.toHaveBeenCalled();
       expect(store.moveTask).toHaveBeenCalledWith("FN-FAST-004", "todo");
-      expect(store.logEntry).toHaveBeenCalledWith("FN-FAST-004", "Spec review: APPROVE (auto-approve spec)");
     } finally {
       await cleanupTriageFixtureRoot(rootDir);
     }
@@ -1528,29 +1414,11 @@ describe("TriageProcessor", () => {
     });
   });
 
-  it("re-reads settings when review_spec runs so reviewer uses the latest validator model", async () => {
+  it("runs deterministic validation without calling the spec reviewer", async () => {
     const taskId = "FN-001";
-    const testRootDir = await createTriageFixtureRoot("fusion-triage-review-spec-");
+    const testRootDir = await createTriageFixtureRoot("fusion-triage-plan-validation-");
     try {
-      const promptPath = `.fusion/tasks/${taskId}/PROMPT.md`;
-      const taskDir = join(testRootDir, ".fusion", "tasks", taskId);
-      await mkdir(taskDir, { recursive: true });
-      await writeFile(join(taskDir, "PROMPT.md"), "# Spec\n\nCurrent prompt");
-
-      const freshSettings: Settings = {
-        maxConcurrent: 2,
-        maxWorktrees: 4,
-        pollIntervalMs: 10000,
-        groupOverlappingFiles: false,
-        autoMerge: true,
-        defaultProvider: "openai-codex",
-        defaultModelId: "gpt-5.4",
-        validatorProvider: "zai",
-        validatorModelId: "glm-5.1",
-      };
-
       store = createMockStore({
-        getSettings: vi.fn().mockResolvedValue(freshSettings),
         getTask: vi.fn().mockResolvedValue({
           ...mockTaskDetail,
           id: taskId,
@@ -1559,46 +1427,13 @@ describe("TriageProcessor", () => {
       });
       processor = new TriageProcessor(store, testRootDir);
 
-      mockReviewStep.mockResolvedValue({
-        verdict: "APPROVE",
-        review: "Looks good.",
-        summary: "approved",
-      });
-
-      const tool = (processor as any).createReviewSpecTool(
+      const failure = await (processor as any).validateGeneratedPrompt(
         taskId,
-        promptPath,
-        { current: null },
-        { current: null },
-        { current: null },
-        {
-          defaultProvider: "anthropic",
-          defaultModelId: "claude-opus-4-6",
-          projectValidatorProvider: "anthropic",
-          projectValidatorModelId: "claude-opus-4-6",
-        },
-        false,
+        "# Spec\n\n## Mission\n\nCurrent prompt",
       );
 
-      await tool.execute({});
-
-      expect(store.getSettings).toHaveBeenCalled();
-      expect(mockReviewStep).toHaveBeenCalledWith(
-        testRootDir,
-        taskId,
-        0,
-        "Specification",
-        "spec",
-        "# Spec\n\nCurrent prompt",
-        undefined,
-        expect.objectContaining({
-          defaultProvider: "openai-codex",
-          defaultModelId: "gpt-5.4",
-          projectValidatorProvider: "zai",
-          projectValidatorModelId: "glm-5.1",
-          userComments: undefined,
-        }),
-      );
+      expect(failure).toBeNull();
+      expect(mockReviewStep).not.toHaveBeenCalled();
     } finally {
       await cleanupTriageFixtureRoot(testRootDir);
     }
@@ -1856,7 +1691,7 @@ describe("requirePlanApproval setting", () => {
   });
 });
 
-describe("approved triage recovery", () => {
+describe("specified triage recovery", () => {
   let rootDir = "";
 
   beforeEach(async () => {
@@ -1914,7 +1749,7 @@ describe("approved triage recovery", () => {
     expect(store.moveTask).toHaveBeenCalledWith("FN-001", "todo");
     expect(store.logEntry).toHaveBeenCalledWith(
       "FN-001",
-      "Auto-recovered approved specification stuck in planning — moved to todo",
+      "Auto-recovered specified task stuck in planning — moved to todo",
     );
   });
 
@@ -2203,7 +2038,7 @@ Forbidden paths / non-goals:
     });
     expect(store.logEntry).toHaveBeenCalledWith(
       "FN-001",
-      "Auto-recovered approved specification stuck in planning — awaiting manual approval",
+      "Auto-recovered specified task stuck in planning — awaiting manual approval",
     );
   });
 });
@@ -2723,7 +2558,7 @@ describe("taskCreate tool model inheritance", () => {
   });
 
   describe("bounded recovery retries for triage", () => {
-    it("requeues triage with backoff when the agent exits without calling fn_review_spec", async () => {
+    it("requeues triage with backoff when the agent exits without writing PROMPT.md", async () => {
       const task = {
         id: "FN-202",
         description: "Test triage task",
@@ -2768,7 +2603,7 @@ describe("taskCreate tool model inheritance", () => {
       }));
       expect(store.logEntry).toHaveBeenCalledWith(
         "FN-202",
-        expect.stringContaining("Spec review not approved (fn_review_spec was never called)"),
+        expect.stringContaining("Generated plan failed deterministic validation (PROMPT.md file not found or empty)"),
       );
     });
 
@@ -3644,104 +3479,6 @@ describe("stale approval detection", () => {
     expect(fp1).toBe(fp2);
   });
 
-  it("captures fingerprint on fn_review_spec APPROVE", async () => {
-    const taskId = "FN-CAP";
-    const taskDir = join(rootDir, ".fusion", "tasks", taskId);
-    await mkdir(taskDir, { recursive: true });
-    await writeFile(join(taskDir, "PROMPT.md"), "# Spec\n\nCurrent prompt");
-
-    const comments = [
-      { id: "c1", text: "Feedback", author: "user", createdAt: "2026-01-01T00:00:00.000Z" },
-    ];
-
-    const store = createMockStore({
-      getSettings: vi.fn().mockResolvedValue({
-        maxConcurrent: 2,
-        maxWorktrees: 4,
-        pollIntervalMs: 10000,
-        groupOverlappingFiles: false,
-        autoMerge: true,
-      } as Settings),
-      getTask: vi.fn().mockResolvedValue({
-        ...mockTaskDetail,
-        id: taskId,
-        comments,
-      }),
-    });
-
-    const processor = new TriageProcessor(store, rootDir);
-
-    mockReviewStep.mockResolvedValue({
-      verdict: "APPROVE",
-      review: "Looks good.",
-      summary: "approved",
-    });
-
-    const approvedCommentFingerprintRef = { current: "" };
-    const tool = (processor as any).createReviewSpecTool(
-      taskId,
-      `.fusion/tasks/${taskId}/PROMPT.md`,
-      { current: null },
-      { current: null },
-      { current: null },
-      approvedCommentFingerprintRef,
-      {},
-      false,
-    );
-
-    // Execute fn_review_spec — should capture fingerprint at APPROVE time
-    await tool.execute({});
-
-    // Verify fingerprint was captured from the user comments at approval time
-    expect(approvedCommentFingerprintRef.current).toBe("c1");
-  });
-
-  it("fingerprint is empty string when fn_review_spec returns REVISE (no capture)", async () => {
-    const taskId = "FN-REV";
-    const taskDir = join(rootDir, ".fusion", "tasks", taskId);
-    await mkdir(taskDir, { recursive: true });
-    await writeFile(join(taskDir, "PROMPT.md"), "# Spec\n\nCurrent prompt");
-
-    const store = createMockStore({
-      getSettings: vi.fn().mockResolvedValue({
-        maxConcurrent: 2,
-        maxWorktrees: 4,
-        pollIntervalMs: 10000,
-        groupOverlappingFiles: false,
-        autoMerge: true,
-      } as Settings),
-      getTask: vi.fn().mockResolvedValue({
-        ...mockTaskDetail,
-        id: taskId,
-        comments: [],
-      }),
-    });
-
-    const processor = new TriageProcessor(store, rootDir);
-
-    mockReviewStep.mockResolvedValue({
-      verdict: "REVISE",
-      review: "Fix the spec.",
-      summary: "needs work",
-    });
-
-    const approvedCommentFingerprintRef = { current: "" };
-    const tool = (processor as any).createReviewSpecTool(
-      taskId,
-      `.fusion/tasks/${taskId}/PROMPT.md`,
-      { current: null },
-      { current: null },
-      { current: null },
-      approvedCommentFingerprintRef,
-      {},
-      false,
-    );
-
-    await tool.execute({});
-
-    // Fingerprint should NOT be captured on REVISE
-    expect(approvedCommentFingerprintRef.current).toBe("");
-  });
 });
 
 describe("pause-abort status clearing (bug fix)", () => {

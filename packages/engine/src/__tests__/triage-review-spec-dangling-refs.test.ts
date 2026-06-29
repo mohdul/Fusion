@@ -1,17 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { TaskStore, TaskDetail, Settings } from "@fusion/core";
 import { TriageProcessor } from "../triage.js";
-
-const { mockReviewStep } = vi.hoisted(() => ({
-  mockReviewStep: vi.fn(),
-}));
-
-vi.mock("../reviewer.js", () => ({
-  reviewStep: mockReviewStep,
-}));
 
 vi.mock("@fusion/core", async (importOriginal) => {
   const { createEngineCoreMock } = await import("../test/mockCore.js");
@@ -65,74 +57,40 @@ const mockTaskDetail: TaskDetail = {
   comments: [],
 };
 
-describe("triage fn_review_spec dangling references", () => {
-  it("short-circuits to REVISE without invoking reviewer", async () => {
+describe("triage deterministic plan validation for dangling references", () => {
+  it("rejects dangling task-document references without invoking reviewer", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "fusion-triage-dangling-"));
     try {
       const taskId = "FN-5112";
-      const promptPath = `.fusion/tasks/${taskId}/PROMPT.md`;
-      await mkdir(join(rootDir, ".fusion", "tasks", taskId), { recursive: true });
-      await writeFile(join(rootDir, promptPath), "## Steps\n### Step 0: Preflight\n- Read .fusion/tasks/FN-5112/notes.md\n");
-
       const store = createMockStore({
         getTask: vi.fn().mockResolvedValue({ ...mockTaskDetail, id: taskId }),
       });
-
       const processor = new TriageProcessor(store, rootDir);
-      const verdictRef = { current: null as any };
-      const tool = (processor as any).createReviewSpecTool(
+      const failure = await (processor as any).validateGeneratedPrompt(
         taskId,
-        promptPath,
-        { current: null },
-        { current: null },
-        verdictRef,
-        { current: "" },
-        {},
-        false,
+        "## Steps\n### Step 0: Preflight\n- Read .fusion/tasks/FN-5112/notes.md\n",
       );
 
-      const result = await tool.execute({});
-      expect(String(result.content[0]?.text)).toContain("REVISE");
-      expect(String(result.content[0]?.text)).toContain("notes.md");
-      expect(verdictRef.current).toBe("REVISE");
-      expect(mockReviewStep).not.toHaveBeenCalled();
+      expect(failure).toContain("notes.md");
     } finally {
       await rm(rootDir, { recursive: true, force: true });
     }
   });
 
-  it("falls through to reviewer when referenced file is declared as new artifact", async () => {
+  it("passes when referenced file is declared as new artifact", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "fusion-triage-dangling-ok-"));
     try {
       const taskId = "FN-5112";
-      const promptPath = `.fusion/tasks/${taskId}/PROMPT.md`;
-      await mkdir(join(rootDir, ".fusion", "tasks", taskId), { recursive: true });
-      await writeFile(
-        join(rootDir, promptPath),
-        "## Steps\n### Step 1: Create\n- Read .fusion/tasks/FN-5112/notes.md\n\n**Artifacts:**\n- `.fusion/tasks/FN-5112/notes.md` (new)\n",
-      );
-
-      mockReviewStep.mockResolvedValueOnce({ verdict: "APPROVE", summary: "ok", review: "" });
       const store = createMockStore({
         getTask: vi.fn().mockResolvedValue({ ...mockTaskDetail, id: taskId }),
       });
       const processor = new TriageProcessor(store, rootDir);
-      const verdictRef = { current: null as any };
-      const tool = (processor as any).createReviewSpecTool(
+      const failure = await (processor as any).validateGeneratedPrompt(
         taskId,
-        promptPath,
-        { current: null },
-        { current: null },
-        verdictRef,
-        { current: "" },
-        {},
-        false,
+        "## Steps\n### Step 1: Create\n- Read .fusion/tasks/FN-5112/notes.md\n\n**Artifacts:**\n- `.fusion/tasks/FN-5112/notes.md` (new)\n",
       );
 
-      const result = await tool.execute({});
-      expect(result.content[0]?.text).toBe("APPROVE");
-      expect(verdictRef.current).toBe("APPROVE");
-      expect(mockReviewStep).toHaveBeenCalledTimes(1);
+      expect(failure).toBeNull();
     } finally {
       await rm(rootDir, { recursive: true, force: true });
     }

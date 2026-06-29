@@ -488,7 +488,11 @@ export function buildStepPrompt(
     );
   }
 
-  parts.push("After completing this step, commit your changes and call fn_task_done(). Do NOT proceed to subsequent steps.");
+  /*
+   * FNXC:WorkflowStepControl 2026-06-29-01:52:
+   * Graph-owned step execution must not ask the per-step worker to operate board lifecycle tools. Step sessions do not receive fn_task_done; they finish the scoped step and return so the workflow graph can mark the step done or route review/rework.
+   */
+  parts.push("After completing this step, commit your changes, then stop. Do NOT call task lifecycle tools and do NOT proceed to subsequent steps; the workflow graph records completion.");
 
   return parts.join("\n");
 }
@@ -616,7 +620,7 @@ export function buildReducedStepPrompt(taskDetail: TaskDetail, stepIndex: number
     "IMPORTANT: Your previous attempt hit the context window limit.",
     "Do NOT repeat work that's already been done.",
     "Check git status and git log to see what's been committed.",
-    "Complete the remaining work and call fn_task_done().",
+    "Complete the remaining step work, commit your changes, then stop. The workflow graph records completion.",
   ];
 
   return parts.join("\n").replace(/\n{3,}/g, "\n\n"); // Collapse multiple blank lines

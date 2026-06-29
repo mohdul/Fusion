@@ -331,6 +331,7 @@ export function WorkflowResultsTab({
   const [boardWorkflowFallbackId, setBoardWorkflowFallbackId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
+  const [selectedWorkflowStepIds, setSelectedWorkflowStepIds] = useState<string[] | null | undefined>(undefined);
   const [resumeError, setResumeError] = useState<string | null>(null);
   const [graphExpanded, setGraphExpanded] = useState(false);
   const [workflowGraphCache, setWorkflowGraphCache] = useState<Record<string, WorkflowDefinition>>({});
@@ -355,12 +356,19 @@ export function WorkflowResultsTab({
     Task-detail hosts can keep WorkflowResultsTab mounted while switching tasks. Clear the previous explicit selection before the new task selection fetch resolves (or fails) so default-inherited tasks use boardWorkflowFallbackId for the summary, graph fetch, and configured step details instead of a stale custom workflow from the prior task.
     */
     setSelectedWorkflowId(null);
+    setSelectedWorkflowStepIds(undefined);
     fetchTaskWorkflow(taskId, projectId)
       .then((res) => {
-        if (!cancelled) setSelectedWorkflowId(res.workflowId);
+        if (!cancelled) {
+          setSelectedWorkflowId(res.workflowId);
+          setSelectedWorkflowStepIds(Array.isArray(res.enabledWorkflowSteps) ? res.enabledWorkflowSteps : null);
+        }
       })
       .catch(() => {
-        if (!cancelled) setSelectedWorkflowId(null);
+        if (!cancelled) {
+          setSelectedWorkflowId(null);
+          setSelectedWorkflowStepIds(null);
+        }
       });
     return () => {
       cancelled = true;
@@ -371,6 +379,7 @@ export function WorkflowResultsTab({
     async (workflowId: string | null) => {
       const res = await selectTaskWorkflow(taskId, workflowId, projectId);
       setSelectedWorkflowId(res.workflowId);
+      setSelectedWorkflowStepIds(res.enabledWorkflowSteps);
       onWorkflowStepsChange?.(res.enabledWorkflowSteps);
       /*
       FNXC:CustomWorkflows 2026-06-17-07:21:
@@ -497,13 +506,18 @@ export function WorkflowResultsTab({
     };
   }, [effectiveWorkflowId, projectId]);
 
-  const selectedWorkflowSteps = enabledWorkflowSteps ?? [];
+  const selectedWorkflowSteps = enabledWorkflowSteps ?? (Array.isArray(selectedWorkflowStepIds) ? selectedWorkflowStepIds : []);
+  const hasExplicitWorkflowStepSelection = enabledWorkflowSteps !== undefined || Array.isArray(selectedWorkflowStepIds);
+  const canSynthesizeDefaultOnWorkflowSteps = enabledWorkflowSteps !== undefined || selectedWorkflowStepIds !== undefined;
   /*
   FNXC:TaskWorkflowDetails 2026-06-28-12:10:
   The configured-steps panel is read-only status truth for non-editable in-progress tasks, so it must show the effective enabled optional steps: persisted task ids plus workflow optional-group ids marked `defaultOn`. Keep edit-mode controls bound to the persisted ids so toggling a default-on step writes only the explicit task override set.
 
   FNXC:TaskWorkflowDetails 2026-06-28-12:34:
   Persisted enabledWorkflowSteps can store a materialized workflow-step id while optional groups resolve by templateId. Treat those ids as aliases when appending defaultOn steps so the configured panel does not count the same optional step twice.
+
+  FNXC:TaskWorkflowDetails 2026-06-29-01:31:
+  An explicit empty optional-step selection means the operator disabled every optional group at create time. Do not append default-on Plan Review / Code Review in that case; only synthesize default-on display steps when no explicit task or workflow-selection step list exists.
   */
   const effectiveEnabledStepIds = useMemo(() => {
     const stepIds = [...selectedWorkflowSteps];
@@ -515,13 +529,15 @@ export function WorkflowResultsTab({
         if (workflowStep.templateId) seen.add(workflowStep.templateId);
       }
     }
-    for (const step of optionalWorkflowSteps) {
-      if (!step.defaultOn || seen.has(step.templateId)) continue;
-      seen.add(step.templateId);
-      stepIds.push(step.templateId);
+    if (!hasExplicitWorkflowStepSelection && canSynthesizeDefaultOnWorkflowSteps) {
+      for (const step of optionalWorkflowSteps) {
+        if (!step.defaultOn || seen.has(step.templateId)) continue;
+        seen.add(step.templateId);
+        stepIds.push(step.templateId);
+      }
     }
     return stepIds;
-  }, [allWorkflowSteps, optionalWorkflowSteps, selectedWorkflowSteps]);
+  }, [allWorkflowSteps, canSynthesizeDefaultOnWorkflowSteps, hasExplicitWorkflowStepSelection, optionalWorkflowSteps, selectedWorkflowSteps]);
 
   const workflowStepOptions = useMemo<WorkflowStepOption[]>(() => {
     const options: WorkflowStepOption[] = allWorkflowSteps.map((step) => ({

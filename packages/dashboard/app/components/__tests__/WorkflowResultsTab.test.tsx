@@ -827,7 +827,7 @@ describe("WorkflowResultsTab", () => {
     expect(screen.queryByTestId("workflow-configured-steps")).not.toBeInTheDocument();
   });
 
-  it("shows default-on optional steps for in-progress tasks without persisted workflow steps", async () => {
+  it("shows default-on optional steps for in-progress tasks without any explicit workflow step selection", async () => {
     mockedFetchWorkflowOptionalSteps.mockResolvedValueOnce([
       {
         templateId: "browser-verification",
@@ -844,7 +844,6 @@ describe("WorkflowResultsTab", () => {
         results={[]}
         canEdit={false}
         isTaskInProgress
-        enabledWorkflowSteps={[]}
       />,
     );
 
@@ -853,6 +852,40 @@ describe("WorkflowResultsTab", () => {
     expect(screen.getByTestId("workflow-configured-step-browser-verification")).toHaveTextContent("Browser Verification");
     expect(screen.getByTestId("workflow-configured-count")).toHaveTextContent("1 step");
     expect(screen.queryByTestId("workflow-results-empty")).not.toBeInTheDocument();
+  });
+
+  it("does not show default-on optional steps when workflow selection explicitly has no enabled steps", async () => {
+    mockedFetchTaskWorkflow.mockResolvedValueOnce({ workflowId: "builtin:coding", enabledWorkflowSteps: [] });
+    mockedFetchWorkflowOptionalSteps.mockResolvedValueOnce([
+      {
+        templateId: "plan-review",
+        name: "Plan Review",
+        description: "",
+        phase: "pre-merge",
+        defaultOn: true,
+      },
+      {
+        templateId: "code-review",
+        name: "Code Review",
+        description: "",
+        phase: "pre-merge",
+        defaultOn: true,
+      },
+    ]);
+
+    render(
+      <WorkflowResultsTab
+        taskId="FN-001"
+        results={[]}
+        canEdit={false}
+        isTaskInProgress
+      />,
+    );
+
+    await waitFor(() => expect(mockedFetchWorkflowOptionalSteps).toHaveBeenCalled());
+    expect(screen.queryByTestId("workflow-configured-step-plan-review")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("workflow-configured-step-code-review")).not.toBeInTheDocument();
+    expect(screen.getByTestId("workflow-results-empty")).toBeInTheDocument();
   });
 
   it("de-duplicates persisted optional steps that are also default-on", async () => {
@@ -1380,7 +1413,7 @@ describe("WorkflowResultsTab", () => {
       expect(screen.queryByTestId("workflow-steps-editor")).not.toBeInTheDocument();
     });
 
-    it("keeps default-on optional steps display-only while editor toggles use persisted ids", async () => {
+    it("does not synthesize default-on optional steps when persisted ids are explicit", async () => {
       mockedFetchWorkflowOptionalSteps.mockResolvedValueOnce([
         {
           templateId: "browser-verification",
@@ -1403,7 +1436,8 @@ describe("WorkflowResultsTab", () => {
         />,
       );
 
-      expect(await screen.findByTestId("workflow-configured-step-browser-verification")).toHaveTextContent("Browser Verification");
+      await waitFor(() => expect(mockedFetchWorkflowOptionalSteps).toHaveBeenCalled());
+      expect(screen.queryByTestId("workflow-configured-step-browser-verification")).not.toBeInTheDocument();
       fireEvent.click(screen.getByTestId("workflow-steps-edit-toggle"));
 
       const defaultOnCheckbox = within(await screen.findByTestId("workflow-step-checkbox-browser-verification")).getByRole("checkbox") as HTMLInputElement;

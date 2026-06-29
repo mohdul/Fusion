@@ -81,7 +81,6 @@ import {
   extractRuntimeHint,
   resolvePlanningSessionModel,
 } from "./agent-session-helpers.js";
-import { reviewStep, type ReviewVerdict } from "./reviewer.js";
 import { mergeEffectiveSettings } from "./effective-settings.js";
 import { detectDanglingTaskDocReferences, formatDanglingDiagnostic } from "./spec-validation/task-document-references.js";
 import {
@@ -98,7 +97,7 @@ import {
 } from "./agent-instructions.js";
 import { buildPromptLayers, collapsePromptLayers } from "./prompt-layers.js";
 import { createFallbackModelObserver } from "./fallback-model-observer.js";
-import { planLog, reviewerLog, formatError } from "./logger.js";
+import { planLog, formatError } from "./logger.js";
 import { resolveMcpServersForStore } from "./mcp-resolution.js";
 import {
   isUsageLimitError,
@@ -529,7 +528,7 @@ export class TriageProcessor {
   }
 
   /**
-   * Recover a triage task whose spec was already approved but the final
+   * Recover a triage task whose PROMPT.md was already written but the final
    * handoff out of `status: "planning"` never completed.
    */
   async recoverApprovedTask(task: Task): Promise<boolean> {
@@ -538,11 +537,7 @@ export class TriageProcessor {
     }
 
     if (task.paused === true || task.userPaused === true) {
-      planLog.log(`${task.id} approved-spec recovery skipped — task is paused`);
-      return false;
-    }
-
-    if (!hasLatestSpecReviewApproval(task)) {
+      planLog.log(`${task.id} planning recovery skipped — task is paused`);
       return false;
     }
 
@@ -553,19 +548,25 @@ export class TriageProcessor {
     const promptPath = join(this.rootDir, ".fusion", "tasks", task.id, "PROMPT.md");
     const written = await readFile(promptPath, "utf-8").catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
-      planLog.warn(`${task.id}: failed to read PROMPT.md during approved-spec recovery (${promptPath}): ${msg}`);
+      planLog.warn(`${task.id}: failed to read PROMPT.md during planning recovery (${promptPath}): ${msg}`);
       return "";
     });
 
     if (!written.trim()) {
-      planLog.warn(`${task.id} approved-spec recovery skipped — PROMPT.md missing or empty`);
+      planLog.warn(`${task.id} planning recovery skipped — PROMPT.md missing or empty`);
+      return false;
+    }
+
+    const deterministicSpecFailure = await this.validateGeneratedPrompt(task.id, written);
+    if (deterministicSpecFailure) {
+      planLog.warn(`${task.id} planning recovery skipped — PROMPT.md failed deterministic validation (${deterministicSpecFailure})`);
       return false;
     }
 
     await this.finalizeApprovedTask(task, written, settings, {
       recoveryLogAction: approvalRequired
-        ? "Auto-recovered approved specification stuck in planning — awaiting manual approval"
-        : "Auto-recovered approved specification stuck in planning — moved to todo",
+        ? "Auto-recovered specified task stuck in planning — awaiting manual approval"
+        : "Auto-recovered specified task stuck in planning — moved to todo",
     });
 
     return true;
@@ -623,15 +624,13 @@ export class TriageProcessor {
       return task;
     });
 
-    if (hasLatestSpecReviewApproval(freshTask)) {
-      const recovered = await this.recoverApprovedTask(freshTask).catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        planLog.warn(`${task.id}: approved-spec recovery failed during stuck-detector ${context} cleanup: ${msg}`);
-        return false;
-      });
-      if (recovered) {
-        return;
-      }
+    const recovered = await this.recoverApprovedTask(freshTask).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      planLog.warn(`${task.id}: planning recovery failed during stuck-detector ${context} cleanup: ${msg}`);
+      return false;
+    });
+    if (recovered) {
+      return;
     }
 
     const maxStuckSettings = await this.store.getSettings().catch((err: unknown) => {
@@ -843,15 +842,9 @@ export class TriageProcessor {
   /**
    * Specify a triage task by spawning an AI agent to generate a PROMPT.md.
    *
-   * After the agent writes the PROMPT.md, it calls `fn_review_spec()` to spawn
-   * an independent reviewer agent that evaluates the specification quality.
-   * The review loop works as follows:
-   * - **APPROVE**: the spec is accepted and the task moves to `todo`
-   * - **REVISE**: the agent revises the spec and calls `fn_review_spec()` again.
-   *   If the agent finishes without getting APPROVE, the task is NOT moved to
-   *   `todo` — a post-session gate requires an explicit APPROVE verdict.
-   * - **RETHINK**: the conversation rewinds to a pre-planning checkpoint
-   *   and the agent starts over with a fundamentally different approach.
+   * After the agent writes PROMPT.md, triage runs deterministic spec hygiene
+   * checks and finalizes. Workflow Plan Review is the single optional AI plan
+   * quality gate before execution; triage does not inject a separate review tool.
    */
   async specifyTask(task: Task): Promise<void> {
     if (this.processing.has(task.id)) return;
@@ -874,7 +867,6 @@ export class TriageProcessor {
       // FN-6236: this is the only legacy executionMode="fast" bridge. Downstream
       // triage policy reads resolved workflow flags instead of the raw string.
       const leanPlanning = settings.leanPlanning === true || isFast;
-      const autoApproveSpec = settings.autoApproveSpec === true || isFast;
 
       const agentWork = async () => {
         // Set status only after the semaphore slot has been acquired, so
@@ -901,18 +893,6 @@ export class TriageProcessor {
           },
         });
 
-        // Mutable ref — populated after createFnAgent, tools access lazily via closure
-        const sessionRef: { current: AgentSession | null } = { current: null };
-        // Checkpoint for RETHINK rewind — captured lazily on first fn_review_spec call
-        const checkpointRef: { current: string | null } = { current: null };
-        // Track the last spec review verdict for post-session enforcement
-        const specReviewVerdictRef: { current: ReviewVerdict | null } = {
-          current: null,
-        };
-        // Track the user-comment fingerprint at the time of APPROVE for stale-approval detection
-        const approvedCommentFingerprintRef: { current: string } = {
-          current: "",
-        };
         // Track subtasks created during triage when breakIntoSubtasks was requested.
         const createdSubtasksRef: { current: string[] } = { current: [] };
 
@@ -968,16 +948,6 @@ export class TriageProcessor {
             createListAgentsTool(this.options.agentStore),
             createDelegateTaskTool(this.options.agentStore, this.store, { rootDir: this.rootDir }),
           ] : []),
-          this.createReviewSpecTool(
-            task.id,
-            promptPath,
-            sessionRef,
-            checkpointRef,
-            specReviewVerdictRef,
-            approvedCommentFingerprintRef,
-            settings,
-            autoApproveSpec,
-          ),
         ];
 
         let triageRuntimeHint = extractRuntimeHint(assignedAgent?.runtimeConfig);
@@ -1138,9 +1108,6 @@ export class TriageProcessor {
           "triage",
         );
 
-        // Make session available to fn_review_spec tool (for RETHINK rewind)
-        sessionRef.current = session;
-
         // Register session so the global pause listener can terminate it
         this.activeSessions.set(task.id, session);
 
@@ -1268,151 +1235,10 @@ export class TriageProcessor {
             return;
           }
 
-          // Before swapping to the fallback model, give the primary one more
-          // shot with a pointed reminder. The model may have written PROMPT.md
-          // but stopped without calling fn_review_spec — that's recoverable
-          // with a nudge, no need to discard the session and pay the cold-start
-          // tax of a new triage on a different model.
-          const MAX_REVIEW_REMINDERS = 2;
-          let reviewReminders = 0;
-          while (
-            specReviewVerdictRef.current !== "APPROVE" &&
-            !this.pauseAborted.has(task.id) &&
-            !this.stuckAborted.has(task.id) &&
-            createdSubtasksRef.current.length === 0 &&
-            reviewReminders < MAX_REVIEW_REMINDERS
-          ) {
-            reviewReminders += 1;
-            const verdictDesc =
-              specReviewVerdictRef.current === null
-                ? "fn_review_spec was never called"
-                : `verdict was ${specReviewVerdictRef.current}`;
-            planLog.warn(
-              `${task.id} primary planning model returned without APPROVE (${verdictDesc}) — reminder ${reviewReminders}/${MAX_REVIEW_REMINDERS}`,
-            );
-            await this.store.logEntry(
-              task.id,
-              `Primary planning model returned without APPROVE (${verdictDesc}) — reminder ${reviewReminders}/${MAX_REVIEW_REMINDERS}`,
-            );
-            const reminder =
-              specReviewVerdictRef.current === null
-                ? "You wrote the PROMPT.md but did not call `fn_review_spec()`. Call `fn_review_spec()` now to validate the spec. Do not stop until the verdict is APPROVE."
-                : `Spec review verdict was ${specReviewVerdictRef.current}. Address the feedback, rewrite the PROMPT.md as needed, and call \`fn_review_spec()\` again. Do not stop until the verdict is APPROVE.`;
-            stuckDetector?.recordActivity(task.id);
-            await promptWithFallback(session, reminder);
-            checkSessionError(session);
-            if (this.pauseAborted.has(task.id) || this.stuckAborted.has(task.id)) {
-              break;
-            }
-          }
-
-          const planningFallbackProvider = settings.planningFallbackProvider;
-          const planningFallbackModelId = settings.planningFallbackModelId;
-          const canRetryWithPlanningFallback =
-            specReviewVerdictRef.current !== "APPROVE" &&
-            planningFallbackProvider &&
-            planningFallbackModelId &&
-            modelDesc !== `${planningFallbackProvider}/${planningFallbackModelId}`;
-
-          if (canRetryWithPlanningFallback) {
-            const verdictDesc =
-              specReviewVerdictRef.current === null
-                ? "fn_review_spec was never called"
-                : `verdict was ${specReviewVerdictRef.current}`;
-            const fallbackDesc = `${planningFallbackProvider}/${planningFallbackModelId}`;
-            planLog.warn(
-              `${task.id} primary planning model produced no approved spec (${verdictDesc}) — retrying with fallback ${fallbackDesc}`,
-            );
-            await this.store.logEntry(
-              task.id,
-              `Primary planning model produced no approved spec (${verdictDesc}) — retrying with fallback ${fallbackDesc}`,
-            );
-
-            /*
-            FNXC:TokenAnalytics 2026-06-27-14:52:
-            Planning fallback replaces the primary triage session, so record the primary model's token delta before disposal; the shared finally records the fallback session separately.
-            */
-            await this.recordTriageSessionTokenUsage(task.id, session, { agentId: triageRunContext.agentId });
-            session.dispose();
-            this.activeSessions.delete(task.id);
-            stuckDetector?.untrackTask(task.id);
-            specReviewVerdictRef.current = null;
-            approvedCommentFingerprintRef.current = "";
-
-            const fallbackResult = await createResolvedAgentSession({
-              sessionPurpose: "triage",
-              runtimeHint: triageRuntimeHint,
-              pluginRunner: this.options.pluginRunner,
-              cwd: this.rootDir,
-              systemPrompt: triageSystemPromptFinal,
-              systemPromptLayers: triageLayers,
-              tools: "coding",
-              customTools,
-              onText: agentLogger.onText,
-              onThinking: agentLogger.onThinking,
-              onToolStart: agentLogger.onToolStart,
-              onToolEnd: agentLogger.onToolEnd,
-              defaultProvider: planningFallbackProvider,
-              defaultModelId: planningFallbackModelId,
-              defaultThinkingLevel: settings.defaultThinkingLevel,
-              runAuditor,
-              settings,
-              // FNXC:McpConfig 2026-06-25-23:18: Fallback triage uses the same resolved MCP forwarding contract as the primary planning session so model fallback does not silently drop configured servers.
-              mcpServers: (await resolveMcpServersForStore(this.store)).servers,
-              ...(skillContext.skillSelectionContext ? { skillSelection: skillContext.skillSelectionContext } : {}),
-              taskId: task.id,
-              taskTitle: task.title,
-              onFallbackModelUsed: createFallbackModelObserver({
-                agent: "triage",
-                label: "triage",
-                store: this.store,
-                taskId: task.id,
-                taskTitle: task.title,
-              }),
-            });
-
-            session = fallbackResult.session;
-            const fallbackModelDesc = describeModel(session);
-            planLog.log(`${task.id}: using fallback model ${fallbackModelDesc}`);
-            await this.store.logEntry(task.id, `Triage using fallback model: ${fallbackModelDesc}`);
-            await this.store.appendAgentLog(
-              task.id,
-              `Triage using fallback model: ${fallbackModelDesc}`,
-              "text",
-              undefined,
-              "triage",
-            );
-
-            sessionRef.current = session;
-            this.activeSessions.set(task.id, session);
-            stuckDetector?.trackTask(task.id, session);
-            stuckDetector?.recordActivity(task.id);
-
-            await promptWithFallback(
-              session,
-              agentPrompt,
-              imageContents.length > 0 ? { images: imageContents } : undefined,
-            );
-            checkSessionError(session);
-
-            if (createdSubtasksRef.current.length > 0) {
-              const childTaskIds = createdSubtasksRef.current.join(", ");
-              await this.store.logEntry(
-                task.id,
-                `Converted into subtasks: ${childTaskIds}`,
-              );
-              // FN-5129 / FN-5131: split-close must unlink lineage children when deleting the parent.
-              await this.store.deleteTask(task.id, {
-                removeLineageReferences: true,
-                auditContext: {
-                  agentId: task.assignedAgentId ?? "triage",
-                  runId: generateSyntheticRunId("triage-delete", task.id),
-                },
-              });
-              planLog.log(`✓ ${task.id} split into subtasks (${childTaskIds}) and closed`);
-              return;
-            }
-          }
+          /*
+          FNXC:PlanReview 2026-06-29-01:52:
+          Workflow Plan Review is the single operator-controlled AI plan gate. Triage must not remind agents to call fn_review_spec or retry planning only because that legacy tool was not approved; the graph runs optional Plan Review before parse/execution and routes failed plans back to triage.
+          */
 
           const written = await readFile(
             join(this.rootDir, promptPath),
@@ -1424,7 +1250,7 @@ export class TriageProcessor {
           });
 
           // FN-5220: planning agents that emit a `DUPLICATE: FN-NNNN` redirect
-          // do not call `fn_review_spec()`; short-circuit the APPROVE gate.
+          // short-circuit normal spec finalization.
           if (await this.tryFinalizeExplicitDuplicateMarker(task, written, settings, {
             isReplan,
             feedback,
@@ -1433,15 +1259,8 @@ export class TriageProcessor {
             return;
           }
 
-          // Post-session APPROVE gate: only advance to todo when the spec
-          // reviewer explicitly approved. Any other verdict (REVISE,
-          // RETHINK, UNAVAILABLE) or a missing review (null) stays in triage
-          // and is retried with bounded backoff instead of immediately failing.
-          if (specReviewVerdictRef.current !== "APPROVE") {
-            const verdictDesc =
-              specReviewVerdictRef.current === null
-                ? "fn_review_spec was never called"
-                : `verdict was ${specReviewVerdictRef.current}`;
+          const deterministicSpecFailure = await this.validateGeneratedPrompt(task.id, written);
+          if (deterministicSpecFailure) {
             const decision = computeRecoveryDecision({
               recoveryRetryCount: task.recoveryRetryCount,
               nextRecoveryAt: task.nextRecoveryAt,
@@ -1451,7 +1270,7 @@ export class TriageProcessor {
               const attempt = decision.nextState.recoveryRetryCount;
               const delay = formatDelay(decision.delayMs);
               const retryMessage =
-                `Spec review not approved (${verdictDesc}) — retry ${attempt}/${MAX_RECOVERY_RETRIES} in ${delay}.`;
+                `Generated plan failed deterministic validation (${deterministicSpecFailure}) — retry ${attempt}/${MAX_RECOVERY_RETRIES} in ${delay}.`;
               planLog.warn(`${task.id} ${retryMessage}`);
               await this.store.logEntry(task.id, retryMessage);
               const restoreStatus = task.status === "needs-replan" ? "needs-replan" : null;
@@ -1465,10 +1284,10 @@ export class TriageProcessor {
             }
 
             const failureMessage =
-              `Specification failed after ${MAX_RECOVERY_RETRIES} unapproved spec reviews (${verdictDesc}). ` +
+              `Specification failed deterministic validation after ${MAX_RECOVERY_RETRIES} retries (${deterministicSpecFailure}). ` +
               "Retry after adjusting the task prompt or model.";
             planLog.log(
-              `${task.id} spec review not approved (${verdictDesc}) — retry budget exhausted`,
+              `${task.id} deterministic spec validation failed (${deterministicSpecFailure}) — retry budget exhausted`,
             );
             await this.store.logEntry(
               task.id,
@@ -1480,24 +1299,6 @@ export class TriageProcessor {
               recoveryRetryCount: null,
               nextRecoveryAt: null,
             });
-            return;
-          }
-
-          // Stale-approval detection: re-read the task to check if new user
-          // comments arrived after the spec was approved.  If the comment
-          // fingerprint changed, the approval is stale and the task needs
-          // re-planning.
-          const latestTask = await this.store.getTask(task.id);
-          const currentFingerprint = computeUserCommentFingerprint(latestTask.comments);
-          if (currentFingerprint !== approvedCommentFingerprintRef.current) {
-            planLog.log(
-              `${task.id} stale approval detected — user comments changed after approval, triggering re-planning`,
-            );
-            await this.store.logEntry(
-              task.id,
-              "Spec approval invalidated — new user comments arrived after approval. Task needs re-planning.",
-            );
-            await this.store.updateTask(task.id, { status: "needs-replan" });
             return;
           }
 
@@ -1939,274 +1740,37 @@ export class TriageProcessor {
     return [taskList, taskSearch, taskShow, taskCreate];
   }
 
-  /**
-   * Create the `fn_review_spec` tool for the triage agent.
-   *
-   * Spawns an independent reviewer agent to evaluate the generated PROMPT.md.
-   * Verdict handling:
-   * - **APPROVE**: returns "APPROVE" — the triage agent's work is done.
-   * - **REVISE**: returns the review feedback. The triage agent must fix the
-   *   PROMPT.md and call `fn_review_spec` again. A post-session gate in
-   *   `specifyTask()` prevents moving to `todo` if the last verdict is REVISE.
-   * - **RETHINK**: rewinds the conversation to a pre-planning checkpoint
-   *   using `session.navigateTree()`. Returns a re-prompt instructing the agent
-   *   to take a fundamentally different approach.
-   */
-  private createReviewSpecTool(
-    taskId: string,
-    promptPath: string,
-    sessionRef: { current: AgentSession | null },
-    checkpointRef: { current: string | null },
-    specReviewVerdictRef: { current: ReviewVerdict | null },
-    approvedCommentFingerprintRef: { current: string },
-    _settings: {
-      defaultProvider?: string;
-      defaultModelId?: string;
-      defaultThinkingLevel?: string;
-      validatorProvider?: string;
-      validatorModelId?: string;
-    },
-    skipSpecReview: boolean,
-  ): ToolDefinition {
-    const store = this.store;
-    const rootDir = this.rootDir;
-    const options = this.options;
+  private async validateGeneratedPrompt(taskId: string, promptContent: string): Promise<string | null> {
+    /*
+    FNXC:PlanReview 2026-06-29-01:52:
+    Triage owns only deterministic PROMPT.md hygiene. AI plan quality review is graph-owned by the optional Plan Review step, so this helper must never call reviewer agents or require a fn_review_spec APPROVE verdict.
+    */
+    if (!promptContent.trim()) {
+      return "PROMPT.md file not found or empty";
+    }
 
-    return {
-      name: "fn_review_spec",
-      label: "Review Specification",
-      description:
-        "Spawn a reviewer agent to evaluate the generated PROMPT.md specification. " +
-        "Returns APPROVE, REVISE, RETHINK, or UNAVAILABLE. " +
-        "Call after writing the PROMPT.md.",
-      parameters: Type.Object({}),
-      execute: async () => {
-        reviewerLog.log(`${taskId}: spec review requested`);
-        await store.logEntry(taskId, "Spec review requested");
+    const danglingRefs = await detectDanglingTaskDocReferences(promptContent, {
+      rootDir: this.rootDir,
+      taskId,
+    });
+    if (danglingRefs.length > 0) {
+      const diagnostic = formatDanglingDiagnostic(danglingRefs);
+      planLog.warn(`${taskId}: ${diagnostic}`);
+      await this.store.logEntry(taskId, "Generated plan validation failed: dangling task-document references");
+      return diagnostic;
+    }
 
-        // Capture checkpoint lazily on first call — at this point the session
-        // has already started and has a valid conversation state to rewind to.
-        if (!checkpointRef.current && sessionRef.current) {
-          checkpointRef.current =
-            sessionRef.current.sessionManager.getLeafId() ?? null;
-        }
+    const evidenceGaps = detectExternalIntegrationEvidenceGaps({
+      promptContent,
+    });
+    if (evidenceGaps.length > 0) {
+      const diagnostic = formatExternalIntegrationEvidenceDiagnostic(evidenceGaps);
+      planLog.warn(`${taskId}: ${diagnostic}`);
+      await this.store.logEntry(taskId, "Generated plan validation failed: external-integration evidence gaps");
+      return diagnostic;
+    }
 
-        try {
-          // Read the generated PROMPT.md from disk
-          const { readFile } = await import("node:fs/promises");
-          const { join } = await import("node:path");
-          const promptContent = await readFile(
-            join(rootDir, promptPath),
-            "utf-8",
-          ).catch((err: unknown) => {
-            const msg = err instanceof Error ? err.message : String(err);
-            planLog.warn(`${taskId}: failed to read PROMPT.md for fn_review_spec (${promptPath}): ${msg}`);
-            return "";
-          });
-
-          if (!promptContent) {
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: "UNAVAILABLE — PROMPT.md file not found or empty. Write the specification first, then call fn_review_spec.",
-                },
-              ],
-              details: {},
-            };
-          }
-
-          const danglingRefs = await detectDanglingTaskDocReferences(promptContent, {
-            rootDir,
-            taskId,
-          });
-          if (danglingRefs.length > 0) {
-            const diagnostic = formatDanglingDiagnostic(danglingRefs);
-            specReviewVerdictRef.current = "REVISE";
-            planLog.warn(`${taskId}: ${diagnostic}`);
-            await store.logEntry(taskId, "Spec review: REVISE (dangling task-document references)");
-            return {
-              content: [{ type: "text" as const, text: diagnostic }],
-              details: {},
-            };
-          }
-
-          const evidenceGaps = detectExternalIntegrationEvidenceGaps({
-            promptContent,
-          });
-          if (evidenceGaps.length > 0) {
-            const diagnostic = formatExternalIntegrationEvidenceDiagnostic(evidenceGaps);
-            specReviewVerdictRef.current = "REVISE";
-            planLog.warn(`${taskId}: ${diagnostic}`);
-            await store.logEntry(taskId, "Spec review: REVISE (external-integration evidence gaps)");
-            return {
-              content: [{ type: "text" as const, text: diagnostic }],
-              details: {},
-            };
-          }
-
-          // Re-read task detail to get latest user comments
-          const currentDetail = await store.getTask(taskId);
-          const currentUserComments = (currentDetail.comments || []).filter(
-            (c: any) => c.author === "user",
-          );
-
-          if (skipSpecReview) {
-            specReviewVerdictRef.current = "APPROVE";
-            approvedCommentFingerprintRef.current = currentUserComments.length > 0
-              ? computeUserCommentFingerprint(currentUserComments)
-              : "";
-            planLog.log(`${taskId}: spec review auto-approved (auto-approve spec)`);
-            await store.logEntry(taskId, "Spec review: APPROVE (auto-approve spec)");
-            return { content: [{ type: "text" as const, text: "APPROVE" }], details: {} };
-          }
-
-          // Re-read settings at review time so long-lived triage sessions pick up
-          // model changes made after the session started. Merge per-task effective
-          // workflow settings (U3, KTD-3) so the validator model-lane reads below
-          // pick up workflow values. Behavior-inert when nothing is customized.
-          const currentSettings = await mergeEffectiveSettings(store, currentDetail, await store.getSettings());
-
-          // Spec reviewer runs via semaphore.runNested so it transiently
-          // bumps activeCount for honest observability while bypassing the
-          // wait queue (no fairness regression at low maxConcurrent). See
-          // concurrency.ts:runNested for the contract.
-          const sem = options.semaphore;
-          const invokeReviewer = () => reviewStep(
-            rootDir,
-            taskId,
-            0,
-            "Specification",
-            "spec",
-            promptContent,
-            undefined,
-            {
-              onText: (delta) => options.onAgentText?.(taskId, delta),
-              // Execution defaults as final fallback
-              defaultProvider: currentSettings.defaultProvider,
-              defaultModelId: currentSettings.defaultModelId,
-              // FNXC:ModelResolution 2026-06-28-17:10: Spec review is a reviewer/validator lane, so triage must forward the task reviewer override to reviewStep instead of letting project/global settings mask a per-task validator model.
-              taskValidatorProvider: currentDetail.validatorModelProvider,
-              taskValidatorModelId: currentDetail.validatorModelId,
-              // Project-level validator override
-              projectValidatorProvider: currentSettings.validatorProvider,
-              projectValidatorModelId: currentSettings.validatorModelId,
-              // Project-level validator fallback
-              projectValidatorFallbackProvider: currentSettings.validatorFallbackProvider,
-              projectValidatorFallbackModelId: currentSettings.validatorFallbackModelId,
-              // FNXC:SpecReviewerFallback 2026-06-23-08:50:
-              // Spec review must inherit global/default fallback reviewer model settings when no validator-specific fallback is configured, plus the project settings/prompt payload that reviewer sessions use for memory and custom prompt behavior.
-              fallbackProvider: currentSettings.fallbackProvider,
-              fallbackModelId: currentSettings.fallbackModelId,
-              // Global validator lane
-              globalValidatorProvider: currentSettings.validatorGlobalProvider,
-              globalValidatorModelId: currentSettings.validatorGlobalModelId,
-              // Project-level default override (fallback before execution defaults)
-              projectDefaultOverrideProvider: currentSettings.defaultProviderOverride,
-              projectDefaultOverrideModelId: currentSettings.defaultModelIdOverride,
-              defaultThinkingLevel: currentSettings.defaultThinkingLevel,
-              store,
-              taskId,
-              task: currentDetail,
-              userComments: currentUserComments.length > 0 ? currentUserComments : undefined,
-              agentPrompts: currentSettings.agentPrompts,
-              agentStore: this.options.agentStore,
-              rootDir,
-              settings: currentSettings,
-              // Track the spec reviewer's session under this task so it's
-              // disposed alongside the main triage session on global pause.
-              onSessionCreated: (s) => this.registerSubagentSession(taskId, s),
-              onSessionEnded: (s) => this.unregisterSubagentSession(taskId, s),
-            },
-          );
-          const result = sem
-            ? await sem.runNested(invokeReviewer)
-            : await invokeReviewer();
-
-          // Track verdict for post-session enforcement
-          specReviewVerdictRef.current = result.verdict;
-
-          await store.logEntry(
-            taskId,
-            `Spec review: ${result.verdict}`,
-            result.summary,
-          );
-          reviewerLog.log(`${taskId}: spec review → ${result.verdict}`);
-
-          let text: string;
-          switch (result.verdict) {
-            case "APPROVE":
-              // Capture the user-comment fingerprint at approval time for stale-approval detection
-              approvedCommentFingerprintRef.current = computeUserCommentFingerprint(currentUserComments);
-              text = "APPROVE";
-              break;
-            case "REVISE":
-              text = `REVISE — fix the issues below, rewrite the PROMPT.md, and call fn_review_spec() again.\n\n${result.review}`;
-              break;
-            case "RETHINK": {
-              // Rewind conversation to pre-planning checkpoint
-              const checkpointId = checkpointRef.current;
-              if (checkpointId && sessionRef.current) {
-                try {
-                  await sessionRef.current.navigateTree(checkpointId, {
-                    summarize: false,
-                  });
-                  planLog.log(
-                    `${taskId}: RETHINK — session rewound to checkpoint ${checkpointId}`,
-                  );
-                } catch (rewindErr: unknown) {
-                  const msg = rewindErr instanceof Error ? rewindErr.message : String(rewindErr);
-                  planLog.warn(`${taskId}: RETHINK navigateTree rewind failed, falling back to branchWithSummary: ${msg}`);
-                  // Fallback to branchWithSummary
-                  try {
-                    sessionRef.current.sessionManager.branchWithSummary(
-                      checkpointId,
-                      `RETHINK: ${result.summary || "Approach rejected by reviewer"}`,
-                    );
-                    planLog.log(
-                      `${taskId}: RETHINK — branched from checkpoint ${checkpointId}`,
-                    );
-                  } catch (branchErr: unknown) {
-                    const branchErrMessage = branchErr instanceof Error ? branchErr.message : String(branchErr);
-                    planLog.error(
-                      `${taskId}: RETHINK session rewind failed: ${branchErrMessage}`,
-                    );
-                  }
-                }
-              } else {
-                planLog.log(
-                  `${taskId}: RETHINK — no session checkpoint, skipping rewind`,
-                );
-              }
-
-              await store.logEntry(
-                taskId,
-                `RETHINK: spec rewound — session checkpoint ${checkpointId || "N/A"}`,
-                result.summary,
-              );
-              text = `RETHINK\n\nYour specification was rejected. Here is why:\n\n${result.review}\n\nTake a completely different approach to writing this specification. Do NOT repeat the rejected strategy.`;
-              break;
-            }
-            default:
-              text = "UNAVAILABLE — reviewer did not produce a usable verdict.";
-          }
-
-          return { content: [{ type: "text" as const, text }], details: {} };
-        } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
-          reviewerLog.error(`${taskId}: spec review failed: ${errorMessage}`);
-          await store.logEntry(taskId, `Spec review failed: ${errorMessage}`);
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `UNAVAILABLE — reviewer error: ${errorMessage}`,
-              },
-            ],
-            details: {},
-          };
-        }
-      },
-    };
+    return null;
   }
 
   private async tryFinalizeExplicitDuplicateMarker(
@@ -2554,7 +2118,7 @@ export class TriageProcessor {
       latestTransitionTask = await this.store.getTask(task.id);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      planLog.warn(`${task.id}: failed to re-read task before approved-spec transition (${message}); proceeding with original task snapshot`);
+      planLog.warn(`${task.id}: failed to re-read task before planning transition (${message}); proceeding with original task snapshot`);
       latestTransitionTask = task;
     }
     try {
@@ -2614,7 +2178,7 @@ export class TriageProcessor {
         task.id,
         "Specification approved but task is paused — leaving in triage, will resume on unpause",
       );
-      planLog.log(`${task.id} approved specification paused — leaving in triage, will resume on unpause`);
+      planLog.log(`${task.id} specified task paused — leaving in triage, will resume on unpause`);
       return;
     }
 
@@ -2710,16 +2274,6 @@ function shouldReplaceTaskTitleFromPrompt(task: Task, promptDeclaredTitle: strin
   }
 
   return true;
-}
-
-function hasLatestSpecReviewApproval(task: Task): boolean {
-  for (let i = task.log.length - 1; i >= 0; i--) {
-    const action = task.log[i]?.action ?? "";
-    if (action.startsWith("Spec review: ")) {
-      return action === "Spec review: APPROVE";
-    }
-  }
-  return false;
 }
 
 /** Content read from an attachment file for inlining in the prompt. */

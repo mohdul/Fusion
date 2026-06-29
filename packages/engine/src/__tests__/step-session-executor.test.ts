@@ -716,10 +716,11 @@ Some freeform text without checkboxes.`;
     expect(result).toContain("Please prioritize the API invariant before refactoring.");
   });
 
-  it("includes fn_task_done instruction at the end", () => {
+  it("does not ask graph-owned step sessions to call task lifecycle tools", () => {
     const task = makeTaskDetail({ prompt: fullPrompt });
     const result = buildStepPrompt(task, 1);
-    expect(result).toContain("fn_task_done()");
+    expect(result).toContain("the workflow graph records completion");
+    expect(result).not.toContain("fn_task_done()");
   });
 
   it("does not include content from other steps", () => {

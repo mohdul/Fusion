@@ -120,14 +120,12 @@ async function captureBasePrompt(task: Task, store: TaskStore): Promise<string> 
   return capture.basePrompt ?? "";
 }
 
-async function runReviewSpec(task: Task, store: TaskStore, rootDir: string): Promise<void> {
+async function runPlanningSession(task: Task, store: TaskStore, rootDir: string): Promise<void> {
   mockSession();
-  mockPromptWithFallback.mockImplementationOnce(async (session: any) => {
+  mockPromptWithFallback.mockImplementationOnce(async () => {
     const promptPath = join(rootDir, ".fusion", "tasks", task.id, "PROMPT.md");
     await mkdir(join(rootDir, ".fusion", "tasks", task.id), { recursive: true });
     await writeFile(promptPath, "# Task: FN-6236\n\n## Mission\n\nVerify fast policy.\n", "utf8");
-    const reviewSpec = session.__customTools.find((tool: any) => tool.name === "fn_review_spec");
-    await reviewSpec.execute();
   });
 
   await new TriageProcessor(store, rootDir).specifyTask(task);
@@ -202,39 +200,40 @@ describe("fast-mode workflow variant resolution", () => {
     expect(basePrompt).not.toBe(renderedFastPlanningPrompt);
   });
 
-  it("auto-approves fast tasks without invoking the reviewer", async () => {
+  it("finalizes fast tasks without invoking a separate spec reviewer", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "fusion-fn-6236-fast-"));
     tempRoots.push(rootDir);
     const task = createTask({ id: "FN-6236-FAST-REVIEW", executionMode: "fast" });
     const store = createStore(task);
 
-    await runReviewSpec(task, store, rootDir);
+    await runPlanningSession(task, store, rootDir);
 
     expect(mockReviewStep).not.toHaveBeenCalled();
-    expect(store.logEntry).toHaveBeenCalledWith(task.id, "Spec review: APPROVE (auto-approve spec)");
+    expect(store.moveTask).toHaveBeenCalledWith(task.id, "todo");
   });
 
-  it("invokes the reviewer for standard tasks without autoApproveSpec", async () => {
+  it("finalizes standard tasks without invoking a separate spec reviewer", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "fusion-fn-6236-standard-"));
     tempRoots.push(rootDir);
     const task = createTask({ id: "FN-6236-STANDARD-REVIEW", executionMode: "standard" });
     const store = createStore(task);
 
-    await runReviewSpec(task, store, rootDir);
+    await runPlanningSession(task, store, rootDir);
 
-    expect(mockReviewStep).toHaveBeenCalledTimes(1);
+    expect(mockReviewStep).not.toHaveBeenCalled();
+    expect(store.moveTask).toHaveBeenCalledWith(task.id, "todo");
   });
 
-  it("auto-approves standard tasks when the workflow setting is enabled", async () => {
+  it("ignores legacy autoApproveSpec because workflow Plan Review owns approval", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "fusion-fn-6236-setting-"));
     tempRoots.push(rootDir);
     const task = createTask({ id: "FN-6236-SETTING-REVIEW", executionMode: "standard" });
     const store = createStore(task, { autoApproveSpec: true });
 
-    await runReviewSpec(task, store, rootDir);
+    await runPlanningSession(task, store, rootDir);
 
     expect(mockReviewStep).not.toHaveBeenCalled();
-    expect(store.logEntry).toHaveBeenCalledWith(task.id, "Spec review: APPROVE (auto-approve spec)");
+    expect(store.moveTask).toHaveBeenCalledWith(task.id, "todo");
   });
 
   it("preserves user triage prompt override precedence over the fast variant", async () => {

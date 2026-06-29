@@ -5562,8 +5562,8 @@ export function designWorkflow(
 }
 
 /** Read the workflow currently selected for a task. */
-export function fetchTaskWorkflow(taskId: string, projectId?: string): Promise<{ workflowId: string | null }> {
-  return api<{ workflowId: string | null }>(
+export function fetchTaskWorkflow(taskId: string, projectId?: string): Promise<{ workflowId: string | null; enabledWorkflowSteps?: string[] | null }> {
+  return api<{ workflowId: string | null; enabledWorkflowSteps?: string[] | null }>(
     withProjectId(`/tasks/${encodeURIComponent(taskId)}/workflow`, projectId),
   );
 }

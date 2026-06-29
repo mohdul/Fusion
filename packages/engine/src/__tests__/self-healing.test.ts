@@ -6511,7 +6511,7 @@ describe("SelfHealingManager", () => {
   });
 
   describe("recoverApprovedTriageTasks", () => {
-    it("recovers approved planning triage tasks that are not actively processing", async () => {
+    it("recovers specified planning triage tasks that are not actively processing", async () => {
       const recoverFn = vi.fn().mockResolvedValue(true);
       const getPlanning = vi.fn().mockReturnValue(new Set<string>());
 
@@ -6578,7 +6578,7 @@ describe("SelfHealingManager", () => {
       managerWithRecovery.stop();
     });
 
-    it("skips planning triage tasks whose latest review is not APPROVE", async () => {
+    it("attempts stale planning triage tasks regardless of legacy spec-review log state", async () => {
       const recoverFn = vi.fn().mockResolvedValue(true);
       const getPlanning = vi.fn().mockReturnValue(new Set<string>());
 
@@ -6607,15 +6607,15 @@ describe("SelfHealingManager", () => {
 
       const result = await managerWithRecovery.recoverApprovedTriageTasks();
 
-      expect(result).toBe(0);
-      expect(recoverFn).not.toHaveBeenCalled();
+      expect(result).toBe(1);
+      expect(recoverFn).toHaveBeenCalledWith(expect.objectContaining({ id: "FN-102" }));
 
       managerWithRecovery.stop();
     });
   });
 
   describe("recoverOrphanedPlanningTasks", () => {
-    it("clears status for orphaned planning tasks without approval", async () => {
+    it("clears status for orphaned planning tasks without a recoverable prompt", async () => {
       const getPlanning = vi.fn().mockReturnValue(new Set<string>());
 
       const managerWithRecovery = new SelfHealingManager(store, {
@@ -6677,7 +6677,7 @@ describe("SelfHealingManager", () => {
       managerWithRecovery.stop();
     });
 
-    it("skips tasks that have an approved spec (handled by recoverApprovedTriageTasks)", async () => {
+    it("clears status for stale planning tasks after prompt-based recovery has had a chance to run", async () => {
       const getPlanning = vi.fn().mockReturnValue(new Set<string>());
 
       const managerWithRecovery = new SelfHealingManager(store, {
@@ -6703,8 +6703,8 @@ describe("SelfHealingManager", () => {
 
       const result = await managerWithRecovery.recoverOrphanedPlanningTasks();
 
-      expect(result).toBe(0);
-      expect(store.updateTask).not.toHaveBeenCalled();
+      expect(result).toBe(1);
+      expect(store.updateTask).toHaveBeenCalledWith("FN-202", { status: null });
 
       managerWithRecovery.stop();
     });
@@ -7594,7 +7594,7 @@ describe("stale triage processing eviction before recovery", () => {
     manager.stop();
   });
 
-  it("recovers approved task after eviction removes it from planningIds", async () => {
+  it("recovers specified task after eviction removes it from planningIds", async () => {
     const store = createMockStore();
     let planningIds = new Set(["FN-100"]);
     const evictFn = vi.fn().mockImplementation(() => {

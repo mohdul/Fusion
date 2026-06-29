@@ -582,7 +582,10 @@ export function registerWorkflowRoutes(ctx: ApiRoutesContext): void {
     try {
       const { store } = await getProjectContext(req);
       const selection = store.getTaskWorkflowSelection(req.params.taskId);
-      res.json({ workflowId: selection?.workflowId ?? null });
+      res.json({
+        workflowId: selection?.workflowId ?? null,
+        enabledWorkflowSteps: selection ? selection.stepIds : null,
+      });
     } catch (err: unknown) {
       if (err instanceof ApiError) throw err;
       rethrowAsApiError(err);

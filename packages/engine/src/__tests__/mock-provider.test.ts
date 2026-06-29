@@ -62,7 +62,7 @@ describe("MockAgentRuntime", () => {
 
   it.each([
     ["executor", ["fn_task_show", "fn_task_update", "fn_task_update"]],
-    ["triage", ["write", "fn_review_spec"]],
+    ["triage", ["write"]],
     ["reviewer", []],
     ["merger", []],
     ["heartbeat", []],
@@ -80,10 +80,6 @@ describe("MockAgentRuntime", () => {
       toolCalls.push("fn_task_update");
       return { content: [{ type: "text", text: JSON.stringify(args) }], details: {} };
     });
-    const reviewSpecExecute = vi.fn(async () => {
-      toolCalls.push("fn_review_spec");
-      return { content: [{ type: "text", text: "APPROVE" }], details: {} };
-    });
     const taskShowExecute = vi.fn(async () => {
       toolCalls.push("fn_task_show");
       return { steps: [{ status: "todo" }, { status: "done" }, { status: "todo" }] };
@@ -100,7 +96,6 @@ describe("MockAgentRuntime", () => {
         createTool("write", writeExecute),
         createTool("fn_task_show", taskShowExecute),
         createTool("fn_task_update", updateExecute),
-        createTool("fn_review_spec", reviewSpecExecute),
       ],
       onText,
       onToolStart,
@@ -212,7 +207,6 @@ describe("MockAgentRuntime", () => {
             return { content: [], details: {} };
           })),
           createTool("fn_task_update"),
-          createTool("fn_review_spec"),
           createTool("fn_task_show"),
         ],
         taskId,

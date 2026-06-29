@@ -1679,6 +1679,24 @@ describe("QuickEntryBox", () => {
       });
     });
 
+    it("submits an empty enabledWorkflowSteps array when every optional step is unchecked", async () => {
+      vi.mocked(fetchWorkflowOptionalSteps).mockResolvedValue([DEFAULT_ON_STEP]);
+      const onCreate = vi.fn().mockResolvedValue(CREATED_TASK);
+      renderQuickEntryBox({ onCreate, workflowId: "wf-explicit" });
+
+      const trigger = await screen.findByTestId("quick-entry-optional-steps-trigger");
+      fireEvent.click(trigger);
+      fireEvent.click(await screen.findByTestId("wf-optional-steps-dropdown-option-browser-verification"));
+      fireEvent.change(screen.getByTestId("quick-entry-input"), { target: { value: "Create without reviews" } });
+      clickSave();
+
+      await waitFor(() => {
+        expect(onCreate).toHaveBeenCalledWith(
+          expect.objectContaining({ enabledWorkflowSteps: [] }),
+        );
+      });
+    });
+
     it("resolves null, undefined, and explicit workflow ids for optional-step fetches", async () => {
       vi.mocked(fetchWorkflowOptionalSteps).mockResolvedValue([]);
       const { unmount: unmountNull } = renderQuickEntryBox({ workflowId: null });

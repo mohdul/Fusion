@@ -235,7 +235,7 @@ Before writing a spec, call \`fn_task_list\` for active work, then call \`fn_tas
 Write a real PROMPT.md to the requested path using the write tool. Keep sections lean, but include Mission, Dependencies, Context to Read First, File Scope, Steps with Preflight / Testing & Verification / Documentation & Delivery, Documentation Requirements, Completion Criteria, Git Commit Convention, and Do NOT. Do not add a review-level heading, triage subtask breakdown, or proactive subtask breakdown.
 
 ## Surface Enumeration
-For bug fixes and UI-affordance add/remove tasks, the spec MUST include a \`## Surface Enumeration\` section. During self-review via \`fn_review_spec()\`, treat a missing section on a bug-fix or UI-affordance add/remove spec as a blocking REVISE.
+For bug fixes and UI-affordance add/remove tasks, the spec MUST include a \`## Surface Enumeration\` section. The workflow Plan Review gate validates this before execution when plan review is enabled.
 For bug-fix and UI-affordance add/remove tasks, paste and fill in this checklist in the \`## Surface Enumeration\` section from docs/testing.md:
 - [ ] Providers / bridges / execution paths touched by the invariant; include every provider/bridge for streaming and agent paths.
 - [ ] desktop + mobile breakpoints / platforms; the fix must prove the invariant across all known surfaces.
@@ -268,7 +268,7 @@ If the requested outcome is only to decide, route, or coordinate work, include \
 - Do not expand scope, skip tests, weaken acceptance, or delete/gut unrelated modules/features.
 
 ## Output
-Write PROMPT.md directly, then call \`fn_review_spec()\`. Fast-mode specs auto-approve, but the call is still required.`;
+Write PROMPT.md directly and stop. Do not call \`fn_review_spec()\`; workflow Plan Review is the single optional plan review gate before execution.`;
 
 const TRIAGE_PROMPT_TEXT = `You are a task specification agent for "fn", an AI-orchestrated task board.
 
@@ -434,7 +434,7 @@ files with assertions that run via a test runner. Typechecks and builds are NOT
 tests. Manual verification is NOT a test.
 
 - Each implementation step should include writing tests for the code being changed
-- For bug fixes and UI-affordance add/remove tasks, the spec MUST include a \`## Surface Enumeration\` section. During self-review via \`fn_review_spec()\`, treat a missing section on a bug-fix or UI-affordance add/remove spec as a blocking REVISE.
+- For bug fixes and UI-affordance add/remove tasks, the spec MUST include a \`## Surface Enumeration\` section. The workflow Plan Review gate validates this before execution when plan review is enabled.
 - For bug fixes and UI-affordance add/remove tasks, populate \`## Surface Enumeration\` with this checklist from \`docs/testing.md\`: providers/bridges/execution paths; desktop + mobile breakpoints/platforms; empty/undefined/duplicate/populated data states; shared hooks/components/modules/helpers; every component that renders the affordance; leftover shells after removal.
 - For bug fixes and UI-affordance add/remove tasks, regression tests must assert the invariant across all known surfaces — enumerate every provider/bridge, desktop + mobile breakpoints, empty/undefined/populated data states, and for UI-affordance changes every component rendering the affordance plus leftover shells after removal — not just the reported repro (see FN-5787/FN-5789/FN-5803, FN-5751, and FN-6115/FN-6118/FN-6123)
 - For bug-class/bug-fix tasks, the spec MUST include a \`## Symptom Verification\` section with **Original symptom**, **Exact reproduction**, and **Assertion it is gone**. The final verification step must perform symptom-based acceptance: reproduce the original failure and prove it is gone with a real automated test. Green build/tests alone are insufficient. Feature/docs/non-bug tasks are not required to carry \`## Symptom Verification\`.
@@ -553,15 +553,9 @@ Standard triage must not infer workflow changes from task type. Agents preserve 
 - For decision-only tasks ({{triageNoCommitsDecisionVerbs}}) or other no-code tasks, set \`**No commits expected:** true\` in the PROMPT.md header when the no-commits criteria above are met; this is a header marker only and does not select \`{{triageDecisionOnlyWorkflowId}}\` or any custom investigation workflow by itself.
 - If the user explicitly asks for a workflow, call \`fn_workflow_list\` to discover valid IDs, then use \`fn_workflow_select\` to set the workflow on the current task or pass \`workflow_id\` to \`fn_task_create\` when creating a requested subtask.
 
-## Spec Review
+## Plan Review
 
-After writing the PROMPT.md, call \`fn_review_spec()\` to get an independent quality review.
-
-- **APPROVE** → your spec is accepted, you're done
-- **REVISE** → fix the issues described in the review feedback, rewrite the PROMPT.md, and call \`fn_review_spec()\` again. Repeat until approved.
-- **RETHINK** → your approach was fundamentally rejected. The conversation will rewind. Read the feedback carefully and take a completely different approach. Do NOT repeat the rejected strategy.
-
-You MUST call \`fn_review_spec()\` after writing the PROMPT.md. Do not finish without getting an APPROVE verdict.
+Workflow Plan Review is the single optional plan quality gate before execution. Your job in triage is to write a complete PROMPT.md; do not call \`fn_review_spec()\` or any other review tool. If Plan Review is enabled for the task, the workflow graph runs it after triage and before execution.
 
 ## PROMPT.md Quality Bar (Good vs Bad)
 - Good: concrete mission, realistic file scope, dependency-aware step order, explicit quality gates, and clear non-goals.
@@ -571,7 +565,7 @@ You MUST call \`fn_review_spec()\` after writing the PROMPT.md. Do not finish wi
 Never reference a \`.fusion/tasks/<id>/<file>\` artifact in Context, Steps, or File Scope unless (a) the file already exists, (b) the step explicitly creates it (listed as \`(new)\` under Artifacts), or (c) it is \`PROMPT.md\` / \`task.json\` / \`attachments/*\` for a sibling task. Save planning scratch as task documents via \`fn_task_document_write\`, not as files on disk.
 
 ## Output
-Write the PROMPT.md directly using the write tool, then call \`fn_review_spec()\` for review.
+Write the PROMPT.md directly using the write tool and stop. The workflow graph owns plan review and execution routing.
 
 ## Task Artifact Location for Forensic / Reconciliation Tasks
 
