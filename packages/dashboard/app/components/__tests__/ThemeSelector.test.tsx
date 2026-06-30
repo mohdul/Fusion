@@ -97,6 +97,24 @@ describe("ThemeSelector", () => {
     expect(screen.getByLabelText(`${defaultTheme.label} theme`).getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("marks only Shadcn Ember as the default color theme label", () => {
+    render(
+      <ThemeSelector
+        themeMode="dark"
+        colorTheme="shadcn-ember"
+        onThemeModeChange={vi.fn()}
+        onColorThemeChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByLabelText("Shadcn Ember (Default) theme")).toBeDefined();
+    expect(screen.getByLabelText("Ocean theme")).toBeDefined();
+    expect(screen.queryByLabelText("Ocean (Default) theme")).toBeNull();
+    expect(THEME_OPTIONS.filter((theme) => theme.label.includes("(Default)")).map((theme) => theme.value)).toEqual([
+      "shadcn-ember",
+    ]);
+  });
+
   it("renders every shared swatch class from themeOptions", () => {
     render(
       <ThemeSelector
@@ -124,7 +142,7 @@ describe("ThemeSelector", () => {
       />
     );
 
-    const oceanBtn = screen.getByLabelText("Ocean (Default) theme");
+    const oceanBtn = screen.getByLabelText("Ocean theme");
     expect(oceanBtn.className).toContain("active");
     expect(oceanBtn.getAttribute("aria-pressed")).toBe("true");
   });
@@ -497,7 +515,7 @@ describe("ThemeSelector", () => {
     );
 
     expect(screen.getByText(/Current theme/)).toBeDefined();
-    expect(screen.getByText(/Dark \/ Ocean \(Default\)/)).toBeDefined();
+    expect(screen.getByText(/Dark \/ Ocean/)).toBeDefined();
   });
 
   it("displays system theme in preview when system mode", () => {
@@ -608,7 +626,7 @@ describe("ThemeSelector", () => {
 
     fireEvent.click(screen.getByLabelText("Reset to default theme"));
     expect(onThemeModeChange).toHaveBeenCalledWith("dark");
-    expect(onColorThemeChange).toHaveBeenCalledWith("ocean");
+    expect(onColorThemeChange).toHaveBeenCalledWith("shadcn-ember");
   });
 
   it("shows the shadcn custom picker only for shadcn-custom", () => {

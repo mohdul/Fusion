@@ -65,10 +65,10 @@ type ProjectSettingsSchema = Omit<ProjectSettings, MovedProjectSettingsKey>;
 export const DEFAULT_GLOBAL_SETTINGS = {
   themeMode: "dark",
   /*
-  FNXC:DashboardTheming 2026-06-22-18:36:
-  New users and unset installs should start on Ocean. Existing users who explicitly stored colorTheme "default" must remain on that legacy theme, so the id stays valid and only the absence/default seed changes to "ocean".
+  FNXC:DashboardTheming 2026-06-30-00:00:
+  New users and unset installs should start on Shadcn Ember. Existing users who explicitly stored colorTheme "default", "ocean", or another valid theme must remain on that selection, so the ids stay valid and only the absence/default seed changes to "shadcn-ember".
   */
-  colorTheme: "ocean",
+  colorTheme: "shadcn-ember",
   shadcnCustomColors: undefined,
   dashboardFontScalePct: 100,
   /*

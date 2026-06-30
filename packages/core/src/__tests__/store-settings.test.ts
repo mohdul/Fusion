@@ -1422,7 +1422,7 @@ describe("TaskStore", () => {
     it("getSettings returns global defaults when no overrides exist", async () => {
       const settings = await harness.store().getSettings();
       expect(settings.themeMode).toBe("dark");
-      expect(settings.colorTheme).toBe("ocean");
+      expect(settings.colorTheme).toBe("shadcn-ember");
       expect(settings.maxConcurrent).toBe(2);
     });
 
@@ -1431,6 +1431,14 @@ describe("TaskStore", () => {
       const settings = await harness.store().getSettings();
       expect(settings.themeMode).toBe("light");
       expect(settings.colorTheme).toBe("ocean");
+    });
+
+    it("preserves explicit legacy color theme selections", async () => {
+      await harness.store().updateGlobalSettings({ colorTheme: "default" });
+      await expect(harness.store().getSettings()).resolves.toMatchObject({ colorTheme: "default" });
+
+      await harness.store().updateGlobalSettings({ colorTheme: "ocean" });
+      await expect(harness.store().getSettings()).resolves.toMatchObject({ colorTheme: "ocean" });
     });
 
     it("project settings override global defaults", async () => {
