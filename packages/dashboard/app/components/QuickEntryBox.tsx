@@ -31,7 +31,8 @@ interface QuickEntryBoxProps {
   tasks?: Task[];
   availableModels?: ModelInfo[];
   /**
-   * Called when the user clicks the "Plan" button to open planning mode.
+   * Preserved for callers that still pass planning handoff props through shared quick-create plumbing.
+   * QuickEntryBox intentionally does not render a quick-add Plan button.
    */
   onPlanningMode?: (initialPlan: string, workflowId?: string | null) => void;
   /**
@@ -123,7 +124,7 @@ function resolveQuickAddWorkflowId(
   return workflowOptions[0]?.id ?? null;
 }
 
-export function QuickEntryBox({ onCreate, addToast, tasks = [], availableModels, onPlanningMode, onSubtaskBreakdown, workflowId, workflowOptions, defaultWorkflowId, projectId, autoExpand = true, defaultExpanded = true, singleLine = false, favoriteProviders: parentFavoriteProviders, favoriteModels: parentFavoriteModels, onToggleFavorite: parentToggleFavorite, onToggleModelFavorite: parentToggleModelFavorite, onOpenTask }: QuickEntryBoxProps) {
+export function QuickEntryBox({ onCreate, addToast, tasks = [], availableModels, onSubtaskBreakdown, workflowId, workflowOptions, defaultWorkflowId, projectId, autoExpand = true, defaultExpanded = true, singleLine = false, favoriteProviders: parentFavoriteProviders, favoriteModels: parentFavoriteModels, onToggleFavorite: parentToggleFavorite, onToggleModelFavorite: parentToggleModelFavorite, onOpenTask }: QuickEntryBoxProps) {
   const { t } = useTranslation("app");
   const [description, setDescription] = useState(() => {
     if (typeof window !== "undefined") {
@@ -1477,23 +1478,10 @@ export function QuickEntryBox({ onCreate, addToast, tasks = [], availableModels,
     }
   }, [favoriteModels, favoriteProviders, parentToggleModelFavorite]);
 
-  const handlePlanClick = useCallback(() => {
-    const trimmed = description.trim();
-    if (!trimmed) {
-      addToast(t("tasks.enterDescriptionFirst", "Enter a description first"), "error");
-      return;
-    }
-    if (selectedWorkflowForCreate !== undefined) {
-      onPlanningMode?.(trimmed, selectedWorkflowForCreate);
-    } else {
-      onPlanningMode?.(trimmed);
-    }
-    /*
-    FNXC:QuickAddPlanningPreserve 2026-06-22-00:00:
-    Opening planning mode must preserve the quick-add description and scoped draft so exiting planning without creating tasks restores the user's text. The draft is cleared only by planning-completion handlers.
-    */
-  }, [description, onPlanningMode, selectedWorkflowForCreate, addToast, t]);
-
+  /*
+  FNXC:QuickEntry 2026-06-30-00:00:
+  Quick-add intentionally exposes no Plan button, disabled Plan state, tooltip, test id, or click target. Keep non-quick-add planning entry points such as the New Task dialog and model-menu planning lane intact.
+  */
   const handleSubtaskClick = useCallback(() => {
     const trimmed = description.trim();
     if (!trimmed) {
@@ -1857,18 +1845,6 @@ export function QuickEntryBox({ onCreate, addToast, tasks = [], availableModels,
               triggerTestId="quick-entry-optional-steps-trigger"
             />
 
-            {/* FNXC:QuickEntry 2026-06-30-00:00: Quick Add Plan stays a normal text action without a Lightbulb icon so the action row preserves behavior while removing the extra visual affordance and icon spacing shell. */}
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={handlePlanClick}
-              onMouseDown={(e) => e.preventDefault()}
-              disabled={!description.trim()}
-              data-testid="plan-button"
-              title={t("tasks.planButtonTitle", "Open planning mode with current description")}
-            >
-              {t("tasks.plan", "Plan")}
-            </button>
             {/* FNXC:QuickAddSubtaskFlag 2026-06-21-00:00: Render no Subtask button or click target unless App wires the default-off `subtaskBreakdown` experiment callback. */}
             {onSubtaskBreakdown && (
               <button

@@ -2,7 +2,7 @@ import "./InlineCreateCard.css";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { Brain, Link, Lightbulb, ListTree, Zap, ChevronDown, ChevronUp, Bot, Maximize2, Minimize2, Server } from "lucide-react";
+import { Brain, Link, ListTree, Zap, ChevronDown, ChevronUp, Bot, Maximize2, Minimize2, Server } from "lucide-react";
 import { DEFAULT_TASK_PRIORITY, TASK_PRIORITIES, type Task, type TaskPriority, type Settings, type ResolvedWorkflowOptionalStep } from "@fusion/core";
 import { getErrorMessage } from "@fusion/core";
 import type { ToastType } from "../hooks/useToast";
@@ -39,7 +39,7 @@ interface InlineCreateCardProps {
    */
   availableModels?: ModelInfo[];
   /**
-   * Called when the user clicks the "Plan" button to open planning mode.
+   * Preserved for shared create-surface prop compatibility. Inline quick-create intentionally omits Plan.
    */
   onPlanningMode?: (initialPlan: string, workflowId?: string | null) => void;
   /**
@@ -82,7 +82,6 @@ export function InlineCreateCard({
   addToast,
   projectId,
   availableModels,
-  onPlanningMode,
   onSubtaskBreakdown,
 }: InlineCreateCardProps) {
   const { t } = useTranslation("app");
@@ -693,23 +692,10 @@ export function InlineCreateCard({
     e.preventDefault();
   }, []);
 
-  const handlePlanClick = useCallback(() => {
-    const trimmed = description.trim();
-    if (!trimmed) {
-      addToast(t("inline.enterDescriptionFirst", "Enter a description first"), "error");
-      return;
-    }
-    if (selectedWorkflowId !== null) {
-      onPlanningMode?.(trimmed, selectedWorkflowId);
-    } else {
-      onPlanningMode?.(trimmed);
-    }
-    /*
-    FNXC:QuickAddPlanningPreserve 2026-06-22-00:00:
-    Opening planning mode must keep the inline-create description and scoped draft available when the user exits without creating tasks. Planning completion owns the eventual draft clear.
-    */
-  }, [description, onPlanningMode, selectedWorkflowId, addToast, t]);
-
+  /*
+  FNXC:InlineCreate 2026-06-30-00:00:
+  Inline quick-create intentionally omits the Plan button, icon, disabled state, tooltip, and click target while preserving Subtask and task creation controls.
+  */
   const handleSubtaskClick = useCallback(() => {
     const trimmed = description.trim();
     if (!trimmed) {
@@ -881,18 +867,6 @@ export function InlineCreateCard({
       {isExpanded && (
         <div id="inline-create-controls" className="inline-create-footer">
           <div className="inline-create-controls">
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={handlePlanClick}
-              onMouseDown={(e) => e.preventDefault()}
-              disabled={!description.trim()}
-              data-testid="plan-button"
-              title={t("inline.openPlanningMode", "Open planning mode with current description")}
-            >
-              <Lightbulb size={12} style={{ verticalAlign: "middle", marginRight: 4 }} />
-              {t("inline.plan", "Plan")}
-            </button>
             {/* FNXC:QuickAddSubtaskFlag 2026-06-21-00:00: Render no Subtask button or orphaned inline-create click target unless the default-off `subtaskBreakdown` experiment wires this callback. */}
             {onSubtaskBreakdown && (
               <button

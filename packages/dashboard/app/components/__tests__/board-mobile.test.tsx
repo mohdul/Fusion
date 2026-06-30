@@ -607,7 +607,7 @@ describe("InlineCreateCard mobile", () => {
     expectRuleToContain(mobileSection, ".inline-create-priority-select", "min-height: 36px;");
   });
 
-  it("renders Plan and Subtask buttons when expanded", () => {
+  it("renders Subtask but no Plan button when expanded", () => {
     render(
       <InlineCreateCard
         tasks={[]}
@@ -615,13 +615,15 @@ describe("InlineCreateCard mobile", () => {
         onCancel={vi.fn()}
         addToast={vi.fn()}
         availableModels={[]}
+        onPlanningMode={vi.fn()}
         onSubtaskBreakdown={vi.fn()}
       />,
     );
 
     fireEvent.click(screen.getByTestId("inline-create-toggle"));
 
-    expect(screen.getByRole("button", { name: "Plan" })).toBeTruthy();
+    expect(screen.queryByTestId("plan-button")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Plan" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Subtask" })).toBeTruthy();
   });
 
