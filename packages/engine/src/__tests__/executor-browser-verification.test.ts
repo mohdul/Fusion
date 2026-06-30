@@ -95,6 +95,23 @@ function browserVerificationStep(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function planReviewStep(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "graph:plan-review-step",
+    name: "Plan Review",
+    description: "",
+    mode: "prompt",
+    phase: "pre-merge",
+    gateMode: "gate",
+    prompt: "Review the plan.",
+    toolMode: "readonly",
+    enabled: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
 describe("browser-verification workflow-step browser capability", () => {
   beforeEach(() => {
     resetExecutorMocks();
@@ -263,5 +280,35 @@ describe("browser-verification workflow-step browser capability", () => {
     expect(cap.last?.skillSelection?.requestedSkillNames ?? []).not.toContain(AGENT_BROWSER_NAVIGATION_SKILL_ID);
     expect(store.logEntry.mock.calls.some(([, message]: [string, string]) => message.includes("[browser-verification]"))).toBe(false);
     expect(store.appendAgentLog.mock.calls.some(([, message]: [string, string]) => message.includes("[browser-verification]"))).toBe(false);
+  });
+
+  it("returns a Plan Review revision for flagged external-integration evidence gaps without launching a session", async () => {
+    const store = createMockStore();
+    store.getTask.mockResolvedValue({
+      ...baseTask(),
+      prompt: "## Mission\nAdd an external CLI.\n\n## Steps\n- Download and run `wt` from https://github.com/worktrunk/worktrunk/releases/latest/download/wt-linux-x64.tar.gz\n",
+    });
+    const executor = makeExecutor(store);
+
+    const result = await (executor as any).executeWorkflowStep(
+      baseTask(),
+      planReviewStep({ requireExternalIntegrationEvidence: true }),
+      "/tmp/wt",
+      {},
+      undefined,
+      undefined,
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      revisionRequested: true,
+      verdict: "REVISE",
+    });
+    expect(result.notes).toContain("External-integration evidence gaps");
+    expect(mockedCreateFnAgent).not.toHaveBeenCalled();
+    expect(store.logEntry).toHaveBeenCalledWith(
+      "FN-7130",
+      expect.stringContaining("Plan Review deterministic external-integration evidence check requested revision"),
+    );
   });
 });

@@ -148,6 +148,10 @@ import { TokenCapDetector } from "./token-cap-detector.js";
 import { isUsageLimitError, checkSessionError, type UsageLimitPauser } from "./usage-limit-detector.js";
 import { isNonContinuableSessionError, isTransientError, isSilentTransientError } from "./transient-error-detector.js";
 import { withRateLimitRetry } from "./rate-limit-retry.js";
+import {
+  detectExternalIntegrationEvidenceGaps,
+  formatExternalIntegrationEvidenceDiagnostic,
+} from "./spec-validation/external-integration-evidence.js";
 import { computeRecoveryDecision, formatDelay, MAX_RECOVERY_RETRIES } from "./recovery-policy.js";
 import type { StuckTaskDetector, StuckTaskEvent } from "./stuck-task-detector.js";
 import type { PluginRunner } from "./plugin-runner.js";
@@ -7174,6 +7178,9 @@ export class TaskExecutor {
     if (cfg.summaryTarget === "task") {
       (step as WorkflowStep & { summaryTarget?: "task" }).summaryTarget = "task";
     }
+    if (cfg.requireExternalIntegrationEvidence === true) {
+      (step as WorkflowStep & { requireExternalIntegrationEvidence?: boolean }).requireExternalIntegrationEvidence = true;
+    }
 
     // (U8a) Thread the plugin-injected runtime env (FUSION_CE_SKILLS_DIR /
     // FUSION_CE_AGENTS_DIR + PATH contribution) into prompt-mode skill/model
@@ -13945,6 +13952,34 @@ ${scopeGuard}
     // only (default false = board run); see runGraphCustomNode / KTD-3.
     const unattended = stepOptions?.unattended === true;
     const isPlanReviewStep = workflowStep.id === "graph:plan-review-step" || workflowStep.name === "Plan Review";
+    const requireExternalIntegrationEvidence =
+      (workflowStep as WorkflowStep & { requireExternalIntegrationEvidence?: boolean }).requireExternalIntegrationEvidence === true;
+
+    if (isPlanReviewStep && requireExternalIntegrationEvidence) {
+      /*
+       * FNXC:PlanValidation 2026-06-30-09:03:
+       * Coding (per-step review) intentionally keeps external-integration evidence as a Plan Review gate. Enforce it here, not in triage, so only workflows that set `requireExternalIntegrationEvidence` block and failures route through the graph's normal plan-replan loop.
+       */
+      const promptContent = await this.readTaskArtifact(task.id, "PROMPT.md");
+      const evidenceGaps = detectExternalIntegrationEvidenceGaps({
+        promptContent: typeof promptContent === "string" ? promptContent : "",
+      });
+      if (evidenceGaps.length > 0) {
+        const diagnostic = formatExternalIntegrationEvidenceDiagnostic(evidenceGaps);
+        const output = `REVISE: ${diagnostic}`;
+        await this.store.logEntry(
+          task.id,
+          `[pre-merge] Plan Review deterministic external-integration evidence check requested revision: ${diagnostic}`,
+        );
+        return {
+          success: false,
+          revisionRequested: true,
+          output,
+          verdict: "REVISE",
+          notes: diagnostic,
+        };
+      }
+    }
 
     // Compute the diff scope so the workflow step agent reviews only what THIS
     // task changed — not unrelated files it might wander into. Without this,

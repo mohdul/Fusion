@@ -9,6 +9,7 @@ import {
   isBuiltinWorkflowPluginGated,
 } from "../builtin-workflows.js";
 import { BUILTIN_CODING_WORKFLOW_IR } from "../builtin-coding-workflow-ir.js";
+import { BUILTIN_STEPWISE_CODING_WORKFLOW_IR } from "../builtin-stepwise-coding-workflow-ir.js";
 import { BROWSER_VERIFICATION_GROUP_ID, BROWSER_VERIFICATION_STEP_NODE_ID } from "../builtin-browser-verification-group.js";
 import { CODE_REVIEW_STEP_NODE_ID } from "../builtin-code-review-group.js";
 import { PLAN_REVIEW_GROUP_ID, PLAN_REVIEW_STEP_NODE_ID } from "../builtin-plan-review-group.js";
@@ -99,6 +100,18 @@ describe("built-in workflows", () => {
       expect(nodeOrder.indexOf("browser-verification"), workflowId).toBeGreaterThan(executionBoundary);
       expect(nodeOrder.indexOf("code-review"), workflowId).toBeGreaterThan(nodeOrder.indexOf("browser-verification"));
     }
+  });
+
+  it("scopes deterministic external-integration plan validation to Coding (per-step review)", () => {
+    const perStepPlanReview = planReviewInnerConfig(BUILTIN_STEPWISE_CODING_WORKFLOW_IR);
+    const defaultCodingPlanReview = planReviewInnerConfig(BUILTIN_CODING_WORKFLOW_IR);
+    const legacyCodingPlanReview = planReviewInnerConfig(getBuiltinWorkflow("builtin:legacy-coding")!.ir);
+    const quickFixPlanReview = planReviewInnerConfig(getBuiltinWorkflow("builtin:quick-fix")!.ir);
+
+    expect(perStepPlanReview.requireExternalIntegrationEvidence).toBe(true);
+    expect(defaultCodingPlanReview.requireExternalIntegrationEvidence).toBeUndefined();
+    expect(legacyCodingPlanReview.requireExternalIntegrationEvidence).toBeUndefined();
+    expect(quickFixPlanReview.requireExternalIntegrationEvidence).toBeUndefined();
   });
 
   it("all built-in Code Review optional groups are blocking gates", () => {
