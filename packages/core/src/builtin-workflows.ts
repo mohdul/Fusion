@@ -60,10 +60,10 @@ function ceCodeReviewOptionalGroupNode(column: string): WorkflowIrNode {
       reworkRegion: true,
       maxReworkCycles: 3,
       /*
-       * FNXC:WorkflowRemediationBudget 2026-06-29-13:56:
-       * The CE Code Review group is custom because it invokes the CE skill, but its workflow-owned remediation budget must match the other built-in optional gates by defaulting to three attempts while remaining editable in workflow config.
+       * FNXC:WorkflowRemediationBudget 2026-06-29-17:55:
+       * The CE Code Review group is custom because it invokes the CE skill, but Code Review REVISE is still ordinary repair feedback. Default CE review remediation to unbounded so CE tasks do not terminal-fail after repeated reviewer feedback unless a workflow author sets a numeric cap.
        */
-      maxRevisions: 3,
+      maxRevisions: "unbounded",
       template: {
         nodes: [
           {

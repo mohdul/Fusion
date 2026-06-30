@@ -29,6 +29,12 @@ because the generic built-in was authored as advisory and the graph continued af
 remediation budget was exhausted. Keep browser verification advisory, but make Code
 Review a gate so REVISE records a blocking failed workflow step and cannot advance to
 review or merge.
+
+FNXC:CodeReviewStep 2026-06-29-17:55:
+Code Review REVISE is ordinary repair feedback, not a terminal task failure. FN-7242
+exhausted the old built-in three-pass default and parked failed at
+`code-review-remediation`; default built-in Code Review must keep recovering until it
+passes unless a workflow author explicitly sets a numeric maxRevisions cap.
 */
 
 /** Stable per-task enable key + group node id. */
@@ -94,10 +100,10 @@ export function codeReviewOptionalGroupNode(
       reworkRegion: true,
       maxReworkCycles: 3,
       /*
-       * FNXC:WorkflowRemediationBudget 2026-06-29-13:56:
-       * Built-in workflows own their optional-step remediation policy. Default Code Review to three fix→review attempts while preserving workflow-authored overrides through `config.maxRevisions`.
+       * FNXC:WorkflowRemediationBudget 2026-06-29-17:55:
+       * Built-in Code Review should never terminal-fail merely because repair feedback repeated. Default to unbounded fix→review recovery while preserving workflow-authored numeric caps through `config.maxRevisions`.
        */
-      maxRevisions: options.maxRevisions ?? 3,
+      maxRevisions: options.maxRevisions ?? "unbounded",
       template: {
         nodes: [
           {

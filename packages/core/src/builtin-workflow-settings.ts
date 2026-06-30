@@ -126,8 +126,8 @@ export const BUILTIN_MOVED_WORKFLOW_SETTINGS: WorkflowSettingDefinition[] = [
     name: "Max post-review fixes",
     type: "number",
     /*
-     * FNXC:WorkflowOptionalStepCycle 2026-06-27-11:11:
-     * Built-in Code Review and Browser Verification must cycle through executor fixes and re-review until they pass, bounded by this default budget of three passes. FN-7129 owns future per-step configurable or unbounded budgets.
+     * FNXC:WorkflowOptionalStepCycle 2026-06-29-17:55:
+     * This global budget remains the fallback for custom optional gates and explicitly capped built-in gates. Built-in Code Review now sets `maxRevisions: "unbounded"` so ordinary reviewer feedback keeps recovering instead of terminal-failing after three passes.
      */
     default: 3,
     description: "Maximum automatic fix passes after review/optional-step feedback; the step re-runs each pass until it passes or this budget is exhausted.",
@@ -401,4 +401,3 @@ export function renderTriagePolicyPlaceholders(prompt: string, settings: Partial
   }
   return rendered;
 }
-

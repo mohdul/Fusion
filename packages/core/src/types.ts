@@ -2313,11 +2313,12 @@ export interface Task {
   /** Compact execution-progress snapshot captured at the last reclaim/unpause
    *  attempt (current step + step statuses) for resume-limbo detection. */
   resumeLimboStepSignature?: string;
-  /** Number of times the self-healing manager has auto-revived this task from
-   *  `in-review` after a failed pre-merge workflow step. Incremented each time the
-   *  `recoverReviewTasksWithFailedPreMergeSteps` scan sends the task back with the
-   *  failure feedback injected. Capped by `maxPostReviewFixes`; when exhausted the
-   *  task remains parked in `in-review` for human intervention. */
+  /** Number of times workflow remediation has auto-revived this task after
+   *  failed pre-merge review feedback. Incremented each time the engine sends the
+   *  task back with failure feedback injected. Capped only when the workflow step
+   *  resolves to a numeric maxRevisions/maxPostReviewFixes budget; built-in Code
+   *  Review defaults to unbounded recovery so ordinary REVISE feedback does not
+   *  terminal-fail the task. */
   postReviewFixCount?: number;
   /** Number of bounded recovery retry attempts for transient executor/triage failures.
    *  Distinct from `mergeRetries` (merge-conflict-specific). Incremented by the

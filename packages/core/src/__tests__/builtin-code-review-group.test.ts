@@ -24,6 +24,10 @@ U6 deleted the `WORKFLOW_STEP_TEMPLATES` catalog. The former "code-review catalo
 fields" assertions are gone; the inlined literal values (name/toolMode/gateMode/prompt
 verdict convention) are now asserted directly on the built group node below, which is the
 parity oracle.
+
+FNXC:CodeReviewStep 2026-06-29-17:55:
+Built-in Code Review defaults to unbounded remediation so repeated REVISE feedback
+keeps cycling through implementation fixes instead of terminal-failing the task.
 */
 
 describe("codeReviewOptionalGroupNode", () => {
@@ -52,7 +56,7 @@ describe("codeReviewOptionalGroupNode", () => {
     expect(node.config?.name).toBe("Code Review");
     // Default-ON (runs by default), but still an optional-group → toggleable per task.
     expect(node.config?.defaultOn).toBe(true);
-    expect(node.config?.maxRevisions).toBe(3);
+    expect(node.config?.maxRevisions).toBe("unbounded");
 
     const template = node.config?.template as { nodes: { id: string; kind: string; config?: Record<string, unknown> }[] };
     expect(template.nodes).toHaveLength(1);
