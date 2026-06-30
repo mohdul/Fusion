@@ -9388,15 +9388,18 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
         return task;
       }
 
-      if (status === "done") {
-        // The set of predecessor steps that must be done/skipped before this step
-        // may go done. Legacy: strict index order (every earlier step). Graph:
-        // the step's dependsOn list, with absent dependsOn defaulting to the
-        // immediately-preceding step. A deliberately empty dependsOn array is the
-        // opt-in for an independent graph step.
+      if (status === "done" || status === "in-progress") {
+        // The set of predecessor steps that must be done/skipped before this
+        // step may start or finish. Legacy: strict index order (every earlier
+        // step). Graph: the step's dependsOn list, with absent dependsOn
+        // defaulting to the immediately-preceding step. A deliberately empty
+        // dependsOn array is the opt-in for an independent graph step.
         /*
         FNXC:WorkflowStepControl 2026-06-29-10:51:
         Graph-owned execution may complete explicitly independent steps out of index order, but unannotated task plans are sequential by default. FN-7228 showed Testing & Verification starting while Preflight/implementation were still active because step-session planning treated missing dependencies as independent. Keep TaskStore projection consistent with the graph scheduler: absent dependsOn means previous-step dependency; explicit dependsOn: [] means independent.
+
+        FNXC:WorkflowStepControl 2026-06-30-07:45:
+        FN-7260 showed the same ordering invariant can be broken earlier by agent-visible progress updates: a stale resume prompt told the executor to start Step 3 while Step 0 was still in progress, and TaskStore accepted the out-of-order `in-progress` write. Apply the predecessor/dependency gate to step start as well as step completion so the card, task detail, and executor prompt cannot advertise later sequential work before earlier steps finish.
         */
         let blockingIndex = -1;
         let blockingStatus: import("./types.js").StepStatus | undefined;

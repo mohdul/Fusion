@@ -55,6 +55,19 @@ describe("TaskStore.updateStep step-order guard", () => {
     expect(updated.log.some((entry) => entry.action.includes("Ignored done→in-progress regression"))).toBe(true);
   });
 
+  it("no-ops out-of-order in-progress updates while an earlier step is active", async () => {
+    const store = harness.store();
+    const task = await harness.createTaskWithSteps();
+
+    await store.updateStep(task.id, 0, "in-progress");
+    const updated = await store.updateStep(task.id, 2, "in-progress");
+
+    expect(updated.steps[0].status).toBe("in-progress");
+    expect(updated.steps[2].status).toBe("pending");
+    expect(updated.currentStep).toBe(0);
+    expect(updated.log.some((entry) => entry.action.includes("Ignored out-of-order in-progress for step 2"))).toBe(true);
+  });
+
   // ── U6: graph-source projection discipline (KTD-7/KTD-11) ──────────────────
 
   it("graph source: done is legal for explicitly independent steps even when an earlier step is in-progress", async () => {
@@ -65,12 +78,29 @@ describe("TaskStore.updateStep step-order guard", () => {
     const steps = primed.steps.map((s, i) => (i === 2 ? { ...s, dependsOn: [] } : { ...s }));
     await store.updateTask(task.id, { steps });
 
+    await store.updateStep(task.id, 0, "done", { source: "graph" });
     await store.updateStep(task.id, 1, "in-progress", { source: "graph" });
     const updated = await store.updateStep(task.id, 2, "done", { source: "graph" });
 
     expect(updated.steps[2].status).toBe("done");
     expect(updated.steps[1].status).toBe("in-progress");
     expect(updated.log.some((e) => e.action.includes("Ignored out-of-order done for step 2"))).toBe(false);
+  });
+
+  it("graph source: in-progress is legal for explicitly independent steps", async () => {
+    const store = harness.store();
+    const task = await harness.createTaskWithSteps();
+    const primed = await store.getTask(task.id);
+    const steps = primed.steps.map((s, i) => (i === 2 ? { ...s, dependsOn: [] } : { ...s }));
+    await store.updateTask(task.id, { steps });
+
+    await store.updateStep(task.id, 0, "in-progress", { source: "graph" });
+    const updated = await store.updateStep(task.id, 2, "in-progress", { source: "graph" });
+
+    expect(updated.steps[0].status).toBe("in-progress");
+    expect(updated.steps[2].status).toBe("in-progress");
+    expect(updated.currentStep).toBe(2);
+    expect(updated.log.some((e) => e.action.includes("Ignored dependency-order in-progress for step 2"))).toBe(false);
   });
 
   it("graph source: missing dependsOn defaults to previous step and blocks early verification", async () => {

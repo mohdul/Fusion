@@ -16352,7 +16352,7 @@ You have access to the file system to review changes.${verdictBlock}`;
     let logOutput: string;
     try {
       const { stdout } = await execAsync(
-        `git log "${baseCommitSha}..HEAD" --oneline`,
+        `git log "${baseCommitSha}..HEAD" --format=%ct%x09%s`,
         { cwd: worktreePath },
       );
       logOutput = stdout;
@@ -16364,17 +16364,35 @@ You have access to the file system to review changes.${verdictBlock}`;
 
     if (!logOutput.trim()) return;
 
+    const latestPendingByStep = new Map<number, number>();
+    for (const entry of detail.log ?? []) {
+      const action = entry.action ?? "";
+      const match = action.match(/^Step (\d+) \(.+\) → pending$/);
+      if (!match) continue;
+      const stepIndex = Number.parseInt(match[1], 10);
+      const pendingAt = Date.parse(entry.timestamp);
+      if (!Number.isInteger(stepIndex) || !Number.isFinite(pendingAt)) continue;
+      latestPendingByStep.set(stepIndex, Math.max(latestPendingByStep.get(stepIndex) ?? -1, pendingAt));
+    }
+
+    /*
+    FNXC:WorkflowResume 2026-06-30-08:02:
+    Browser Verification and Code Review REVISE intentionally reopen the trailing implementation/verification suffix. FN-7273 showed git-history resume then found older `complete Step 5` commits from the previous attempt, tried to mark Step 5 done while Step 3 was active, and logged a false reconciliation after TaskStore rejected the out-of-order write. A reopened step may only be reconciled from a commit whose author time is newer than the latest `→ pending` transition for that step, and success is logged only after the store confirms the step is terminal.
+    */
     // Match: feat(FN-2978): complete Step 3  /  chore(fn-2978)!: Complete step 3
     const stepCommitRegex = /^(?:feat|chore|fix)\([Ff][Nn]-\d+\)(?:!)?:\s*complete\s+step\s+(\d+)/i;
     const reconciledStepIndices = new Set<number>();
 
     for (const line of logOutput.split("\n")) {
-      // git log --oneline format: "<sha> <message>"
-      const message = line.replace(/^[0-9a-f]+ /, "").trim();
+      const [commitSecondsRaw, ...messageParts] = line.split("\t");
+      const commitMs = Number.parseInt(commitSecondsRaw ?? "", 10) * 1000;
+      const message = messageParts.join("\t").trim();
       const match = message.match(stepCommitRegex);
       if (!match) continue;
       const stepIndex = parseInt(match[1], 10);
       if (Number.isNaN(stepIndex) || stepIndex < 0 || stepIndex >= detail.steps.length) continue;
+      const latestPendingAt = latestPendingByStep.get(stepIndex);
+      if (latestPendingAt !== undefined && (!Number.isFinite(commitMs) || commitMs <= latestPendingAt)) continue;
       const step = detail.steps[stepIndex];
       if (step.status === "pending" || step.status === "in-progress") {
         reconciledStepIndices.add(stepIndex);
@@ -16382,7 +16400,14 @@ You have access to the file system to review changes.${verdictBlock}`;
     }
 
     for (const stepIndex of reconciledStepIndices) {
-      await this.store.updateStep(taskId, stepIndex, "done");
+      const updated = await this.store.updateStep(taskId, stepIndex, "done");
+      const updatedStepStatus = updated.steps?.[stepIndex]?.status;
+      if (updatedStepStatus !== "done" && updatedStepStatus !== "skipped") {
+        executorLog.warn(
+          `${taskId}: skipped git-history reconciliation log for Step ${stepIndex}; store kept status ${updatedStepStatus ?? "missing"}`,
+        );
+        continue;
+      }
       await this.store.logEntry(
         taskId,
         `Reconciled Step ${stepIndex} as done from git history (resume)`,
