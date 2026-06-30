@@ -537,6 +537,35 @@ describe("TaskDetailModal", () => {
       expect(logEntries[2].textContent).toContain("Created task");
     });
 
+    it("Feed segment preserves legacy text/detail and duplicate entries", () => {
+      const duplicateEntry = { timestamp: "2026-01-01T00:02:00Z", action: "Repeated diagnostic", outcome: "same payload" };
+      const { container } = render(
+        <TaskDetailModal
+          task={makeTask({
+            log: [
+              { timestamp: "2026-01-01T00:00:00Z", text: "Legacy text entry", detail: "Legacy detail body" } as any,
+              duplicateEntry,
+              { ...duplicateEntry },
+            ],
+          })}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
+          addToast={noop}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+      fireEvent.click(screen.getByRole("tab", { name: "Feed" }));
+
+      const actions = Array.from(container.querySelectorAll(".detail-log-action")).map((entry) => entry.textContent);
+      const outcomes = Array.from(container.querySelectorAll(".detail-log-outcome")).map((entry) => entry.textContent);
+      expect(actions).toEqual(["Repeated diagnostic", "Repeated diagnostic", "Legacy text entry"]);
+      expect(outcomes).toEqual(["same payload", "same payload", "Legacy detail body"]);
+    });
+
     it("Feed segment keeps action/outcome rendering intact", () => {
       const { container } = render(
         <TaskDetailModal

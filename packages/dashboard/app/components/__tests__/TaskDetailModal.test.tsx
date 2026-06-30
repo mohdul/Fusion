@@ -468,6 +468,51 @@ describe("TaskDetailModal Raw Logs agent loading", () => {
 
     mockUseAgentLogs.mockImplementation(() => ({ entries: [], loading: false, clear: vi.fn(), loadMore: vi.fn(async () => {}), hasMore: false, total: null, loadingMore: false }));
   });
+
+  it("renders Raw Logs populated pagination state from the Activity segment", async () => {
+    const user = userEvent.setup();
+    const { useAgentLogs } = await import("../../hooks/useAgentLogs");
+    const loadMore = vi.fn(async () => {});
+    const mockUseAgentLogs = vi.mocked(useAgentLogs);
+    mockUseAgentLogs.mockImplementation(() => ({
+      entries: [
+        { timestamp: "2026-01-01T00:00:00Z", taskId: "FN-6040", text: "raw executor output", type: "text" as const, agent: "executor" },
+        { timestamp: "2026-01-01T00:01:00Z", taskId: "FN-6040", text: "raw reviewer output", type: "text" as const, agent: "reviewer" },
+      ],
+      loading: false,
+      clear: vi.fn(),
+      loadMore,
+      hasMore: true,
+      total: 5,
+      loadingMore: false,
+    }));
+
+    render(
+      <TaskDetailModal
+        initialTab="definition"
+        task={makeTask({ id: "FN-6040", prompt: "# Loaded" })}
+        onClose={noop}
+        onMoveTask={noopMove}
+        onDeleteTask={noopDelete}
+        onMergeTask={noopMerge}
+        onOpenDetail={noopOpenDetail}
+        addToast={noop}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Activity" }));
+    await user.click(screen.getByRole("tab", { name: "Raw Logs" }));
+
+    expect(screen.getByTestId("agent-log-viewer")).toBeInTheDocument();
+    expect(screen.getByTestId("agent-log-summary")).toHaveTextContent("Showing 2 of 5 entries");
+    expect(screen.getByText("raw executor output")).toBeInTheDocument();
+    expect(screen.getByText("raw reviewer output")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("agent-log-load-more-button"));
+    expect(loadMore).toHaveBeenCalledTimes(1);
+
+    mockUseAgentLogs.mockImplementation(() => ({ entries: [], loading: false, clear: vi.fn(), loadMore: vi.fn(async () => {}), hasMore: false, total: null, loadingMore: false }));
+  });
 });
 
 describe("TaskDetailModal branch group surfacing", () => {

@@ -198,8 +198,8 @@ type ActivitySegment = "current" | "feed" | "raw-logs";
 FNXC:TaskDetailActivityTab 2026-06-30-00:00:
 The existing task activity/steering surface keeps the stable internal `chat` tab id for deep-link/plugin compatibility, but its top-level user-facing label is Activity. Activity is the implicit default for every task column, including done tasks; Summary remains explicitly available for completed work until a later subtask adds the separate planner-model Chat surface.
 
-FNXC:TaskDetailActivity 2026-06-30-22:15:
-Only an omitted initial tab is the implicit default. Preserve explicit `initialTab="chat"` requests from plugins and task-detail entrypoints so existing links continue to open Activity → Current. Legacy `initialTab="logs"` now routes to Activity → Feed because Logs no longer renders as a top-level task-detail tab.
+FNXC:TaskDetailActivity 2026-06-30-15:50:
+Only an omitted initial tab is the implicit default. Preserve explicit `initialTab="chat"` requests from plugins and task-detail entrypoints so existing links continue to open Activity → Current. Legacy `initialTab="logs"` now routes to Activity → Feed, and Raw Logs remains an Activity segment, because the legacy top-level Logs tab must not return while the later planner-model Chat tab remains out of scope.
 */
 function resolveDefaultTab(initialTab: TabId | undefined, _column: ColumnId): TabId {
   if (initialTab === "retries") {
@@ -3287,8 +3287,8 @@ export function TaskDetailContent({
           ) : activeTab === "chat" ? (
             <div className={`detail-section detail-section--activity${activitySegment === "current" ? " detail-section--chat" : ""}${activitySegment === "raw-logs" ? " detail-section--agent-log" : ""}`}>
               {/*
-                FNXC:TaskDetailActivity 2026-06-30-22:15:
-                Activity owns the existing steering/current view, Feed, and Raw Logs inside one segmented control. The later planner-model Chat tab is intentionally out of scope, so the stable top-level tab id remains `chat` while the legacy `logs` id lands on the Feed segment.
+                FNXC:TaskDetailActivity 2026-06-30-15:50:
+                Activity owns the existing steering/current view, Feed, and Raw Logs inside one segmented control. The later planner-model Chat tab is intentionally out of scope, so the stable top-level tab id remains `chat`, legacy `logs` callers land on Feed, and Raw Logs is the only segment that enables raw agent-log fetching.
               */}
               <div className="activity-segmented-control" role="tablist" aria-label={t("taskDetail.activity.segmentsLabel", "Activity views")}>
                 <button
