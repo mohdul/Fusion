@@ -98,6 +98,11 @@ vi.mock("../Column", () => ({
     columnRenderCounts[column] = (columnRenderCounts[column] ?? 0) + 1;
     return (
       <div data-testid={`column-${column}`} data-tasks={JSON.stringify(tasks)} data-workflow-badges={JSON.stringify(Object.fromEntries(taskWorkflowBadges ?? new Map()))} data-collapsed={collapsed ? "true" : "false"} data-has-quick-create={onQuickCreate ? "yes" : "no"} data-has-new-task={onNewTask ? "yes" : "no"} data-has-auto-merge-toggle={onToggleAutoMerge ? "yes" : "no"} data-has-archive-all={onArchiveAllDone ? "yes" : "no"} data-favorite-providers={JSON.stringify(favoriteProviders ?? [])} data-favorite-models={JSON.stringify(favoriteModels ?? [])} data-has-toggle-favorite={onToggleFavorite ? "yes" : "no"} data-has-toggle-model-favorite={onToggleModelFavorite ? "yes" : "no"} data-is-search-active={isSearchActive ? "true" : "false"} data-done-sort-mode={doneSortMode ?? ""} data-has-done-sort-handler={onDoneSortModeChange ? "yes" : "no"} data-workflow-id={workflowId ?? ""} data-column-display-name={columnDisplayName ?? ""} data-has-can-drop={canDropTask ? "yes" : "no"} data-has-planning={onPlanningMode ? "yes" : "no"} data-has-subtask={onSubtaskBreakdown ? "yes" : "no"}>
+        {tasks.map((task) => (
+          <article key={task.id} data-testid={`board-task-card-${task.id}`}>
+            {task.title ?? task.description ?? task.id}
+          </article>
+        ))}
         {onToggleCollapse && <button onClick={onToggleCollapse}>toggle-{column}</button>}
         {onDoneSortModeChange && <button type="button" onClick={() => onDoneSortModeChange("task-id-desc")}>sort-{column}-by-id</button>}
       </div>
@@ -255,6 +260,36 @@ describe("Board", () => {
     for (const col of COLUMNS) {
       expect(screen.getByTestId(`column-${col}`)).toBeDefined();
     }
+  });
+
+  it("FN-7250 removes cards from columns when the shared task array drops a deleted id", () => {
+    const deletedTask = {
+      id: "FN-DELETE",
+      description: "Deleted",
+      column: "todo",
+      dependencies: [],
+      steps: [],
+      currentStep: 0,
+      log: [],
+      createdAt: "2024-01-01T00:00:00.000Z",
+      updatedAt: "2024-01-01T00:00:00.000Z",
+    } as Task;
+    const keptTask = { ...deletedTask, id: "FN-KEEP", description: "Kept", column: "in-progress" } as Task;
+    const readIds = (column: string) => (JSON.parse(screen.getByTestId(`column-${column}`).getAttribute("data-tasks") || "[]") as Task[]).map((task) => task.id);
+
+    const { rerender } = renderBoard({ tasks: [deletedTask, keptTask] });
+
+    expect(readIds("todo")).toEqual(["FN-DELETE"]);
+    expect(readIds("in-progress")).toEqual(["FN-KEEP"]);
+    expect(screen.getByTestId("board-task-card-FN-DELETE")).toBeInTheDocument();
+    expect(screen.getByTestId("board-task-card-FN-KEEP")).toBeInTheDocument();
+
+    rerender(<Board {...createBoardProps({ tasks: [keptTask] })} />);
+
+    expect(readIds("todo")).toEqual([]);
+    expect(readIds("in-progress")).toEqual(["FN-KEEP"]);
+    expect(screen.queryByTestId("board-task-card-FN-DELETE")).toBeNull();
+    expect(screen.getByTestId("board-task-card-FN-KEEP")).toBeInTheDocument();
   });
 
   it("falls back malformed task columns to triage instead of crashing", () => {
