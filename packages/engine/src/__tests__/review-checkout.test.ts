@@ -1,11 +1,6 @@
 /*
-Explicit external review checkout metadata contract tests.
-
-Resolves review checkout cwd from task metadata with fail-closed defaults:
-- absent/blank/relative/non-git metadata → fallback (task worktree)
-- valid explicit absolute git checkout → resolved realpath
-- sourceMetadata.externalReviewCheckout is the canonical external field
-- invalid higher-priority metadata → fallback, not silent lower-priority widening
+FNXC:ReviewRouting 2026-07-01-16:36:
+External review checkout contract tests pin fail-closed resolution: absent, blank, relative, or non-git metadata resolves to the task worktree fallback; valid explicit absolute git checkouts resolve to their realpath; sourceMetadata.externalReviewCheckout is the canonical external field; invalid higher-priority metadata must not silently widen to lower-priority metadata.
 */
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
