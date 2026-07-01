@@ -11,6 +11,7 @@ import {
   cancelChatResponse,
   type ChatFailureInfo,
   type ChatSessionListResponse,
+  type ChatStreamErrorMeta,
 } from "../api";
 import { subscribeSse } from "../sse-bus";
 import { getScopedItem, setScopedItem, removeScopedItem } from "../utils/projectStorage";
@@ -257,6 +258,20 @@ function mapChatMessageToInfo(message: ChatMessage): ChatMessageInfo {
     attachments: message.attachments,
     createdAt: message.createdAt,
   };
+}
+
+function reconcileOptimisticSentMessage(previous: ChatMessageInfo[], persisted: ChatMessageInfo): ChatMessageInfo[] {
+  if (previous.some((message) => message.id === persisted.id)) return previous;
+  const optimisticIndex = previous.findIndex((candidate) =>
+    candidate.role === "user"
+    && candidate.id.startsWith("temp-")
+    && candidate.sessionId === persisted.sessionId
+    && candidate.content.trim() === persisted.content.trim(),
+  );
+  if (optimisticIndex < 0) return [...previous, persisted];
+  const next = [...previous];
+  next[optimisticIndex] = persisted;
+  return next;
 }
 
 export function useChat(
@@ -1121,13 +1136,20 @@ export function useChat(
 
           flushPendingMessage();
         },
-        onError: (data, tempUserMessageId) => {
+        onError: (data, tempUserMessageId, meta?: ChatStreamErrorMeta) => {
           const failureInfo = normalizeFailureInfo(data);
           const suspensionMessage = typeof data === "string" ? data : failureInfo.summary;
           const shouldSuppressSuspensionError = isLikelyTabSuspensionError(suspensionMessage);
+          const acceptedByServer = meta?.requestAccepted === true;
 
+          /*
+          FNXC:ChatReliability 2026-07-01-00:00:
+          Provider errors can arrive after ChatManager has already persisted and sent the user's turn to the model context. Keep the visible user bubble for accepted streams and reconcile it with the persisted transcript instead of rolling it back like a pre-delivery HTTP validation failure.
+          */
           setMessages((prev) => {
-            const nextMessages = prev.filter((message) => message.id !== tempUserMessageId);
+            const nextMessages = acceptedByServer
+              ? prev
+              : prev.filter((message) => message.id !== tempUserMessageId);
             if (shouldSuppressSuspensionError) {
               return nextMessages;
             }
@@ -1164,6 +1186,17 @@ export function useChat(
             }
           } else {
             addToast?.(failureInfo.summary, "error");
+            if (acceptedByServer) {
+              void fetchChatMessages(activeSession.id, { limit: 50, order: "desc" }, projectId)
+                .then((data) => {
+                  if (activeSessionRef.current?.id !== activeSession.id) return;
+                  const refreshed = data.messages.slice().reverse().map(mapChatMessageToInfo);
+                  setMessages((current) => refreshed.reduce(reconcileOptimisticSentMessage, current));
+                })
+                .catch(() => {
+                  // The optimistic accepted user bubble is already visible; the next SSE/refresh will reconcile the server id.
+                });
+            }
             void refreshSessions();
           }
 
@@ -1386,16 +1419,7 @@ export function useChat(
           // Reconcile optimistic local user messages against persisted SSE echoes.
           // The optimistic message uses a temp id and should be replaced instead of appended.
           if (message.role === "user") {
-            const optimisticIndex = prev.findIndex((candidate) =>
-              candidate.role === "user"
-              && candidate.id.startsWith("temp-")
-              && candidate.content.trim() === message.content.trim(),
-            );
-            if (optimisticIndex >= 0) {
-              const next = [...prev];
-              next[optimisticIndex] = message;
-              return next;
-            }
+            return reconcileOptimisticSentMessage(prev, message);
           }
 
           return [...prev, message];

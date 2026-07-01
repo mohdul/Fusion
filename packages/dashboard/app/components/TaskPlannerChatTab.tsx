@@ -5,7 +5,7 @@ import { Loader2, Maximize2, Minimize2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ToastType } from "../hooks/useToast";
 import type { ChatMessageInfo, ToolCallInfo } from "../hooks/chatTypes";
-import { ensureTaskPlannerChatSession, fetchChatMessages, fetchTaskDetail, fetchTaskPlannerChatSession, streamChatResponse } from "../api";
+import { ensureTaskPlannerChatSession, fetchChatMessages, fetchTaskDetail, fetchTaskPlannerChatSession, streamChatResponse, type ChatStreamErrorMeta } from "../api";
 import { parseQuestionToolCall, type ParsedQuestionToolCall } from "../utils/parseQuestionToolCall";
 import { ChatQuestionResponse } from "./ChatQuestionResponse";
 import { ProviderIcon } from "./ProviderIcon";
@@ -99,6 +99,27 @@ function makeOptimisticUserMessage(sessionId: string, content: string): ChatMess
     metadata: { optimistic: true },
     createdAt: new Date().toISOString(),
   };
+}
+
+function mergePlannerTranscriptWithOptimistic(current: ChatMessage[], refreshed: ChatMessage[]): ChatMessage[] {
+  let next = current.filter((message) => message.id !== "streaming-assistant");
+  for (const persisted of sortMessages(refreshed)) {
+    if (next.some((message) => message.id === persisted.id)) continue;
+    if (persisted.role === "user") {
+      const optimisticIndex = next.findIndex((candidate) =>
+        candidate.role === "user"
+        && candidate.id.startsWith("optimistic-")
+        && candidate.sessionId === persisted.sessionId
+        && candidate.content.trim() === persisted.content.trim(),
+      );
+      if (optimisticIndex >= 0) {
+        next = next.map((candidate, index) => index === optimisticIndex ? persisted : candidate);
+        continue;
+      }
+    }
+    next = [...next, persisted];
+  }
+  return sortMessages(next);
 }
 
 function makeStreamingAssistantMessage(sessionId: string, content: string, toolCalls: ToolCallInfo[] = [], thinkingOutput = ""): ChatMessage {
@@ -445,7 +466,7 @@ export function TaskPlannerChatTab({ task, projectId, active, expanded = false, 
               void fetchChatMessages(resolvedSessionId, { order: "asc" }, projectId)
                 .then(({ messages: refreshed }) => {
                   if (!isCurrentStreamRequest()) return;
-                  setMessages(sortMessages(refreshed));
+                  setMessages((current) => mergePlannerTranscriptWithOptimistic(current, refreshed));
                 })
                 .catch((refreshError) => {
                   if (!isCurrentStreamRequest()) return;
@@ -455,7 +476,7 @@ export function TaskPlannerChatTab({ task, projectId, active, expanded = false, 
                 });
             }
           },
-          onError: (streamError) => {
+          onError: (streamError, meta?: ChatStreamErrorMeta) => {
             if (!isCurrentStreamRequest()) return;
             const message = typeof streamError === "string" ? streamError : streamError.summary;
             setError(message || t("taskDetail.plannerChat.sendFailed", "Planner chat failed to respond"));
@@ -463,6 +484,23 @@ export function TaskPlannerChatTab({ task, projectId, active, expanded = false, 
             setComposerState("idle");
             setStreamingThinking("");
             streamRef.current = null;
+            setMessages((current) => {
+              const withoutStreaming = current.filter((candidate) => candidate.id !== "streaming-assistant");
+              if (meta?.requestAccepted === false) {
+                return withoutStreaming.filter((candidate) => !(candidate.role === "user" && candidate.id.startsWith("optimistic-") && candidate.content.trim() === content));
+              }
+              return withoutStreaming;
+            });
+            if (meta?.requestAccepted !== false) {
+              void fetchChatMessages(resolvedSessionId, { order: "asc" }, projectId)
+                .then(({ messages: refreshed }) => {
+                  if (!isCurrentStreamRequest()) return;
+                  setMessages((current) => mergePlannerTranscriptWithOptimistic(current, refreshed));
+                })
+                .catch(() => {
+                  // Keep the accepted optimistic user turn visible; a later refresh/SSE will reconcile the persisted id.
+                });
+            }
           },
         },
         undefined,
@@ -584,6 +622,9 @@ export function TaskPlannerChatTab({ task, projectId, active, expanded = false, 
 
   FNXC:TaskDetailPlannerChat 2026-07-01-09:34:
   Planner Chat delegates transcript bubbles, thinking details, tool-call framing, and mobile send/stop gestures to StandardChatSurface. TaskPlannerChatTab keeps lookup-only session loading, task-context sends, starter prompts, and steering confirmations local so reuse does not collapse the lazy ChatView chunk or merge planner chat with Activity.
+
+  FNXC:TaskDetailPlannerChat 2026-07-01-00:00:
+  Provider failures after planner-chat stream acceptance must keep the user's visible turn because the server may have persisted it and included it in model context. Reconcile accepted optimistic rows with refreshed history, but roll back only explicit pre-acceptance failures.
 
   FNXC:TaskDetailPlannerChat 2026-06-30-23:58:
   The planner Chat tab owns an in-view expand/collapse button so mobile users can reclaim vertical room while keeping close/back/task identity controls reachable. This state is independent from Activity Live expansion because Activity still represents operational steering/history, not planner-model conversation.

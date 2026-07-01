@@ -3812,6 +3812,102 @@ describe("useChat", () => {
       });
     });
 
+    it("keeps accepted sent message visible after provider error and reconciles persisted echo", async () => {
+      mockFetchChatSessions.mockResolvedValueOnce({
+        sessions: [makeSession({ id: "session-001", agentId: "agent-001" })],
+      });
+      mockFetchChatMessages
+        .mockResolvedValueOnce({ messages: [] })
+        .mockResolvedValueOnce({
+          messages: [makeMessage({ id: "msg-user-001", sessionId: "session-001", role: "user", content: "hello after 429" })],
+        });
+
+      let errorHandler: ((data: string | apiModule.ChatFailureInfo, meta?: apiModule.ChatStreamErrorMeta) => void) | undefined;
+      mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+        errorHandler = handlers.onError;
+        return { close: vi.fn(), isConnected: () => true };
+      });
+
+      const { result } = renderHook(() => useChat("proj-123"));
+      await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+      act(() => result.current.selectSession("session-001"));
+      await waitFor(() => expect(result.current.activeSession?.id).toBe("session-001"));
+
+      act(() => {
+        result.current.sendMessage("hello after 429");
+      });
+      await waitFor(() => expect(result.current.messages.some((message) => message.content === "hello after 429")).toBe(true));
+
+      act(() => {
+        errorHandler?.({ summary: "Provider rate limit", code: "rate_limit" }, { requestAccepted: true, receivedStreamEvent: true });
+      });
+
+      await waitFor(() => {
+        const matching = result.current.messages.filter((message) => message.role === "user" && message.content === "hello after 429");
+        expect(matching).toHaveLength(1);
+        expect(matching[0]?.id).toBe("msg-user-001");
+      });
+      expect(result.current.isStreaming).toBe(false);
+      expect(result.current.messages.some((message) => message.role === "assistant" && message.failureInfo?.summary === "Provider rate limit")).toBe(true);
+    });
+
+    it("does not keep optimistic sent message for pre-acceptance HTTP failures", async () => {
+      mockFetchChatSessions.mockResolvedValueOnce({
+        sessions: [makeSession({ id: "session-001", agentId: "agent-001" })],
+      });
+      mockFetchChatMessages.mockResolvedValueOnce({ messages: [] });
+      let errorHandler: ((data: string | apiModule.ChatFailureInfo, meta?: apiModule.ChatStreamErrorMeta) => void) | undefined;
+      mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+        errorHandler = handlers.onError;
+        return { close: vi.fn(), isConnected: () => true };
+      });
+
+      const { result } = renderHook(() => useChat("proj-123"));
+      await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+      act(() => result.current.selectSession("session-001"));
+      await waitFor(() => expect(result.current.activeSession?.id).toBe("session-001"));
+
+      act(() => result.current.sendMessage("blocked before persist"));
+      act(() => errorHandler?.("Request failed: 429", { requestAccepted: false, receivedStreamEvent: false }));
+
+      await waitFor(() => {
+        expect(result.current.messages.some((message) => message.content === "blocked before persist" && message.role === "user")).toBe(false);
+        expect(result.current.isStreaming).toBe(false);
+      });
+    });
+
+    it("flushes queued direct message after accepted provider error becomes idle", async () => {
+      mockFetchChatSessions.mockResolvedValueOnce({
+        sessions: [makeSession({ id: "session-001", agentId: "agent-001" })],
+      });
+      mockFetchChatMessages
+        .mockResolvedValueOnce({ messages: [] })
+        .mockResolvedValue({ messages: [] });
+      let errorHandler: ((data: string | apiModule.ChatFailureInfo, meta?: apiModule.ChatStreamErrorMeta) => void) | undefined;
+      mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+        errorHandler = handlers.onError;
+        return { close: vi.fn(), isConnected: () => true };
+      });
+
+      const { result } = renderHook(() => useChat("proj-123"));
+      await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+      act(() => result.current.selectSession("session-001"));
+      await waitFor(() => expect(result.current.activeSession?.id).toBe("session-001"));
+
+      act(() => {
+        result.current.sendMessage("first accepted");
+        result.current.sendMessage("second queued");
+      });
+      expect(result.current.pendingMessages).toEqual(["second queued"]);
+
+      act(() => errorHandler?.("Provider failed", { requestAccepted: true, receivedStreamEvent: true }));
+
+      await waitFor(() => {
+        expect(mockStreamChatResponse).toHaveBeenCalledTimes(2);
+        expect(mockStreamChatResponse).toHaveBeenLastCalledWith("session-001", "second queued", expect.any(Object), undefined, "proj-123");
+      });
+    });
+
     it("removes message on chat:message:deleted event", async () => {
       mockFetchChatSessions.mockResolvedValueOnce({
         sessions: [makeSession({ id: "session-001", agentId: "agent-001" })],

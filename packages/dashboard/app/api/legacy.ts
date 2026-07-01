@@ -10249,6 +10249,13 @@ function parseChatErrorPayload(rawData: string): string | ChatFailureInfo {
   }
 }
 
+export interface ChatStreamErrorMeta {
+  /** True once the POST stream was accepted and the server started an SSE response. */
+  requestAccepted: boolean;
+  /** True when the error came from an SSE event rather than the initial HTTP response. */
+  receivedStreamEvent: boolean;
+}
+
 export interface ChatStreamHandlers {
   onThinking?: (data: string) => void;
   onText?: (data: string) => void;
@@ -10256,7 +10263,7 @@ export interface ChatStreamHandlers {
   onToolEnd?: (data: { toolName: string; isError: boolean; result?: unknown }) => void;
   onFallback?: (data: { primaryModel: string; fallbackModel: string; triggerPoint: "session-creation" | "prompt-time" }) => void;
   onDone?: (data: { messageId: string; message?: ChatMessage }) => void;
-  onError?: (data: string | ChatFailureInfo) => void;
+  onError?: (data: string | ChatFailureInfo, meta?: ChatStreamErrorMeta) => void;
   onConnectionStateChange?: (state: StreamConnectionState) => void;
 }
 
@@ -10273,6 +10280,7 @@ export function streamChatResponse(
   const abortController = new AbortController();
   let closedByUser = false;
   let terminated = false;
+  let requestAccepted = false;
   let receivedStreamEvent = false;
   const firstEventTimeoutMs = Math.max(1_000, options?.firstEventTimeoutMs ?? 60_000);
   let firstEventTimer: ReturnType<typeof setTimeout> | null = null;
@@ -10349,7 +10357,7 @@ export function streamChatResponse(
         break;
       case "error":
         terminated = true;
-        handlers.onError?.(parseChatErrorPayload(rawData));
+        handlers.onError?.(parseChatErrorPayload(rawData), { requestAccepted: true, receivedStreamEvent: true });
         break;
     }
   };
@@ -10382,22 +10390,23 @@ export function streamChatResponse(
           const parsed = JSON.parse(errorBody);
           errorMsg = parsed.error || errorMsg;
         } catch { /* use default */ }
-        handlers.onError?.(errorMsg);
+        handlers.onError?.(errorMsg, { requestAccepted: false, receivedStreamEvent: false });
         return;
       }
 
       if (!res.body) {
-        handlers.onError?.("No response body");
+        handlers.onError?.("No response body", { requestAccepted: true, receivedStreamEvent: false });
         return;
       }
 
+      requestAccepted = true;
       handlers.onConnectionStateChange?.("connected");
       firstEventTimer = setTimeout(() => {
         if (terminated || closedByUser || receivedStreamEvent) {
           return;
         }
         terminated = true;
-        handlers.onError?.("Timed out waiting for first response event");
+        handlers.onError?.("Timed out waiting for first response event", { requestAccepted: true, receivedStreamEvent: false });
         abortController.abort();
       }, firstEventTimeoutMs);
 
@@ -10471,13 +10480,13 @@ export function streamChatResponse(
       // trailing event that should be dropped rather than surfaced as transport
       // failure.
       if (!terminated && !closedByUser && !hasUndispatchedTrailingFragment) {
-        handlers.onError?.("Connection closed unexpectedly");
+        handlers.onError?.("Connection closed unexpectedly", { requestAccepted, receivedStreamEvent });
       }
       clearFirstEventTimer();
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") {
         if (!closedByUser && !terminated) {
-          handlers.onError?.("Connection aborted");
+          handlers.onError?.("Connection aborted", { requestAccepted, receivedStreamEvent });
         }
         clearFirstEventTimer();
         return;
@@ -10487,7 +10496,7 @@ export function streamChatResponse(
         return;
       }
       clearFirstEventTimer();
-      handlers.onError?.(err instanceof Error ? err.message : "Connection error");
+      handlers.onError?.(err instanceof Error ? err.message : "Connection error", { requestAccepted, receivedStreamEvent });
     }
   })();
 

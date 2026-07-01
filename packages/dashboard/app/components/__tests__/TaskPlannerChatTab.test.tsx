@@ -897,6 +897,77 @@ describe("TaskPlannerChatTab", () => {
     expect(screen.getAllByTestId("chat-question-response-submit")).toHaveLength(1);
   });
 
+  it("keeps first planner message visible after accepted provider error and reconciles persisted history", async () => {
+    const user = userEvent.setup();
+    mockFetchTaskPlannerChatSession.mockResolvedValueOnce({ session: null });
+    mockFetchChatMessages.mockResolvedValueOnce({
+      messages: [{ id: "planner-user-1", sessionId: "chat-planner", role: "user", content: "hello after 429", thinkingOutput: null, metadata: null, createdAt: "2026-07-01T00:00:00.000Z" }],
+    });
+    let errorHandler: any;
+    mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+      errorHandler = handlers.onError;
+      return { close: vi.fn(), isConnected: () => true };
+    });
+
+    renderPlannerChat();
+    await screen.findByTestId("task-planner-chat-empty");
+    await user.type(screen.getByLabelText("Message planner chat"), "hello after 429");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText("hello after 429")).toBeInTheDocument();
+    act(() => errorHandler?.({ summary: "Planner provider rate limit" }, { requestAccepted: true, receivedStreamEvent: true }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Planner provider rate limit");
+    await waitFor(() => expect(screen.getAllByText("hello after 429")).toHaveLength(1));
+    expect(mockFetchChatMessages).toHaveBeenCalledWith("chat-planner", { order: "asc" }, undefined);
+  });
+
+  it("rolls back planner optimistic message for pre-acceptance failures", async () => {
+    const user = userEvent.setup();
+    let errorHandler: any;
+    mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+      errorHandler = handlers.onError;
+      return { close: vi.fn(), isConnected: () => true };
+    });
+
+    renderPlannerChat();
+    await screen.findByTestId("task-planner-chat-empty");
+    await user.type(screen.getByLabelText("Message planner chat"), "blocked before persist");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText("blocked before persist")).toBeInTheDocument();
+    act(() => errorHandler?.("Request failed: 429", { requestAccepted: false, receivedStreamEvent: false }));
+
+    await waitFor(() => expect(screen.queryByText("blocked before persist")).not.toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("Request failed: 429");
+  });
+
+  it("ignores stale planner provider errors after the task scope changes", async () => {
+    const user = userEvent.setup();
+    let oldHandlers: any;
+    mockStreamChatResponse.mockImplementationOnce((_sessionId, _content, handlers) => {
+      oldHandlers = handlers;
+      return { close: vi.fn(), isConnected: () => true };
+    });
+    const { rerender } = renderPlannerChat();
+    await screen.findByTestId("task-planner-chat-empty");
+    await user.type(screen.getByLabelText("Message planner chat"), "old task message");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    rerender(
+      <TaskPlannerChatTab
+        task={makeTask("FN-7312")}
+        active
+        planningModel={{ provider: "anthropic", modelId: "claude-plan" }}
+        addToast={vi.fn()}
+      />,
+    );
+    await screen.findByTestId("task-planner-chat-empty");
+    act(() => oldHandlers.onError("Stale provider error", { requestAccepted: true, receivedStreamEvent: true }));
+
+    expect(screen.queryByText("Stale provider error")).not.toBeInTheDocument();
+  });
+
   it("shows API errors and re-enables the composer", async () => {
     const user = userEvent.setup();
     mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
