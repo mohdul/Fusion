@@ -2728,6 +2728,11 @@ export function TaskDetailContent({
   Maximized Activity applies to Live, Feed, and Raw Logs, not only the legacy `current` chat segment. Reserve the detail surface for header context and Activity content, and do not mount branch-group chrome in this mode so expand/promote controls are not hidden-but-focusable.
   */
   const shouldShowBranchGroupCard = Boolean(task.branchContext?.groupId && !isActivityExpanded);
+  /*
+  FNXC:TaskDetailPlannerChat 2026-07-01-00:00:
+  Maximized Planner Chat reserves vertical room for task identity and the planner conversation, so failed-task chrome is not mounted in that state. Normal detail, Activity expansion, and collapsed Planner Chat still surface task failures immediately.
+  */
+  const shouldShowTaskFailureAlert = Boolean(task.status === "failed" && task.error && !isPlannerChatExpanded);
 
   const taskActionMenuModel = useMemo(() => buildTaskActionMenuModel({
     task,
@@ -3463,7 +3468,7 @@ export function TaskDetailContent({
               {isWorkspaceTask(workingTask) && <WorkspaceWorktreesSummary task={workingTask} />}
             </>
           )}
-          {task.status === "failed" && task.error && (
+          {shouldShowTaskFailureAlert && (
             <div className="detail-error-alert">
               <span className="detail-error-icon">⚠</span>
               <div className="detail-error-content">

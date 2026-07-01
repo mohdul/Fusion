@@ -228,6 +228,107 @@ describe("TaskDetailModal planner Chat tab", () => {
     expect(detail).toHaveClass("task-detail-content--planner-chat-expanded");
     expect(detail).not.toHaveClass("task-detail-content--chat-expanded");
   });
+
+  it("hides failed-task banner only while planner Chat is expanded and restores it on collapse", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <TaskDetailModal
+        initialTab="planner-chat"
+        taskDetailChatFirst
+        task={makeTask({ column: "todo" as any, status: "failed", error: "Planner failed hard" })}
+        onClose={noop}
+        onMoveTask={noopMove}
+        onDeleteTask={noopDelete}
+        onMergeTask={noopMerge}
+        onOpenDetail={noopOpenDetail}
+        addToast={noop}
+      />,
+    );
+    const detail = container.querySelector(".task-detail-content");
+
+    expect(screen.getByText("Task Failed")).toBeInTheDocument();
+    expect(screen.getByText("Planner failed hard")).toBeInTheDocument();
+    expect(container.querySelector(".detail-error-alert")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("task-planner-chat-expand-toggle"));
+
+    expect(detail).toHaveClass("task-detail-content--planner-chat-expanded");
+    expect(screen.queryByText("Task Failed")).not.toBeInTheDocument();
+    expect(screen.queryByText("Planner failed hard")).not.toBeInTheDocument();
+    expect(container.querySelector(".detail-error-alert")).toBeNull();
+
+    await user.click(screen.getByTestId("task-planner-chat-expand-toggle"));
+
+    expect(detail).not.toHaveClass("task-detail-content--planner-chat-expanded");
+    expect(screen.getByText("Task Failed")).toBeInTheDocument();
+    expect(screen.getByText("Planner failed hard")).toBeInTheDocument();
+    expect(container.querySelector(".detail-error-alert")).toBeInTheDocument();
+  });
+
+  it("keeps failed-task banner visible while Activity is expanded", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <TaskDetailModal
+        initialTab="chat"
+        taskDetailChatFirst
+        task={makeTask({ column: "todo" as any, status: "failed", error: "Activity failure stays visible" })}
+        onClose={noop}
+        onMoveTask={noopMove}
+        onDeleteTask={noopDelete}
+        onMergeTask={noopMerge}
+        onOpenDetail={noopOpenDetail}
+        addToast={noop}
+      />,
+    );
+    const detail = container.querySelector(".task-detail-content");
+
+    expect(screen.getByText("Task Failed")).toBeInTheDocument();
+    expect(screen.getByText("Activity failure stays visible")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("task-chat-expand-toggle"));
+
+    expect(detail).toHaveClass("task-detail-content--chat-expanded");
+    expect(detail).not.toHaveClass("task-detail-content--planner-chat-expanded");
+    expect(screen.getByText("Task Failed")).toBeInTheDocument();
+    expect(screen.getByText("Activity failure stays visible")).toBeInTheDocument();
+    expect(container.querySelector(".detail-error-alert")).toBeInTheDocument();
+  });
+
+  it("does not render empty failed-task alert shells for non-failed or errorless failed tasks", () => {
+    const { container, rerender } = render(
+      <TaskDetailModal
+        initialTab="planner-chat"
+        taskDetailChatFirst
+        task={makeTask({ column: "todo" as any, status: "failed" })}
+        onClose={noop}
+        onMoveTask={noopMove}
+        onDeleteTask={noopDelete}
+        onMergeTask={noopMerge}
+        onOpenDetail={noopOpenDetail}
+        addToast={noop}
+      />,
+    );
+
+    expect(screen.queryByText("Task Failed")).not.toBeInTheDocument();
+    expect(container.querySelector(".detail-error-alert")).toBeNull();
+
+    rerender(
+      <TaskDetailModal
+        initialTab="planner-chat"
+        taskDetailChatFirst
+        task={makeTask({ column: "todo" as any, status: "in-progress", error: "Ignored because task is not failed" })}
+        onClose={noop}
+        onMoveTask={noopMove}
+        onDeleteTask={noopDelete}
+        onMergeTask={noopMerge}
+        onOpenDetail={noopOpenDetail}
+        addToast={noop}
+      />,
+    );
+
+    expect(screen.queryByText("Task Failed")).not.toBeInTheDocument();
+    expect(container.querySelector(".detail-error-alert")).toBeNull();
+  });
 });
 
 describe("TaskDetailModal summarize title action", () => {
