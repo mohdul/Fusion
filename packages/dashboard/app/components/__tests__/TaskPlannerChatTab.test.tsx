@@ -1,8 +1,12 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TaskPlannerChatTab } from "../TaskPlannerChatTab";
+
+const taskPlannerChatCss = readFileSync(resolve(__dirname, "../TaskPlannerChatTab.css"), "utf8");
 
 const { mockEnsureTaskPlannerChatSession, mockFetchTaskPlannerChatSession, mockFetchChatSession, mockFetchChatMessages, mockFetchTaskDetail, mockStreamChatResponse, mockAttachChatStream, mockTranslations, mockT } = vi.hoisted(() => {
   const translations = new Map<string, string>();
@@ -620,6 +624,43 @@ describe("TaskPlannerChatTab", () => {
       undefined,
       { taskId: "FN-7310" },
     );
+  });
+
+  it("keeps send and thinking stop icons visible in planner chat", async () => {
+    const user = userEvent.setup();
+    let streamHandlers: any;
+    mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+      streamHandlers = handlers;
+      return { close: vi.fn(), isConnected: () => true };
+    });
+    renderPlannerChat();
+    await screen.findByTestId("task-planner-chat-empty");
+
+    await user.type(screen.getByLabelText("Message planner chat"), "Think with an icon");
+    const sendButton = screen.getByTestId("chat-send-btn");
+    expect(sendButton).toHaveAccessibleName("Send");
+    expect(sendButton.querySelector("svg")).toBeTruthy();
+    expect(sendButton.querySelector("span")).toHaveTextContent("Send");
+
+    fireEvent.pointerDown(sendButton, { pointerType: "touch" });
+    act(() => {
+      streamHandlers.onThinking?.("checking the plan");
+    });
+
+    const stopButton = await screen.findByTestId("chat-stop-btn");
+    expect(stopButton).toHaveAccessibleName("Stop generation");
+    const stopIcon = stopButton.querySelector(".chat-input-stop-icon");
+    expect(stopIcon).toBeTruthy();
+    expect(stopIcon).toHaveAttribute("aria-hidden", "true");
+    expect(stopButton).toHaveTextContent("Stop generation");
+    expect(screen.getByText("Thinking…")).toBeInTheDocument();
+    expect(screen.getByText("checking the plan")).toBeInTheDocument();
+
+    const mobileTextHideRule = taskPlannerChatCss.match(/@media \(max-width: 768px\)[\s\S]*?\.task-planner-chat-send[^{}]*\{[^}]*clip:[^}]*\}/)?.[0] ?? "";
+    expect(mobileTextHideRule).toContain("clip:");
+    expect(mobileTextHideRule).toMatch(/span:not\(\.chat-input-stop-icon\)/);
+    expect(mobileTextHideRule).not.toMatch(/\.task-planner-chat-send\s+span\s*\{/);
+    expect(stopIcon).toHaveClass("chat-input-stop-icon");
   });
 
   it("renders live and stored thinking output through the standard chat surface", async () => {

@@ -263,7 +263,11 @@ Mobile Planner Chat should match regular task chat: keep the composer as a singl
     padding: 0;
   }
 
-  .task-planner-chat-send span {
+  /*
+  FNXC:TaskDetailPlannerChat 2026-07-01-08:09:
+  Mobile Planner Chat hides compact action text labels, but the shared thinking/streaming stop affordance draws its icon with `.chat-input-stop-icon` on a span. Exclude that icon span so the stop button never becomes an empty-looking shell while preserving the first-tap send/stop button contract.
+  */
+  .task-planner-chat-send span:not(.chat-input-stop-icon) {
     position: absolute;
     width: 1px;
     height: 1px;
