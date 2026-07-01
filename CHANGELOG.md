@@ -2,56 +2,425 @@
 
 User-facing release notes aggregated across all packages. This file is auto-synced from each `packages/*/CHANGELOG.md` by `scripts/release.mjs` — do not edit by hand.
 
-## 0.51.0
+## 0.52.0
 
 ### New
 
-- Add a Chat tab to the right sidebar so you can chat inline and pop it out.
-- Tasks with a manually-created open Pull Request are no longer auto-merged.
-- Fast-mode tasks now plan with a lean, speed-first prompt routed through the workflow.
-- CE HTML plans and brainstorm docs now get report-only ce-doc-review instead of being skipped.
-- CE HTML docs now support DOM-validated in-place ce-doc-review fixes with report-only fallback.
-- Close the Quick Chat window by clicking outside it.
-- Project Dashboard cards now say "Stop engine"/"Start engine" instead of "Pause"/"Resume".
-- Emit run-audit telemetry for agent performance reflections.
-- CE HTML docs can define and safely repair malformed checklists in ce-doc-review.
-- Add a project setting to show or hide worktree names and grouping on the board.
-- Refinement tasks are now titled with the source task ID followed by the entered comment.
-- Add a project setting to open task details in the right sidebar instead of the full panel.
-- The Create PR dialog is now movable and resizable like other Fusion pop-outs.
-- Add a pin toggle to the right sidebar to push content aside instead of overlaying it.
-- Task detail Review tab now hides HTML comments and shows comment avatars, human/bot badges, and author-type filtering.
-- Add project settings to customize the AI prompts for PR title and description generation.
-- Improve AI-generated PR titles and descriptions, and show a clear loading state while the description generates.
-- The PR number in a task's Pull Request tab now links to the pull request on GitHub.
-- Add an "Address PR feedback" button that starts an AI session to resolve PR review comments.
-- Re-engage an executor when users chat on in-review tasks.
+- Expose workflow authoring tools through the published agent extension API.
+- Make task details open Activity first by default with an opt-in Chat-first setting.
+- Allow task image artifacts to be created from agent tools and viewed in task details.
+- Add a setting to control whether clicking outside the Quick Chat window closes it.
+- Add Anthropic API-key authentication under Authentication.
+- Add a Tasks tab to the right sidebar that shows the last-viewed task or a clickable task list.
+- Let operators sort the board Done column by completion date or task ID.
+- Show timestamps on each task-detail chat block.
+- Add a Board dropdown option that shows tasks across all workflows.
+- Show workflow names on aggregate board cards and task detail headers when available.
+- Show workflow-name badges on Board cards in the All workflows view.
+- Add a terminal worktree picker for opening shells in task worktrees.
+- Let Git Manager inspect commit history from known worktrees.
+- Let Git Manager jump from worktrees to their read-only commit history.
+- Let Git Manager inspect commit history from known git worktrees.
+- Add task context menus on board and list cards.
+- Add a mobile setting to open board tasks in the existing popup.
+- Add a global setting to control modal backdrop dismissal.
+- Refresh custom provider model lists at startup and from Settings.
+- Add a project setting for absolute workspace file-browser paths.
+- Add a quick-add workflow selector for Board and List task creation.
+- Show workflow identity with icons instead of built-in text suffixes.
+- Add Command Center task-duration trend lines for average and median completed active time.
+- Add Claude Sonnet 5 across Anthropic model selection and execution paths.
+- Make Shadcn Ember the default dashboard theme.
+- Show workflow icons in the full New Task workflow picker.
+- Add icon-only Quick Add image attachments with drag-and-drop support.
+- Rename the task-detail Chat tab to Activity and make it first.
+- Add Activity segments for current task activity, Feed, and Raw Logs.
+- Add a steering entry affordance to task Activity.
+- Add a task-detail Chat tab for planner-model conversations.
+- Add starter prompts to the task-detail Chat empty state.
+- Make task-detail Chat answer status and progress questions from bounded task context.
+- Convert clear task chat change requests into steering comments.
+- Make task details open with a focused planner Chat experience.
+- Rename task Activity Current to Live and allow expanding all Activity segments.
+- Let workflow review nodes fix issues in the same reviewer session by default.
+- Make Coding use stepwise execution with default-on Plan Review and final Code Review gates.
+- Rename the task Definition tab to Plan and add a PROMPT.md editor action.
 
 ### Fixed
 
-- Artifact lists now refresh live when new artifacts are registered.
-- Agents no longer pause tasks on failure — pausing is reserved for explicit user requests.
-- Permanent agents can ask the user a question directly without an approval gate.
-- Compound Engineering now uses a distinct sidebar icon instead of duplicating Insights.
-- Compound Engineering sidebar navigation now matches its Boxes header icon.
-- Ephemeral/task-worker agents now show their token usage on the dashboard.
-- Stopping the engine or pausing a project now frees its global agent slots for other projects.
-- Missions tab now always opens the mission overview instead of a specific mission.
-- Theme the quick-entry steps drop-down with canonical dashboard menu tokens.
-- Running-agent counts include active in-review agents, and the concurrency use-marker is no longer off by one.
-- Tasks sent back by Code Review or Browser Verification verdicts now re-run and complete their steps before re-checking.
-- Footer no longer blinks and the concurrency panel stays open across status refreshes.
-- Keep Create PR preview commit SHAs readable on one line.
-- Stuck triage re-queues now resume from the drafted plan instead of restarting planning from scratch.
-- Stuck re-queue no longer loses uncommitted work while keeping steps marked complete.
-- Fix the Create PR dialog spinner, diff preview default, and stray-click dismissal behavior.
-- PR badge color now follows GitHub status: green/gray/purple/red plus a conflict color.
-- Show active project pull requests in the Pull Requests sidebar and main view.
-- Fix "Request revision" error on reviewer-agent task reviews.
-- Fix Compound Engineering, Quick fix, and Review-heavy workflow tasks getting stuck in Todo.
-- Theme quick-add optional-step checkboxes and phase badges consistently.
-- Keep Summary token table model names readable in narrow task detail panels.
-- Pressing q (or Ctrl+C) in the TUI now quits cleanly without engine logs bleeding onto your shell.
+- Plugin sidebar icons now refresh after a plugin rebuild instead of showing stale glyphs.
+- Restore required safety guidance in fast-mode task planning prompts.
+- Fast-mode tasks now clear optional steps by default while honoring manual selections.
+- Review gates now include user comments and steering context consistently.
+- Show focused auth-token recovery when daemon authorization expires.
+- Prevent workflow task cards from showing later sequential steps active too early.
+- Prevent fast Coding tasks from merging before implementation runs.
+- Keep workflow completion summaries running for fast-mode tasks.
+- Prevent Compound Engineering artifacts from showing stale project files after project switches.
+- Keep the Goals dashboard view scoped to the selected project.
+- Fix mobile Planning Mode description editing so spaces can be entered.
+- Show Compound Engineering workflow stage progress on task cards and details.
+- Chat messages now use the full width in narrow popup and sidebar chats.
+- Concurrency panels now prefer live engine counts so running-agent totals stay accurate.
+- Task-detail chat messages now use the full width in the right sidebar and narrow detail views.
+- Import Tasks view now fills the full height of the screen for Issues and Pull Requests.
+- Fix review tasks stuck when merge retries starve the executor's code-review revision pass.
+- Fix planning/chat failures when image attachment bytes do not match the file extension.
+- Apply task reviewer model overrides consistently to reviewer and code-review lanes.
+- Workflow graph nodes now resume cleanly after engine pause-aborts.
+- Compact collapsed tool-call summaries in task-detail chat.
+- Show Z.ai icons for GLM model rows in Command Center token analytics.
+- Show active tasks by default in the right sidebar and fix its task-detail back button.
+- Keep Compound Engineering tasks running through checkout recovery, PR review policy, and merge handoff.
+- Harden workflow graph recovery against stale plan replays and foreign landed tips.
+- Prevent rebuilt stepwise workflow tasks from failing at parse on stale step pins.
+- Add consistent Plan Review, Code Review, and Browser Verification toggles to engineering workflows.
+- Make dashboard retry clear stale workflow step pins before re-execution.
+- Separate Anthropic API-key auth from Claude subscription login cards.
+- Let workflow graphs prepare task worktrees before coding-mode nodes run.
+- Send ntfy notifications from workflow graph lifecycle and notify-node flows.
+- Auto-retry stale parse pause-resume workflow failures instead of requiring operator action.
+- Prevent Plan Review approvals from looping back into triage as failures.
+- Route failed Plan Review workflow steps back through triage for automatic replanning.
+- Prevent stale pause state from mislabeling workflow retries as engine pauses.
+- Let workflow-owned steps finish out of order without false step-progress failures.
+- Preserve files changed by workflow-owned parallel step sessions on task branches.
+- Make built-in Code Review block merge when it requests revisions.
+- Recover workflow retries that restart after step execution has already begun.
+- Retry unavailable Plan Review without rewriting an accepted task plan.
+- Keep Plan Review status visible while tasks execute after restart.
+- Keep verification steps from starting before earlier workflow steps finish.
+- Keep Plan Review status visible when execution resumes after stale merge cleanup.
+- Stop routing failed workflow execution into the review column.
+- Prevent workflow tasks from reaching Done without durable merge confirmation.
+- Add inner padding to Task Detail chat message blocks.
+- Prevent workflow tasks from completing with stale or partial merge proof.
+- Swiping back on mobile now dismisses the open task detail view.
+- Keep workflow merge nodes moving even when a workflow skips a review handoff.
+- Show post-merge verification as a post-merge optional workflow step.
+- Preserve dashboard workflow selections per project across Board, List, Header, and Graph.
+- Prevent scoped workflow tasks from getting stranded by unrelated branch residue.
+- Footer concurrency markers now line up with the running-agent counts.
+- Keep Workflow simple-editor tabs reachable on mobile.
+- Prevent executor prompt setup from failing when a recovered task has no saved prompt.
+- Make task-detail Chat tool-call text easier to read without expanding collapsed rows.
+- Keep built-in Code Review remediation recovering until review passes.
+- Hide engine remediation banners while daemon auth token recovery is open.
+- Retry unavailable Plan Review without rewriting existing task specs.
+- Preserve explicit empty workflow step dependencies for parallel roots.
+- Footer concurrency controls now ask before saving capacity changes.
+- Show optional workflow block children as connected in the workflow editor.
+- Remove deleted tasks from the board and right sidebar immediately after deletion.
+- Stop logging non-actionable missing configured skill-pattern info messages.
+- Reload the selected file when switching Files modal worktrees.
+- Reuse fresh task data when returning to Board or List views.
+- Dismiss mobile task details when Android Back is pressed before falling back to app exit.
+- Preserve mobile board scroll after returning from task detail.
+- Group Done column sort and archive actions in one accessible actions menu.
+- Prevent fast workflow merges from completing before implementation steps run.
+- Restore reliable terminal keyboard shortcuts in embedded CLI session terminals.
+- Open Workflow simple-editor step details when rows are clicked.
+- Make configured MCP tools available in planning and mission interviews.
+- Preserve workflow setting values and prompt overrides during workflow export/import.
+- Move the mobile task-detail workflow badge beside the updated timestamp.
+- Fix the mobile Engine Controls menu placement.
+- Document workflow-authoring tools in the packaged Fusion skill.
+- Mobile back now reliably dismisses the open task detail, including right after closing and reopening it.
+- Move All workflows Board task-card workflow badges to the bottom-left.
+- Move task-detail workflow badges into the Updated timestamp metadata row.
+- Restore the Board All workflows view after refresh.
+- Fix mobile terminal spacing after folded viewport changes.
+- Fix the mobile terminal workspace picker so its menu stays visible and reachable.
+- Collapse custom shadcn color controls by default in dashboard theme surfaces.
+- Remove the board quick-add Plan button while keeping New Task planning available.
+- Fix mobile terminal spacing when folded phones open with the keyboard already visible.
+- Let Anthropic subscription login power Anthropic model requests without a raw API key.
+- Make built-in Plan Review and Code Review revisions unbounded unless workflows set a cap.
+- Refresh dashboard task state immediately after Retry succeeds.
+- Show workflow icons and wider names in the Quick Add workflow selector.
+- Count ephemeral task-worker runs in Command Center activity stats.
+- Fix mobile terminal character spacing after small font-size changes.
+- Hide Quick Add node pickers when only local execution is available.
+- Make the Quick Add workflow selector compact while keeping long menu names readable.
+- Preserve legacy task feed and raw log access under Activity.
+- Reuse the shared question UI for task-detail planner Chat clarification prompts.
+- Fix mobile Planning Mode summary description Expand and Collapse controls.
+- Collapse task-detail branch groups by default with a more compact summary.
+- Hide branch group chrome while the task Activity chat is maximized.
+- Move the Quick Add attachment button next to Save in the expanded action row.
+- Keep Planner Chat compact while preserving expanded task controls.
+- Rename the task-detail title summarization button to Summarize.
+- Remove the AI Refine action from Quick Add task creation.
+- Make task planner chats appear only after user interaction and expire on archive.
+- Make Shadcn Ember color tokens match Ember exactly.
+- Align footer concurrency current-use dots with Command Center sliders.
+- Replan active tasks after confirming execution-mode changes.
+- Preserve board column scroll during dashboard refresh and viewport stabilization.
+- Remove the extra steering guidance copy from task Activity chat.
+- Replace task Activity subtabs with a compact Live, Feed, Raw dropdown.
+- Persist Remote Access settings when saving from the dashboard on Windows.
+- Keep the mobile Planning Mode New session button pinned at the bottom.
+- Use workflow Plan Review as the single pre-execution plan gate.
+- Keep Plan Review in triage and prevent duplicate execution-time plan reviews.
+- Preserve Quick Add tasks with all workflow optional steps unchecked.
+- Record completion summaries for workflow-driven tasks.
+- Block workflow tasks from bypassing merge proof when finalizing to done.
+- Show workflow review failures as explicit replan and remediation nodes.
+- Stop showing stale in-review stall badges while agents are actively streaming logs.
+- Keep dashboard workflow selection stable after creating refinement tasks.
+- Prevent workflow tasks from duplicating plan review during implementation.
+- Retry workflow merge-node pause aborts while merge review is active.
+- Keep Planner Chat compact on mobile with an inline composer and provider-icon model badge.
+- Add task activity breadcrumbs for workflow pause-abort recovery.
+- Align per-step review coding with default coding gates and session settings.
+- Stop repeat no-op phantom-reservation audit writes and preserve the worktree across phantom binding reclaim.
+- Make the task Plan prompt editor span the full task-detail card width.
+- Scope external-integration plan evidence checks to Coding (per-step review).
+- Keep Planner Chat expanded context visible while removing repeated header guidance.
+- Compact Planner Chat chrome and align Activity Live with the same plain composer row.
+- Keep Planner Chat spacing stable when expanding task details.
+- Keep refinement tasks on the source task workflow board.
+- Refresh branch group task-detail completion live as member tasks change.
+- Remove the icon from the Quick Add Plan action while preserving the text button behavior.
+- Remove redundant workflow labels from expanded task-card step lists.
+- Allow review steps to target a validated external checkout.
+- Keep task-detail Activity segment tabs equal-height with smaller labels.
+- Retry configured fallback models when a selected provider model returns a not-found error.
+- Wait for task store secret database handles to close before cleanup.
+- Add clearer spacing between workflow badge icons and labels.
+- Keep Board and List workflow choices selected across refreshes and route returns.
+- Prevent stale workflow recovery log entries from sending incorrect notifications.
+- Harden workflow lifecycle recovery, post-merge gates, warnings, and notifications.
+
+### Performance
+
+- Skip unchanged plugin builds during workspace builds.
+
+## 0.51.0
+
+### @fusion/dashboard
+
+#### Patch Changes
+
+- @fusion/core@0.51.0
+- @fusion/engine@0.51.0
+- @fusion/i18n@0.39.14
+- @fusion-plugin-examples/cli-printing-press@0.1.31
+- @fusion-plugin-examples/compound-engineering@0.1.14
+- @fusion-plugin-examples/dependency-graph@0.1.45
+- @fusion-plugin-examples/roadmap@0.1.33
+- @fusion-plugin-examples/cursor-runtime@0.1.33
+- @fusion-plugin-examples/droid-runtime@0.1.40
+- @fusion-plugin-examples/hermes-runtime@0.2.64
+- @fusion-plugin-examples/openclaw-runtime@0.2.64
+- @fusion-plugin-examples/paperclip-runtime@0.2.64
+
+### @fusion/desktop
+
+#### Patch Changes
+
+- @fusion/core@0.51.0
+- @fusion/dashboard@0.51.0
+- @fusion/engine@0.51.0
+
+### @fusion/engine
+
+#### Patch Changes
+
+- @fusion/core@0.51.0
+- @fusion/pi-claude-cli@0.51.0
+
+### @fusion/plugin-sdk
+
+#### Patch Changes
+
+- @fusion/core@0.51.0
+
+### @runfusion/fusion
+
+#### Minor Changes
+
+- f7e20ab: summary: Add a Chat tab to the right sidebar so you can chat inline and pop it out.
+  category: feature
+  dev: Registers ChatView as the always-visible `chat` overflow-view entry in the right dock.
+- dc54b61: summary: Tasks with a manually-created open Pull Request are no longer auto-merged.
+  category: feature
+  dev: New PrInfo.manual flag set by POST /tasks/:id/pr/create; allowsAutoMergeProcessing now returns false when a task has an open manual PR (status === "open"), excluding it from the engine merge queue and self-healing sweeps until the human merges the PR. Pipeline (PR-merge-strategy) PRs are unaffected. FN-7182.
+- d9a518c: summary: Fast-mode tasks now plan with a lean, speed-first prompt routed through the workflow.
+  category: feature
+  dev: Replaces the verbose built-in `planning-fast` seam prompt (FAST_TRIAGE_PROMPT_TEXT) with a concise variant; resolution still prefers a workflow's `planning-fast` seam and falls back to the built-in.
+- 7ebf58e: summary: CE HTML plans and brainstorm docs now get report-only ce-doc-review instead of being skipped.
+  category: feature
+  dev: Updates bundled Compound Engineering ce-doc-review handoffs so HTML runs review without autofix/write-back.
+- fecb27e: summary: CE HTML docs now support DOM-validated in-place ce-doc-review fixes with report-only fallback.
+  category: feature
+  dev: Adds a direct parse5 CE HTML mutation helper with atomic writes, rollback, and allowlisted operations.
+- 6ca5118: summary: Close the Quick Chat window by clicking outside it.
+  category: feature
+  dev: New opt-in `closeOnOutsidePointerDown` prop on FloatingWindow; enabled only for the Quick Chat (windowKey="chat-modal"). Uses a capture-phase document pointerdown listener that excludes in-flight drag/resize and nested dialog/floating surfaces. Task pop-outs are unaffected.
+- 605e4d7: summary: Emit run-audit telemetry for agent performance reflections.
+  category: feature
+  dev: Adds reflection:generated/skipped/failed DatabaseMutationType events emitted from AgentReflectionService.generateReflection; metadata carries ids/counts/outcomes only.
+- 631e8fc: summary: CE HTML docs can define and safely repair malformed checklists in ce-doc-review.
+  category: feature
+  dev: Adds parse5-backed canonical checklist repair with validation, atomic writes, and report-only fallback.
+- 2448447: summary: Add a project setting to show or hide worktree names and grouping on the board.
+  category: feature
+  dev: New project setting `showWorktreeGrouping` (default false). When true, Column groups WIP tasks by worktree in both legacy and workflow modes; when false, WIP columns render plain task cards.
+- 34efa8b: summary: Refinement tasks are now titled with the source task ID followed by the entered comment.
+  category: feature
+  dev: TaskStore.refineTask now sets title = "{sourceId}: {feedback}"; normalization is skipped to preserve the source-id prefix; FN-7165.
+- a0602d0: summary: Add a project setting to open task details in the right sidebar instead of the full panel.
+  category: feature
+  dev: New project setting `openTasksInRightSidebar` (default false). When true and the right dock is available, board card clicks render the task in the right dock; falls back to the full-panel view on mobile / when the dock is inactive.
+- 4118061: summary: The Create PR dialog is now movable and resizable like other Fusion pop-outs.
+  category: feature
+  dev: PrCreateModal now renders inside the shared FloatingWindow (windowKey "pr-create", persistGeometryKey "floating-window:pr-create") instead of a fixed .modal-overlay; geometry persists, mobile stays full-screen via CSS, and overlay click-to-dismiss was dropped (close via X / Cancel / Escape).
+- 5d9184d: summary: Add a pin toggle to the right sidebar to push content aside instead of overlaying it.
+  category: feature
+  dev: New persisted localStorage flag `fusion:right-dock-pinned` (default false). When pinned, `.right-dock` switches from absolute overlay to in-flow (`right-dock--pinned`, position: relative) so the shell flex layout reflows `.project-content`; unpinned restores overlay. Toggle lives in the right-dock toolbar.
+- fc958bc: summary: Task detail Review tab now hides HTML comments and shows comment avatars, human/bot badges, and author-type filtering.
+  category: feature
+  dev: TaskReviewTab renders bodies via the shared sanitized MailboxMessageContent and a new app/utils/githubCommentAuthor helper for bot/avatar derivation.
+- 9c207fd: summary: Add project settings to customize the AI prompts for PR title and description generation.
+  category: feature
+  dev: New project settings `prTitlePromptInstructions` / `prDescriptionPromptInstructions` (default undefined) are appended to the Create PR dialog's metadata-generation system prompt in generatePrMetadata.
+- 65abae2: summary: Improve AI-generated PR titles and descriptions, and show a clear loading state while the description generates.
+  category: feature
+  dev: Rewrote the pr-metadata-generator system/context prompt (exported as a named default constant) for grounded, conventional-commit-style output while preserving the strict {title,summary,changes,testing,linkedTask} JSON schema; PrCreateModal now renders a skeleton + aria-busy loading affordance with disabled inputs during generation that clears into content or the existing error/manual-fallback path.
+- 9050ee1: summary: Add an "Address PR feedback" button that starts an AI session to resolve PR review comments.
+  category: feature
+  dev: New POST /tasks/:id/pr/address-feedback route seeds a ce-resolve-pr-feedback steering prompt and wakes the assigned agent; button gates on linked-PR actionable feedback (commentCount or CHANGES_REQUESTED).
+- 4405dec: summary: Re-engage an executor when users chat on in-review tasks.
+  category: feature
+  dev: Shares the review-address re-engagement helper for Chat steering and Comments-tab task comments while preserving PR-await guards.
+
+#### Patch Changes
+
+- e5a0273: summary: Artifact lists now refresh live when new artifacts are registered.
+  category: fix
+  dev: TaskStore emits artifact:registered SSE; useArtifacts also accepts message:sent/message:received and coalesces scoped refreshes.
+- 524c15c: summary: Agents no longer pause tasks on failure — pausing is reserved for explicit user requests.
+  category: fix
+  dev: Adds a no-pause-on-failure standing rule to HEARTBEAT_SYSTEM_PROMPT / HEARTBEAT_NO_TASK_SYSTEM_PROMPT, clarifies the fn_task_pause tool description, and regenerates the fusion skill docs (sync:fusion-skill).
+- 7a2137c: summary: Permanent agents can ask the user a question directly without an approval gate.
+  category: fix
+  dev: Classify fn_ask_question in COORDINATION_EXEMPT_TOOLS and READONLY_FN_TOOLS (gating-classifications.ts) so both the permanent-agent gate and action gate auto-allow it, mirroring fn_send_message.
+- c48dcae: summary: Compound Engineering now uses a distinct sidebar icon instead of duplicating Insights.
+  category: fix
+  dev: Plugin dashboard view icon changed Sparkles → Boxes; registered `boxes` in dashboard PLUGIN_NAV_ICON_MAP so desktop + mobile nav resolve it.
+- 581f850: summary: Compound Engineering sidebar navigation now matches its Boxes header icon.
+  category: fix
+  dev: Pins Compound Engineering plugin nav entries to Boxes by plugin id so stale dashboard view metadata cannot render Sparkles/Grid3X3 in desktop or mobile navigation.
+- 100164d: summary: Ephemeral/task-worker agents now show their token usage on the dashboard.
+  category: fix
+  dev: Derives zero/absent per-agent dashboard totals from task token usage and allows ephemeral Agent Detail token windows.
+- d7a02c4: summary: Stopping the engine or pausing a project now frees its global agent slots for other projects.
+  category: fix
+  dev: InProcessRuntime now returns the project's held slots back to the shared cross-project AgentSemaphore after abort+drain on stop, and ProjectEngineManager.pauseProject/stopAll return residual slots per project without clobbering slots held by other projects.
+- bb89e1e: summary: Project Dashboard cards now say "Stop engine"/"Start engine" instead of "Pause"/"Resume".
+  category: feature
+  dev: Relabels ProjectCard pause/resume controls; pauseProject already stops the engine, so behavior is unchanged. i18n projectCard.\* keys updated (en) with empty-string fallback for other locales.
+- b570a83: summary: Missions tab now always opens the mission overview instead of a specific mission.
+  category: fix
+  dev: Removed MissionManager cache-restore and default-select effects; targetMissionId deep-links and interview resume still open a specific mission.
+- 8ef9750: summary: Theme the quick-entry steps drop-down with canonical dashboard menu tokens.
+  category: fix
+  dev: Aligns WorkflowOptionalStepsDropdown panel CSS with shared dropdown surface, border, radius, shadow, and hover tokens.
+- a95cfa7: summary: Running-agent counts include active in-review agents, and the concurrency use-marker is no longer off by one.
+  category: fix
+  dev: Adds shared isRunningAgentTask/countRunningAgentTasks in @fusion/core; engine concurrency.persistedTopLevelAgentSlots and the dashboard/CLI count surfaces delegate to it. CommandCenterControls use-marker ratio is now 0-based.
+- 987abc7: summary: Tasks sent back by Code Review or Browser Verification verdicts now re-run and complete their steps before re-checking.
+  category: fix
+  dev: Fixes the post-verdict remediation bounce (requestPreMergeOptionalStepFix → sendTaskBackForFix → reopenLastStepForRevision → scheduleWorkflowRerun → graph re-run) so resumed execution re-launches the executor and drives reopened implementation/verification/delivery steps and the verdict-demanded fix to done across both in-progress and in-review bounce sources, bounded by the existing maxRevisions/maxPostReviewFixes budget.
+- bee93c3: summary: Footer no longer blinks and the concurrency panel stays open across status refreshes.
+  category: fix
+  dev: Keeps executor stats loading initial-only and guards the footer loading branch after populated render.
+- 7923977: summary: Keep Create PR preview commit SHAs readable on one line.
+  category: fix
+  dev: Corrects the dashboard Create Pull Request commit-row grid and guards the DOM contract in tests.
+- e42679d: summary: Stuck triage re-queues now resume from the drafted plan instead of restarting planning from scratch.
+  category: fix
+  dev: triage.ts stuck-abort paths seed buildSpecificationPrompt with the on-disk PROMPT.md draft, or a non-empty plan task document when PROMPT.md is absent, and bound consecutive triage stuck-retries by settings.maxStuckKills before escalating to failed/paused.
+- 9f45f10: summary: Stuck re-queue no longer loses uncommitted work while keeping steps marked complete.
+  category: fix
+  dev: Reconciles lost-work steps before worktree removal across all three executor stuck-requeue paths; corrects the preserveProgressOnStuckRequeue docstring.
+- 01fe47d: summary: Fix the Create PR dialog spinner, diff preview default, and stray-click dismissal behavior.
+  category: fix
+  dev: PrCreateModal keeps the FloatingWindow no-backdrop-dismiss path, defaults the diff/commit <details> closed, and time-bounds generatePrMetadata with PR_METADATA_TIMEOUT_MS so hangs use the existing error/manual-body fallback.
+- 5b71bdb: summary: PR badge color now follows GitHub status: green/gray/purple/red plus a conflict color.
+  category: fix
+  dev: Adds getPrBadgeModifierClass and a token-backed --color-merged badge modifier.
+- 11e5dde: summary: Show active project pull requests in the Pull Requests sidebar and main view.
+  category: fix
+  dev: Adds PullRequestView list mode for no-id hosts with selectable detail and back navigation.
+- 27b0cbb: summary: The PR number in a task's Pull Request tab now links to the pull request on GitHub.
+  category: feature
+  dev: PrCard (PrPanel.tsx) wraps the pr-number in an anchor to prInfo.url (new tab, rel=noopener); plain-span fallback when no URL.
+- b60a743: summary: Fix "Request revision" error on reviewer-agent task reviews.
+  category: fix
+  dev: review/address now validates selected items against the same canonical review source the UI renders (buildDirectTaskReviewData / getPrReviewDetails) instead of the persisted reviewState.items.
+- fb509b1: summary: Fix Compound Engineering, Quick fix, and Review-heavy workflow tasks getting stuck in Todo.
+  category: fix
+  dev: linear() built-in workflows now synthesize the canonical default column traits (hold(capacity) on todo, wip on in-progress, merge on in-review) matching BUILTIN_CODING_WORKFLOW_IR, so the hold/release sweep dispatches their todo cards. Fixes FN-7190.
+- 8d3c15e: summary: Theme quick-add optional-step checkboxes and phase badges consistently.
+  category: fix
+  dev: Co-locates workflow phase badge CSS with the shared helper and applies the dashboard checkbox accent token.
+- f0b3003: summary: Keep Summary token table model names readable in narrow task detail panels.
+  category: fix
+  dev: Adds token-table CSS min-width and wrap-contract regression coverage for right-dock layouts.
+- b5ed4e0: summary: Pressing q (or Ctrl+C) in the TUI now quits cleanly without engine logs bleeding onto your shell.
+  category: fix
+  dev: Two-part fix. (1) dashboard.ts shutdown/devShutdown arm an unref'd 3s hard-exit watchdog on the first signal and force an immediate process.exit(0) on a second signal, so a hung stopAllDevServers/engine/central-core teardown can no longer leave the process alive. (2) Root cause of the "TUI keeps rendering after q" symptom: dispose() called logSink.releaseConsole() (re-pointing console._ at the terminal) before tui.stop() restored the shell, so slow engine/mesh/dev-server teardown logs painted over the recovered prompt. dispose() now calls the new logSink.silence() instead, dropping all sink + console._ output from quit to exit. Shutdown step diagnostics (timeShutdownStep + the watchdog stall line) are gated behind FUSION_DEBUG_SHUTDOWN=1 so a normal quit is pristine.
+
+### runfusion.ai
+
+#### Patch Changes
+
+- Updated dependencies [e5a0273]
+- Updated dependencies [f7e20ab]
+- Updated dependencies [dc54b61]
+- Updated dependencies [524c15c]
+- Updated dependencies [7a2137c]
+- Updated dependencies [c48dcae]
+- Updated dependencies [581f850]
+- Updated dependencies [d9a518c]
+- Updated dependencies [7ebf58e]
+- Updated dependencies [fecb27e]
+- Updated dependencies [100164d]
+- Updated dependencies [d7a02c4]
+- Updated dependencies [6ca5118]
+- Updated dependencies [bb89e1e]
+- Updated dependencies [b570a83]
+- Updated dependencies [8ef9750]
+- Updated dependencies [605e4d7]
+- Updated dependencies [631e8fc]
+- Updated dependencies [a95cfa7]
+- Updated dependencies [2448447]
+- Updated dependencies [987abc7]
+- Updated dependencies [bee93c3]
+- Updated dependencies [34efa8b]
+- Updated dependencies [a0602d0]
+- Updated dependencies [4118061]
+- Updated dependencies [7923977]
+- Updated dependencies [5d9184d]
+- Updated dependencies [e42679d]
+- Updated dependencies [9f45f10]
+- Updated dependencies [01fe47d]
+- Updated dependencies [5b71bdb]
+- Updated dependencies [fc958bc]
+- Updated dependencies [11e5dde]
+- Updated dependencies [9c207fd]
+- Updated dependencies [65abae2]
+- Updated dependencies [27b0cbb]
+- Updated dependencies [9050ee1]
+- Updated dependencies [b60a743]
+- Updated dependencies [4405dec]
+- Updated dependencies [fb509b1]
+- Updated dependencies [8d3c15e]
+- Updated dependencies [f0b3003]
+- Updated dependencies [b5ed4e0]
+  - @runfusion/fusion@0.51.0
 
 ## 0.50.0
 
@@ -10647,6 +11016,14 @@ for reference.
 - Updated dependencies [a2ed6d0]
   - @runfusion/fusion@0.1.0
 
+## 0.39.15
+
+### @fusion/i18n
+
+#### Patch Changes
+
+- @fusion/core@0.52.0
+
 ## 0.39.14
 
 ### @fusion/i18n
@@ -10760,6 +11137,14 @@ for reference.
 #### Patch Changes
 
 - @fusion/core@0.40.0
+
+## 0.11.41
+
+### @fusion/droid-cli
+
+#### Patch Changes
+
+- @fusion-plugin-examples/droid-runtime@0.1.41
 
 ## 0.11.40
 
