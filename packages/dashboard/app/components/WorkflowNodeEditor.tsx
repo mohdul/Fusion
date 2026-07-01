@@ -46,6 +46,7 @@ import type { DiscoveredSkill } from "../api";
 import type { ToastType } from "../hooks/useToast";
 import { useOverlayDismiss } from "../hooks/useOverlayDismiss";
 import { useConfirm } from "../hooks/useConfirm";
+import { subscribeSse } from "../sse-bus";
 
 /*
 FNXC:i18n-Localize 2026-06-20-00:00:
@@ -1112,10 +1113,10 @@ function InnerEditor({
     );
   }, [isBuiltin, activeWorkflow, name, description, icon, nodes, edges, columns, fields, settings]);
 
-  const loadWorkflows = useCallback(async () => {
+  const loadWorkflows = useCallback(async (options?: { forceFresh?: boolean }) => {
     setLoading(true);
     try {
-      const data = await fetchWorkflows(projectId);
+      const data = await fetchWorkflows(projectId, options);
       setWorkflows(data);
       setActiveId((prev) => {
         if (prev && data.some((workflow) => workflow.id === prev)) return prev;
@@ -1134,6 +1135,24 @@ function InnerEditor({
   useEffect(() => {
     void loadWorkflows();
   }, [loadWorkflows]);
+
+  useEffect(() => {
+    /*
+    FNXC:ChatWorkflowAuthoring 2026-07-01-10:55:
+    WorkflowNodeEditor can be open while chat/tool execution creates a workflow through ChatManager rather than this component's create/import buttons. Subscribe to workflow lifecycle SSE and force-refresh definitions so the editor list shows chat-created workflows without a hard reload or stale deduped request.
+    */
+    const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+    const refreshFromWorkflowMutation = () => {
+      void loadWorkflows({ forceFresh: true });
+    };
+    return subscribeSse(`/api/events${query}`, {
+      events: {
+        "workflow:created": refreshFromWorkflowMutation,
+        "workflow:updated": refreshFromWorkflowMutation,
+        "workflow:deleted": refreshFromWorkflowMutation,
+      },
+    });
+  }, [loadWorkflows, projectId]);
 
   useEffect(() => {
     if (!initialWorkflowId || !isMobileMode || !workflowListStageOpen) return;

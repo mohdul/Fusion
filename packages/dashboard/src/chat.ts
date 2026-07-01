@@ -35,6 +35,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { SessionEventBuffer } from "./sse-buffer.js";
 import { formatChatAttachmentContents, readChatAttachmentContents } from "./chat-attachment-content.js";
 import { buildTaskPlannerChatContext, TASK_PLANNER_CHAT_CONTEXT_PROMPT_GUIDANCE } from "./task-planner-chat-context.js";
+import { emitWorkflowSseEvent, type WorkflowSseEventType } from "./sse.js";
 
 import {
   createFnAgent as engineCreateFnAgent,
@@ -231,6 +232,52 @@ const MAX_MESSAGES_PER_IP_PER_MINUTE = 30;
 const MAX_REFERENCED_FILE_SIZE = 50 * 1024;
 export const TASK_PLANNER_CHAT_AGENT_ID_PREFIX = "task-planner:";
 const ROOM_AMBIENT_MAX_RESPONDERS = 5;
+
+type ChatCustomTool = ReturnType<typeof createWorkflowAuthoringTools>[number];
+type ChatToolExecute = (...args: unknown[]) => Promise<unknown>;
+
+function workflowEventForToolName(toolName: string): WorkflowSseEventType | null {
+  if (toolName === "fn_workflow_create") return "workflow:created";
+  if (toolName === "fn_workflow_update" || toolName === "fn_workflow_select" || toolName === "fn_workflow_settings") return "workflow:updated";
+  if (toolName === "fn_workflow_delete") return "workflow:deleted";
+  return null;
+}
+
+function wrapWorkflowMutationTool(tool: ChatCustomTool, projectId?: string | null): ChatCustomTool {
+  const event = workflowEventForToolName(tool.name);
+  if (!event || typeof tool.execute !== "function") return tool;
+  return {
+    ...tool,
+    execute: (async (...args: Parameters<ChatToolExecute>) => {
+      const result = await (tool.execute as unknown as ChatToolExecute)(...args);
+      const resultRecord = result && typeof result === "object" ? result as { isError?: boolean; details?: unknown } : null;
+      if (!resultRecord?.isError) {
+        const details = resultRecord?.details && typeof resultRecord.details === "object" ? resultRecord.details as Record<string, unknown> : {};
+        /*
+        FNXC:ChatWorkflowAuthoring 2026-07-01-10:55:
+        Chat, planner, and room responders mutate workflows outside the REST workflow routes, so successful workflow tools must emit the same lifecycle SSE events as the editor routes. Workflow selectors and editors rely on those events to bypass stale in-flight/cache state and show chat-created definitions without a hard reload.
+        */
+        const workflowId = typeof (details as { workflowId?: unknown }).workflowId === "string"
+          ? (details as { workflowId: string }).workflowId
+          : typeof (details as { id?: unknown }).id === "string"
+            ? (details as { id: string }).id
+            : undefined;
+        emitWorkflowSseEvent(event, workflowId ? { ...details, id: workflowId } : details, projectId ?? undefined);
+      }
+      return result;
+    }) as ChatCustomTool["execute"],
+  };
+}
+
+function createChatWorkflowAuthoringTools(taskStore: TaskStore | undefined, projectId?: string | null): ChatCustomTool[] {
+  if (!taskStore) return [];
+  /*
+  FNXC:ChatWorkflowAuthoring 2026-07-01-10:55:
+  Every provider-backed chat surface with a scoped TaskStore exposes the same safe workflow-authoring tools. Passing an empty currentTaskId keeps ambient chat lanes from silently selecting a workflow for an implicit task; agents must provide task_id unless the tool is invoked from an explicitly task-scoped helper.
+  */
+  return createWorkflowAuthoringTools(taskStore, "", { stripApprovalFlags: true })
+    .map((tool) => wrapWorkflowMutationTool(tool, projectId));
+}
 
 function createTaskPlannerSteeringTool(taskStore: TaskStore, taskId: string) {
   return {
@@ -1370,6 +1417,7 @@ export class ChatManager {
         const response = await this.generateRoomResponderReply({
           roomId,
           roomName: room.name,
+          roomProjectId: room.projectId ?? null,
           content: trimmedContent,
           latestUserMessageId: userMessage.id,
           attachments,
@@ -1427,6 +1475,7 @@ export class ChatManager {
   private async generateRoomResponderReply(input: {
     roomId: string;
     roomName: string;
+    roomProjectId?: string | null;
     content: string;
     latestUserMessageId: string;
     attachments?: ChatAttachment[];
@@ -1508,6 +1557,8 @@ export class ChatManager {
       "heartbeat",
     );
 
+    const workflowTools = createChatWorkflowAuthoringTools(this.taskStore, input.roomProjectId);
+
     const resolvedSession = await createResolvedAgentSession({
       sessionPurpose: "heartbeat",
       pluginRunner: this.pluginRunner,
@@ -1523,6 +1574,7 @@ export class ChatManager {
       cwd: this.rootDir,
       systemPrompt,
       tools: "coding",
+      ...(workflowTools.length > 0 ? { customTools: workflowTools } : {}),
       ...(effectiveModelProvider && effectiveModelId
         ? {
             defaultProvider: effectiveModelProvider,
@@ -1921,12 +1973,7 @@ export class ChatManager {
           ]
         : [];
 
-      // Expose workflow-authoring tools (fn_workflow_*) when a scoped task store
-      // is available. The chat lane has no ambient task, so fn_workflow_select
-      // has no default target — an agent must pass an explicit task_id.
-      const workflowTools = this.taskStore
-        ? createWorkflowAuthoringTools(this.taskStore, "", { stripApprovalFlags: true })
-        : [];
+      const workflowTools = createChatWorkflowAuthoringTools(this.taskStore, session.projectId);
 
       /*
       FNXC:ChatAgentTools 2026-06-18-06:51:

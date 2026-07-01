@@ -672,8 +672,9 @@ export function updateTaskCustomFields(
 
 /** Fetch the multi-lane board metadata (U9). When the flag is OFF the server
  *  returns `{ flagEnabled: false }` and the board renders its legacy form. */
-export function fetchBoardWorkflows(projectId?: string): Promise<BoardWorkflowsPayload> {
-  return api<BoardWorkflowsPayload>(withProjectId("/tasks/board-workflows", projectId));
+export function fetchBoardWorkflows(projectId?: string, options?: FetchOptions): Promise<BoardWorkflowsPayload> {
+  const path = withProjectId("/tasks/board-workflows", projectId);
+  return dedupe(path, () => api<BoardWorkflowsPayload>(path), options);
 }
 
 /** Manually promote a held card out of its hold column (U9). */
@@ -5332,10 +5333,10 @@ export type {
 } from "@fusion/core";
 
 /** List all workflow definitions for the project. */
-export function fetchWorkflows(projectId?: string, options?: { includeDisabledBuiltins?: boolean }): Promise<import("@fusion/core").WorkflowDefinition[]> {
+export function fetchWorkflows(projectId?: string, options?: { includeDisabledBuiltins?: boolean } & FetchOptions): Promise<import("@fusion/core").WorkflowDefinition[]> {
   const query = options?.includeDisabledBuiltins ? "?includeDisabledBuiltins=true" : "";
   const path = withProjectId(`/workflows${query}`, projectId);
-  return dedupe(path, () => api<import("@fusion/core").WorkflowDefinition[]>(path));
+  return dedupe(path, () => api<import("@fusion/core").WorkflowDefinition[]>(path), options);
 }
 
 /** A trait catalog entry as returned by GET /api/traits (U10). Mirrors the

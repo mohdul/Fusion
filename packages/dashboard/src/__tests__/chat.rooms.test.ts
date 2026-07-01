@@ -140,6 +140,50 @@ describe("Chat orchestration — rooms (FN-3805..FN-3811 contract)", () => {
       expect(createOptions.skillSelection.requestedSkillNames).not.toContain("disabled-debug");
     });
 
+    it("exposes the full workflow authoring surface to scoped room responder sessions", async () => {
+      mockChatStore.listRoomMembers.mockReturnValue([
+        { roomId: "room-1", agentId: "agent-a", role: "member", addedAt: "2026-01-01" },
+      ]);
+      mockAgentStore.listAgents.mockResolvedValue([
+        { id: "agent-a", name: "Alpha", role: "executor", runtimeConfig: {} },
+      ]);
+      mockAgentStore.getAgent.mockResolvedValue({ id: "agent-a", name: "Alpha", role: "executor", runtimeConfig: {} });
+      let createOptions: any;
+      __setCreateResolvedAgentSession(async (options: any) => {
+        createOptions = options;
+        return {
+          session: {
+            prompt: vi.fn(),
+            dispose: vi.fn(),
+            state: { messages: [{ role: "assistant", content: "Room reply" }] },
+          },
+        } as any;
+      });
+
+      const manager = new ChatManager(
+        mockChatStore as any,
+        "/tmp",
+        mockAgentStore as any,
+        undefined,
+        undefined,
+        undefined,
+        { getFusionDir: () => "/tmp/.fusion" } as any,
+      );
+      await manager.sendRoomMessage("room-1", "please author a workflow @Alpha");
+
+      const names = (createOptions.customTools ?? []).map((tool: { name: string }) => tool.name);
+      expect(names).toEqual(expect.arrayContaining([
+        "fn_workflow_create",
+        "fn_workflow_update",
+        "fn_workflow_delete",
+        "fn_workflow_settings",
+        "fn_workflow_list",
+        "fn_workflow_get",
+        "fn_workflow_select",
+        "fn_trait_list",
+      ]));
+    });
+
     it("loads typed /skill commands for room responders and strips them from the room prompt", async () => {
       mockChatStore.listRoomMembers.mockReturnValue([
         { roomId: "room-1", agentId: "agent-a", role: "member", addedAt: "2026-01-01" },

@@ -26,8 +26,9 @@ import {
 // ── Mock Setup ──────────────────────────────────────────────────────────────
 
 // Mock summarizeTitle using vi.hoisted so it's available at module hoisting time
-const { mockSummarizeTitle } = vi.hoisted(() => ({
+const { mockSummarizeTitle, mockEmitWorkflowSseEvent } = vi.hoisted(() => ({
   mockSummarizeTitle: vi.fn(),
+  mockEmitWorkflowSseEvent: vi.fn(),
 }));
 
 vi.mock("@fusion/core", async (importOriginal) => ({
@@ -41,6 +42,10 @@ vi.mock("@fusion/core", async (importOriginal) => ({
     }
     return { id: normalized, type };
   },
+}));
+
+vi.mock("../sse.js", () => ({
+  emitWorkflowSseEvent: mockEmitWorkflowSseEvent,
 }));
 
 // SessionManager is constructed per-chat for CLI session continuity. We don't
@@ -393,7 +398,7 @@ describe("ChatManager.sendMessage", () => {
   // mutation, settings, selection, and trait vocabulary to the agent when a
   // scoped task store is available.
   it("exposes the full workflow authoring surface to the chat agent when a task store is present", async () => {
-    let capturedTools: Array<{ name: string }> = [];
+    let capturedTools: Array<{ name: string; execute?: (...args: any[]) => Promise<any> }> = [];
     __setCreateFnAgent(async (options: any) => {
       capturedTools = options.customTools ?? [];
       return {
@@ -405,7 +410,19 @@ describe("ChatManager.sendMessage", () => {
       };
     });
 
-    const chatManager = createChatManagerWithTaskStore();
+    const createWorkflowDefinition = vi.fn().mockResolvedValue({ id: "WF-chat", name: "Chat Created" });
+    const chatManager = new ChatManager(
+      mockChatStore as any,
+      "/tmp/test",
+      mockAgentStore as any,
+      undefined,
+      undefined,
+      undefined,
+      {
+        createWorkflowDefinition,
+        getFusionDir: () => "/tmp/test/.fusion",
+      } as any,
+    );
     await chatManager.sendMessage("chat-001", "Author me a workflow");
 
     const names = capturedTools.map((t) => t.name);
@@ -421,6 +438,27 @@ describe("ChatManager.sendMessage", () => {
     ]) {
       expect(names).toContain(required);
     }
+
+    const createTool = capturedTools.find((tool) => tool.name === "fn_workflow_create");
+    await createTool?.execute?.("call-workflow-create", {
+      name: "Chat Created",
+      ir: {
+        nodes: [{ id: "n1", kind: "execute", config: { cliSkipApproval: true, autoApprove: true } }],
+        edges: [],
+        columns: [],
+      },
+    });
+
+    expect(createWorkflowDefinition).toHaveBeenCalledWith(expect.objectContaining({
+      ir: expect.objectContaining({
+        nodes: [expect.objectContaining({ config: {} })],
+      }),
+    }));
+    expect(mockEmitWorkflowSseEvent).toHaveBeenCalledWith(
+      "workflow:created",
+      expect.objectContaining({ id: "WF-chat", name: "Chat Created" }),
+      undefined,
+    );
   });
 
   it("exposes fn_task_document_* tools to the chat agent when a task store is present", async () => {

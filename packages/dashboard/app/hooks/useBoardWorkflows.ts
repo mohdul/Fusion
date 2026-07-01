@@ -6,6 +6,7 @@ import {
 } from "../api";
 import { subscribeSse as defaultSubscribeSse } from "../sse-bus";
 import {
+  clearBoardWorkflowsCache as defaultClearBoardWorkflowsCache,
   readBoardWorkflowsCache as defaultReadBoardWorkflowsCache,
   writeBoardWorkflowsCache as defaultWriteBoardWorkflowsCache,
 } from "../utils/boardWorkflowsCache";
@@ -37,6 +38,7 @@ export interface UseBoardWorkflowsParams {
   subscribeSse?: typeof defaultSubscribeSse;
   readBoardWorkflowsCache?: typeof defaultReadBoardWorkflowsCache;
   writeBoardWorkflowsCache?: typeof defaultWriteBoardWorkflowsCache;
+  clearBoardWorkflowsCache?: typeof defaultClearBoardWorkflowsCache;
 }
 
 export interface UseBoardWorkflowsResult {
@@ -69,6 +71,7 @@ export function useBoardWorkflows(params: UseBoardWorkflowsParams): UseBoardWork
     subscribeSse = defaultSubscribeSse,
     readBoardWorkflowsCache = defaultReadBoardWorkflowsCache,
     writeBoardWorkflowsCache = defaultWriteBoardWorkflowsCache,
+    clearBoardWorkflowsCache = defaultClearBoardWorkflowsCache,
   } = params;
 
   const [boardWorkflowsState, setBoardWorkflowsState] = useState<{ projectId?: string; payload: BoardWorkflowsPayload } | null>(() => {
@@ -106,9 +109,15 @@ export function useBoardWorkflows(params: UseBoardWorkflowsParams): UseBoardWork
     setBoardWorkflowsState(cached ? { projectId, payload: cached } : null);
   }, [projectId, shouldHydrateCache, readBoardWorkflowsCache]);
 
-  const refreshBoardWorkflows = useCallback(() => {
+  const refreshBoardWorkflows = useCallback((options?: { forceFresh?: boolean }) => {
     const seq = ++boardWorkflowsFetchSeqRef.current;
-    fetchBoardWorkflows(projectId)
+    if (options?.forceFresh) {
+      clearBoardWorkflowsCache(projectId);
+    }
+    const fetchPromise = options === undefined
+      ? fetchBoardWorkflows(projectId)
+      : fetchBoardWorkflows(projectId, options);
+    fetchPromise
       .then((payload) => {
         if (seq === boardWorkflowsFetchSeqRef.current) {
           setBoardWorkflowsState({ projectId, payload });
@@ -118,7 +127,7 @@ export function useBoardWorkflows(params: UseBoardWorkflowsParams): UseBoardWork
       .catch(() => {
         // Fetch failures are non-authoritative: keep the current/cache-hydrated payload so the cleanup effect does not erase durable selection.
       });
-  }, [projectId, fetchBoardWorkflows, writeBoardWorkflowsCache]);
+  }, [projectId, fetchBoardWorkflows, writeBoardWorkflowsCache, clearBoardWorkflowsCache]);
 
   useEffect(() => {
     refreshBoardWorkflows();
@@ -128,11 +137,12 @@ export function useBoardWorkflows(params: UseBoardWorkflowsParams): UseBoardWork
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisible);
     if (typeof window !== "undefined") window.addEventListener("focus", onVisible);
     const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+    const forceRefreshBoardWorkflows = () => refreshBoardWorkflows({ forceFresh: true });
     const unsubscribe = subscribeSse(`/api/events${query}`, {
       events: {
-        "workflow:created": refreshBoardWorkflows,
-        "workflow:updated": refreshBoardWorkflows,
-        "workflow:deleted": refreshBoardWorkflows,
+        "workflow:created": forceRefreshBoardWorkflows,
+        "workflow:updated": forceRefreshBoardWorkflows,
+        "workflow:deleted": forceRefreshBoardWorkflows,
       },
     });
     return () => {

@@ -126,6 +126,29 @@ describe("workflow selection across dashboard surfaces", () => {
     expect(fetchBoardWorkflowsMock).toHaveBeenCalledWith("project-cross");
   });
 
+  it("shows a chat-created workflow in Header and Graph selectors after workflow lifecycle SSE", async () => {
+    let payload = workflowPayload({ workflows: [DEFAULT_WORKFLOW] });
+    fetchBoardWorkflowsMock.mockImplementation(() => Promise.resolve(payload));
+    render(<CrossSurfaceHarness />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("header-selection")).toHaveTextContent(DEFAULT_WORKFLOW.id);
+      expect(screen.getByTestId("graph-selection")).toHaveTextContent(DEFAULT_WORKFLOW.id);
+    });
+    expect(screen.queryAllByTestId("workflow-switcher")).toHaveLength(0);
+
+    payload = workflowPayload({
+      workflows: [DEFAULT_WORKFLOW, { id: "wf-chat", name: "Chat Created", columns: [] }],
+    });
+    const subscription = subscribeSseMock.mock.calls[0]?.[1] as { events?: Record<string, () => void> };
+    subscription.events?.["workflow:created"]?.();
+
+    await waitFor(() => expect(fetchBoardWorkflowsMock).toHaveBeenCalledWith("project-cross", { forceFresh: true }));
+    const switchers = await screen.findAllByTestId("workflow-switcher");
+    fireEvent.click(switchers[0]);
+    expect(await screen.findByTestId("workflow-switcher-option-wf-chat")).toHaveTextContent("Chat Created");
+  });
+
   it("keeps mounted Graph and Header workflow selections isolated while Graph filtering follows only Graph", async () => {
     render(<CrossSurfaceHarness />);
 
