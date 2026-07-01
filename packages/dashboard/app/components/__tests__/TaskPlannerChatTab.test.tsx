@@ -388,6 +388,79 @@ describe("TaskPlannerChatTab", () => {
     );
   });
 
+  it("answers recent-activity starter prompts without creating steering feedback", async () => {
+    const user = userEvent.setup();
+    const onTaskUpdated = vi.fn();
+    mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+      setTimeout(() => {
+        handlers.onDone({
+          messageId: "assistant-summary",
+          message: {
+            id: "assistant-summary",
+            sessionId: "chat-planner",
+            role: "assistant",
+            content: "Recent activity: executor started work and posted an update.",
+            thinkingOutput: null,
+            metadata: null,
+            createdAt: "2026-06-30T00:03:00.000Z",
+          },
+        });
+      }, 0);
+      return { close: vi.fn(), isConnected: () => true };
+    });
+    renderPlannerChat({
+      task: {
+        ...makeTask("FN-ACTIVITY"),
+        column: "in-progress",
+        dependencies: ["FN-BLOCKER"],
+        prompt: "# Plan\nKeep Activity and Chat separate.",
+        log: [{ timestamp: "2026-06-30T00:01:00.000Z", action: "Started work" }],
+      } as any,
+      onTaskUpdated,
+    });
+    await screen.findByTestId("task-planner-chat-empty");
+
+    await user.click(screen.getByRole("button", { name: /Summarize recent activity/ }));
+
+    expect(mockStreamChatResponse).toHaveBeenCalledWith(
+      "chat-planner",
+      "Summarize the recent activity for this task and call out anything important I should know.",
+      expect.any(Object),
+      undefined,
+      undefined,
+      { taskId: "FN-ACTIVITY" },
+    );
+    expect(await screen.findByText("Recent activity: executor started work and posted an update.")).toBeInTheDocument();
+    expect(screen.queryByTestId("task-planner-chat-steering-confirmation")).not.toBeInTheDocument();
+    expect(onTaskUpdated).not.toHaveBeenCalled();
+  });
+
+  it("keeps missing task context sendable while preserving explicit planning model overrides", async () => {
+    const user = userEvent.setup();
+    renderPlannerChat({
+      task: { ...makeTask("FN-MISSING-CONTEXT"), dependencies: [], prompt: undefined, log: undefined } as any,
+      planningModel: { provider: "openai", modelId: "gpt-planner" },
+    });
+    await screen.findByTestId("task-planner-chat-empty");
+
+    await user.type(screen.getByLabelText("Message planner chat"), "Explain the current task state with whatever context exists.");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(mockEnsureTaskPlannerChatSession).toHaveBeenCalledWith(
+      "FN-MISSING-CONTEXT",
+      { modelProvider: "openai", modelId: "gpt-planner" },
+      undefined,
+    );
+    expect(mockStreamChatResponse).toHaveBeenCalledWith(
+      "chat-planner",
+      "Explain the current task state with whatever context exists.",
+      expect.any(Object),
+      undefined,
+      undefined,
+      { taskId: "FN-MISSING-CONTEXT" },
+    );
+  });
+
   it("sends starter prompts through the planner chat stream", async () => {
     const user = userEvent.setup();
     renderPlannerChat();
@@ -492,6 +565,78 @@ describe("TaskPlannerChatTab", () => {
     expect(await screen.findByTestId("chat-question-response")).toBeInTheDocument();
     expect(screen.queryByTestId("task-planner-chat-steering-confirmation")).not.toBeInTheDocument();
     expect(mockFetchTaskDetail).not.toHaveBeenCalled();
+  });
+
+  it("streams risky change requests as clarification questions without steering mutation", async () => {
+    const user = userEvent.setup();
+    const onTaskUpdated = vi.fn();
+    mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+      setTimeout(() => {
+        handlers.onToolStart({ toolName: "fn_ask_question", args: { question: "Which files and safety constraints should this destructive change use?", options: ["Clarify scope", "Cancel"] } });
+        handlers.onDone({
+          messageId: "assistant-risky-question",
+          message: {
+            id: "assistant-risky-question",
+            sessionId: "chat-planner",
+            role: "assistant",
+            content: "I need clarification before adding steering.",
+            thinkingOutput: null,
+            metadata: { toolCalls: [{ toolName: "fn_ask_question", args: { question: "Which files and safety constraints should this destructive change use?", options: ["Clarify scope", "Cancel"] }, isError: false }] },
+            createdAt: "2026-06-30T00:03:00.000Z",
+          },
+        });
+      }, 0);
+      return { close: vi.fn(), isConnected: () => true };
+    });
+    renderPlannerChat({ projectId: "project-1", onTaskUpdated });
+    await screen.findByTestId("task-planner-chat-empty");
+
+    await user.type(screen.getByLabelText("Message planner chat"), "Delete the risky parts and rewrite the security flow broadly");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByTestId("chat-question-response")).toHaveTextContent("Which files and safety constraints should this destructive change use?");
+    expect(screen.getAllByTestId("chat-question-response")).toHaveLength(1);
+    expect(screen.getAllByTestId("chat-question-response-submit")).toHaveLength(1);
+    expect(screen.queryByTestId("task-planner-chat-steering-confirmation")).not.toBeInTheDocument();
+    expect(mockFetchTaskDetail).not.toHaveBeenCalled();
+    expect(onTaskUpdated).not.toHaveBeenCalled();
+  });
+
+  it("shows failed steering tool results without optimistic steering confirmation or duplicate refresh", async () => {
+    const user = userEvent.setup();
+    const onTaskUpdated = vi.fn();
+    mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+      setTimeout(() => {
+        handlers.onToolEnd({
+          toolName: "fn_task_planner_add_steering",
+          isError: true,
+          result: { error: "Invalid steering text" },
+        });
+        handlers.onDone({
+          messageId: "assistant-steering-error",
+          message: {
+            id: "assistant-steering-error",
+            sessionId: "chat-planner",
+            role: "assistant",
+            content: "I could not add that as steering.",
+            thinkingOutput: null,
+            metadata: { toolCalls: [{ toolName: "fn_task_planner_add_steering", args: { text: "   " }, isError: true, result: { error: "Invalid steering text" } }] },
+            createdAt: "2026-06-30T00:03:00.000Z",
+          },
+        });
+      }, 0);
+      return { close: vi.fn(), isConnected: () => true };
+    });
+    renderPlannerChat({ projectId: "project-1", onTaskUpdated });
+    await screen.findByTestId("task-planner-chat-empty");
+
+    await user.type(screen.getByLabelText("Message planner chat"), "Add empty steering");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText("I could not add that as steering.")).toBeInTheDocument();
+    expect(screen.queryByTestId("task-planner-chat-steering-confirmation")).not.toBeInTheDocument();
+    expect(mockFetchTaskDetail).not.toHaveBeenCalled();
+    expect(onTaskUpdated).not.toHaveBeenCalled();
   });
 
   it("renders text, single-select, multi-select, confirm, and missing-option planner questions", async () => {
