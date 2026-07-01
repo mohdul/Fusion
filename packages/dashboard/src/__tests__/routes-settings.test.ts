@@ -448,6 +448,27 @@ describe("PUT /settings", () => {
     expect(store.updateSettings).toHaveBeenCalledWith({ maxConcurrent: 8 });
   });
 
+  it("passes defaultAgentPermissionPolicy toolRules through settings updates", async () => {
+    const payload = {
+      defaultAgentPermissionPolicy: {
+        rules: { task_agent_mutation: "allow" },
+        toolRules: { fn_task_create: "block" },
+      },
+    };
+    (store.updateSettings as ReturnType<typeof vi.fn>).mockResolvedValue({ ...DEFAULT_SETTINGS, ...payload });
+
+    const res = await REQUEST(
+      buildApp(),
+      "PUT",
+      "/api/settings",
+      JSON.stringify(payload),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(res.status).toBe(200);
+    expect(store.updateSettings).toHaveBeenCalledWith(payload);
+  });
+
   it("updates settings with auto-backup enabled without logging routine sync failure", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "kb-routes-backup-routine-"));
     const db = new Database(join(tempDir, ".fusion"));

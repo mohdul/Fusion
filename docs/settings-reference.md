@@ -1520,17 +1520,23 @@ Project-scoped default permission policy for permanent-agent action gates.
     "rules": {
       "git_write": "require-approval",
       "command_execution": "require-approval",
-      "network_api": "block"
+      "network_api": "block",
+      "task_agent_mutation": "allow"
+    },
+    "toolRules": {
+      "fn_task_create": "block"
     }
   }
 }
 ```
 
 - `rules` is a partial map of category → disposition.
+- `toolRules` is an optional exact tool-name map (`fn_task_create`, `fn_web_fetch`, `bash`, etc.) → disposition. Exact tool rules apply before category rules, so the example blocks task creation while leaving other `task_agent_mutation` tools allowed.
 - Categories: `git_write`, `file_write_delete`, `command_execution`, `network_api`, `task_agent_mutation`.
 - Dispositions: `allow`, `require-approval`, `block`.
-- Missing categories default to `allow` via the built-in `unrestricted` seed.
-- Per-agent overrides take precedence over this project default.
+- Missing categories default to `allow` via the built-in `unrestricted` seed; missing or empty `toolRules` preserve legacy category-only behavior.
+- Runtime precedence is per-agent exact tool rule → per-agent category rule → project default exact tool rule → project default category rule → unrestricted fallback.
+- Heartbeat-critical coordination/exempt tools remain non-configurable and allowed to prevent deadlocks.
 
 ## Model selection hierarchy
 

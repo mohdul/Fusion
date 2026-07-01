@@ -180,7 +180,20 @@
     "lockedDown": "잠금",
     "preset": "프리셋",
     "requireApproval": "승인 필요",
-    "unrestricted": "무제한"
+    "unrestricted": "무제한",
+    "exactToolOverrides": "Exact tool overrides",
+    "exactToolOverridesDescription": "Override one governed tool by exact name before its category rule. Heartbeat-critical exempt tools stay non-configurable.",
+    "noExactToolOverrides": "No exact tool overrides configured.",
+    "toolName": "Tool name",
+    "toolDisposition": "Disposition",
+    "toolDispositionFor": "Disposition for {{toolName}}",
+    "projectDefaultExactTool": "project default exact rule",
+    "removeToolOverride": "Remove exact override for {{toolName}}",
+    "remove": "Remove",
+    "toolOverrideTool": "Tool override tool",
+    "toolOverrideDisposition": "Tool override disposition",
+    "updateToolOverride": "Update override",
+    "addToolOverride": "Add override"
   },
   "agentPrompts": {
     "actions": {

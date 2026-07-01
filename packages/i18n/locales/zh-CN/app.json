@@ -180,7 +180,20 @@
     "lockedDown": "锁定",
     "preset": "预设",
     "requireApproval": "需要批准",
-    "unrestricted": "无限制"
+    "unrestricted": "无限制",
+    "exactToolOverrides": "Exact tool overrides",
+    "exactToolOverridesDescription": "Override one governed tool by exact name before its category rule. Heartbeat-critical exempt tools stay non-configurable.",
+    "noExactToolOverrides": "No exact tool overrides configured.",
+    "toolName": "Tool name",
+    "toolDisposition": "Disposition",
+    "toolDispositionFor": "Disposition for {{toolName}}",
+    "projectDefaultExactTool": "project default exact rule",
+    "removeToolOverride": "Remove exact override for {{toolName}}",
+    "remove": "Remove",
+    "toolOverrideTool": "Tool override tool",
+    "toolOverrideDisposition": "Tool override disposition",
+    "updateToolOverride": "Update override",
+    "addToolOverride": "Add override"
   },
   "agentPrompts": {
     "actions": {

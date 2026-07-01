@@ -4027,9 +4027,11 @@ export interface ProjectSettings {
   };
   /** Project default runtime permission-policy overrides for permanent agents.
    *  Rules are a partial map of category -> disposition (`allow` | `block` | `require-approval`).
-   *  Missing categories inherit the built-in `unrestricted` seed (`allow`). */
+   *  Tool rules are exact tool-name overrides that take precedence over category rules.
+   *  Missing categories and tools inherit the built-in `unrestricted` seed (`allow`). */
   defaultAgentPermissionPolicy?: {
-    rules: Partial<AgentPermissionPolicyRules>;
+    rules?: Partial<AgentPermissionPolicyRules>;
+    toolRules?: AgentPermissionPolicyToolRules;
   };
   /** When true, enforces that task specifications (PROMPT.md) are refreshed if they
    *  become stale. Stale specs are detected based on specStalenessMaxAgeMs.
@@ -6369,11 +6371,15 @@ export type ApprovalRequestActionCategory =
 /** How a runtime action category is handled by permission policy. */
 export type AgentPermissionPolicyDisposition = "allow" | "block" | "require-approval";
 
+/** Exact tool-name permission overrides layered above category rules. */
+export type AgentPermissionPolicyToolRules = Record<string, AgentPermissionPolicyDisposition>;
+
 /** Minimum portable permanent-agent gating context consumed by engine runtime wrappers. */
 export interface PermanentAgentGatingContext {
   permissionPolicy?: {
     presetId: string;
     rules: Partial<Record<PermanentAgentSensitiveActionCategory, AgentPermissionPolicyDisposition>>;
+    toolRules?: AgentPermissionPolicyToolRules;
   };
   requester?: ApprovalRequestActorSnapshot;
   taskId?: string;
@@ -6399,10 +6405,16 @@ export type AgentPermissionPolicyRules = Record<
   AgentPermissionPolicyDisposition
 >;
 
-/** First-class persisted permission policy contract for permanent agents. */
+/**
+ * First-class persisted permission policy contract for permanent agents.
+ *
+ * FNXC:ToolPermissions 2026-07-01-00:00:
+ * Operators must be able to block a single governed tool such as `fn_task_create` without blocking every task-agent mutation. `toolRules` stores exact tool-name overrides and the engine resolves them before category rules while leaving heartbeat-critical exempt tools non-configurable.
+ */
 export interface AgentPermissionPolicy {
   presetId: AgentPermissionPolicyPresetId;
   rules: AgentPermissionPolicyRules;
+  toolRules?: AgentPermissionPolicyToolRules;
 }
 
 /** Approval request lifecycle statuses. */
@@ -7049,6 +7061,7 @@ export function agentToConfigSnapshot(agent: Agent): AgentConfigSnapshot {
       ? {
           presetId: agent.permissionPolicy.presetId,
           rules: { ...agent.permissionPolicy.rules },
+          ...(agent.permissionPolicy.toolRules ? { toolRules: { ...agent.permissionPolicy.toolRules } } : {}),
         }
       : undefined,
     instructionsPath: agent.instructionsPath,

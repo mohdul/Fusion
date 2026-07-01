@@ -798,6 +798,83 @@ describe("Agent create/update routes", () => {
     });
   });
 
+  it("POST /api/agents accepts exact permissionPolicy toolRules", async () => {
+    const res = await REQUEST(
+      buildAgentApp(),
+      "POST",
+      "/api/agents",
+      JSON.stringify({
+        name: "Tool Rule Agent",
+        role: "executor",
+        permissionPolicy: {
+          presetId: "approval-required",
+          toolRules: { fn_task_create: "block" },
+        },
+      }),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(res.status).toBe(201);
+    expect(res.body.permissionPolicy).toMatchObject({
+      presetId: "approval-required",
+      rules: { task_agent_mutation: "require-approval" },
+      toolRules: { fn_task_create: "block" },
+    });
+  });
+
+  it("POST /api/agents rejects malformed permissionPolicy toolRules", async () => {
+    const badShape = await REQUEST(
+      buildAgentApp(),
+      "POST",
+      "/api/agents",
+      JSON.stringify({
+        name: "Bad Tool Rules Agent",
+        role: "executor",
+        permissionPolicy: {
+          presetId: "custom",
+          toolRules: ["fn_task_create"],
+        },
+      }),
+      { "Content-Type": "application/json" },
+    );
+    expect(badShape.status).toBe(400);
+    expect(badShape.body.error).toContain("toolRules must be an object");
+
+    const badDisposition = await REQUEST(
+      buildAgentApp(),
+      "POST",
+      "/api/agents",
+      JSON.stringify({
+        name: "Bad Tool Disposition Agent",
+        role: "executor",
+        permissionPolicy: {
+          presetId: "custom",
+          toolRules: { fn_task_create: "sometimes" },
+        },
+      }),
+      { "Content-Type": "application/json" },
+    );
+    expect(badDisposition.status).toBe(400);
+    expect(badDisposition.body.error).toContain("toolRules.fn_task_create has invalid disposition");
+
+    const blankKey = await REQUEST(
+      buildAgentApp(),
+      "POST",
+      "/api/agents",
+      JSON.stringify({
+        name: "Blank Tool Agent",
+        role: "executor",
+        permissionPolicy: {
+          presetId: "custom",
+          toolRules: { " ": "block" },
+        },
+      }),
+      { "Content-Type": "application/json" },
+    );
+    expect(blankKey.status).toBe(400);
+    expect(blankKey.body.error).toContain("blank tool name");
+  });
+
   it("POST /api/agents rejects unknown custom permissionPolicy category", async () => {
     const res = await REQUEST(
       buildAgentApp(),
@@ -847,6 +924,7 @@ describe("Agent create/update routes", () => {
         permissionPolicy: {
           presetId: "custom",
           rules: { command_execution: "require-approval" },
+          toolRules: { fn_task_create: "block" },
         },
       }),
       { "Content-Type": "application/json" },
@@ -858,6 +936,7 @@ describe("Agent create/update routes", () => {
     expect(res.body.permissionPolicy).toMatchObject({
       presetId: "custom",
       rules: { command_execution: "require-approval" },
+      toolRules: { fn_task_create: "block" },
     });
   });
 
