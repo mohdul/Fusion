@@ -4431,6 +4431,11 @@ export interface ProjectSettings {
   quickChatCloseOnOutsideClick?: boolean;
   /** Legacy Quick Chat FAB toggle. Prefer quickChatButtonMode for new callers. */
   showQuickChatFAB?: boolean;
+  /**
+   * FNXC:ChatModal 2026-07-01-00:00:
+   * Task planner sessions (`task-planner:<taskId>`) are hidden from the common Chat feed by default to keep task-detail planning conversations out of Direct chat clutter. Operators can opt back into the previous shared-feed behavior with this project setting.
+   */
+  showTaskChatsInCommonFeed?: boolean;
   /** Number of days of chat inactivity before old chat sessions/rooms are auto-cleaned.
    *  Allowed values: 0 (off, default), 7, 14, 30, 60, 90. Uses updatedAt inactivity age. */
   chatAutoCleanupDays?: number;

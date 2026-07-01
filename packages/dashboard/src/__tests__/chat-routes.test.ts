@@ -240,6 +240,12 @@ vi.mock("../project-store-resolver.js", () => ({
 // ── Mock Store ──────────────────────────────────────────────────────────────
 
 class MockStore extends EventEmitter {
+  settings = { showTaskChatsInCommonFeed: false };
+
+  async getSettings() {
+    return this.settings;
+  }
+
   getRootDir(): string {
     return "/tmp/fn-chat-test";
   }
@@ -739,7 +745,7 @@ describe("Chat API Routes", () => {
       expect((response.body as any).sessions.map((session: any) => session.id)).toEqual(["chat-normal"]);
     });
 
-    it("shows planner-chat sessions in the global list after a user message exists", async () => {
+    it("hides populated planner-chat sessions in the global list by default", async () => {
       const normalSession = { ...sampleSession, id: "chat-normal", agentId: "agent-001" };
       const populatedPlanner = { ...sampleSession, id: "chat-planner", agentId: "task-planner:FN-7337" };
       const plannerMessage = {
@@ -757,8 +763,80 @@ describe("Chat API Routes", () => {
       const response = await request(app, "GET", "/api/chat/sessions");
 
       expect(response.status).toBe(200);
-      expect((response.body as any).sessions.map((session: any) => session.id)).toEqual(["chat-normal", "chat-planner"]);
+      expect((response.body as any).sessions.map((session: any) => session.id)).toEqual(["chat-normal"]);
+    });
+
+    it("shows populated planner-chat sessions in the global list only when the project opts in", async () => {
+      store.settings.showTaskChatsInCommonFeed = true;
+      const normalSession = { ...sampleSession, id: "chat-normal", agentId: "agent-001" };
+      const populatedPlanner = { ...sampleSession, id: "chat-planner", agentId: "task-planner:FN-7337" };
+      const duplicatePlanner = { ...sampleSession, id: "chat-planner-older", agentId: "task-planner:FN-7337" };
+      const emptyPlanner = { ...sampleSession, id: "chat-empty-planner", agentId: "task-planner:FN-7338" };
+      const plannerMessage = {
+        id: "msg-planner",
+        sessionId: "chat-planner",
+        role: "user",
+        content: "What should happen next?",
+        thinkingOutput: null,
+        metadata: null,
+        createdAt: "2026-06-30T18:35:00.000Z",
+      };
+      const duplicateMessage = {
+        ...plannerMessage,
+        id: "msg-planner-older",
+        sessionId: "chat-planner-older",
+        content: "Earlier planning note",
+      };
+      mockListSessions.mockReturnValue([normalSession, populatedPlanner, duplicatePlanner, emptyPlanner]);
+      mockGetLastMessageForSessions.mockReturnValue(new Map([
+        ["chat-planner", plannerMessage],
+        ["chat-planner-older", duplicateMessage],
+      ]));
+
+      const response = await request(app, "GET", "/api/chat/sessions");
+
+      expect(response.status).toBe(200);
+      expect((response.body as any).sessions.map((session: any) => session.id)).toEqual(["chat-normal", "chat-planner", "chat-planner-older"]);
       expect((response.body as any).sessions[1].lastMessagePreview).toBe("What should happen next?");
+      expect((response.body as any).sessions[2].lastMessagePreview).toBe("Earlier planning note");
+    });
+
+    it("uses the requested project's setting when deciding whether planner-chat sessions appear", async () => {
+      const { createServer } = await import("../server.js");
+      const populatedPlanner = { ...sampleSession, id: "chat-planner", agentId: "task-planner:FN-7337", projectId: "proj-secondary" };
+      const plannerMessage = {
+        id: "msg-planner",
+        sessionId: "chat-planner",
+        role: "user",
+        content: "Project scoped planning",
+        thinkingOutput: null,
+        metadata: null,
+        createdAt: "2026-06-30T18:35:00.000Z",
+      };
+      const engineListSessions = vi.fn().mockReturnValue([populatedPlanner]);
+      const engineChatStore = {
+        ...mockChatStoreInstance,
+        listSessions: engineListSessions,
+        getLastMessageForSessions: vi.fn().mockReturnValue(new Map([["chat-planner", plannerMessage]])),
+      };
+      const secondaryStore = new MockStore();
+      secondaryStore.settings.showTaskChatsInCommonFeed = true;
+      const mockEngine = { getTaskStore: () => secondaryStore, getChatStore: () => engineChatStore };
+      const mockEngineManager = {
+        getEngine: vi.fn((id: string) => (id === "proj-secondary" ? mockEngine : undefined)),
+        getAllEngines: vi.fn().mockReturnValue(new Map([["proj-secondary", mockEngine]])),
+      };
+      const appWithEngine = createServer(store as any, {
+        chatStore: mockChatStore as any,
+        chatManager: mockChatManager as any,
+        engineManager: mockEngineManager as any,
+      });
+
+      const response = await request(appWithEngine, "GET", "/api/chat/sessions?projectId=proj-secondary");
+
+      expect(response.status).toBe(200);
+      expect((response.body as any).sessions.map((session: any) => session.id)).toEqual(["chat-planner"]);
+      expect(engineListSessions).toHaveBeenCalledWith({ projectId: "proj-secondary" });
     });
 
     it("preserves explicit planner resume lookup even when the session has no messages", async () => {

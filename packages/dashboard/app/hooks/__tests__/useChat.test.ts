@@ -197,6 +197,44 @@ describe("useChat", () => {
     });
   });
 
+  it("does not hydrate cached task-planner sessions before server settings filtering returns", async () => {
+    const projectId = "proj-cache-task-planner";
+    localStorage.setItem(
+      chatSessionsCacheKey(projectId),
+      JSON.stringify({
+        savedAt: Date.now(),
+        data: [
+          makeSession({ id: "session-direct", agentId: "agent-001", updatedAt: "2026-04-08T00:00:00.000Z" }),
+          makeSession({ id: "session-planner", agentId: "task-planner:FN-7364", updatedAt: "2026-04-09T00:00:00.000Z" }),
+        ],
+      }),
+    );
+
+    let resolveFetch: ((value: { sessions: ChatSession[] }) => void) | undefined;
+    mockFetchChatSessions.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+
+    const { result } = renderHook(() => useChat(projectId));
+
+    expect(result.current.sessions.map((session) => session.id)).toEqual(["session-direct"]);
+
+    await act(async () => {
+      resolveFetch?.({
+        sessions: [
+          makeSession({ id: "session-planner", agentId: "task-planner:FN-7364", updatedAt: "2026-04-09T00:00:00.000Z" }),
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.sessions.map((session) => session.id)).toEqual(["session-planner"]);
+    });
+  });
+
   it("writes sorted sessions to cache after successful refresh", async () => {
     const projectId = "proj-write-through";
     mockFetchChatSessions.mockResolvedValueOnce({
@@ -3123,6 +3161,33 @@ describe("useChat", () => {
         expect(result.current.sessions.map((session) => session.id)).toEqual(["chat-planner"]);
       });
       expect(mockFetchChatSessions).toHaveBeenCalledTimes(2);
+    });
+
+    it("uses server-filtered refresh instead of directly adding populated task-planner create events", async () => {
+      mockFetchChatSessions
+        .mockResolvedValueOnce({ sessions: [] })
+        .mockResolvedValueOnce({ sessions: [] });
+
+      const { result } = renderHook(() => useChat("proj-123"));
+
+      await waitFor(() => {
+        expect(result.current.sessions).toHaveLength(0);
+      });
+
+      act(() => {
+        subscribeHandler["chat:session:created"]?.({
+          data: JSON.stringify({
+            ...makeSession({ id: "chat-planner", agentId: "task-planner:FN-7337" }),
+            lastMessagePreview: "Hello",
+            lastMessageAt: "2026-04-08T00:01:00.000Z",
+          }),
+        } as MessageEvent);
+      });
+
+      await waitFor(() => {
+        expect(mockFetchChatSessions).toHaveBeenCalledTimes(2);
+      });
+      expect(result.current.sessions).toHaveLength(0);
     });
 
     it("avoids duplicate sessions on chat:session:created", async () => {

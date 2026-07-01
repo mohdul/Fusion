@@ -210,7 +210,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
         modelProvider?: string;
         modelId?: string;
       };
-      const { chatStore } = await resolveScopedChatStore(projectId);
+      const { store: scopedStore, chatStore } = await resolveScopedChatStore(projectId);
 
       const isResumeLookup = lookup === "resume";
       const hasModelProvider = typeof modelProvider === "string" && modelProvider.trim().length > 0;
@@ -250,11 +250,20 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
         const lastMessages = chatStore.getLastMessageForSessions(sessionIds);
 
         if (!isResumeLookup) {
+          const settings = await scopedStore.getSettings();
+          const showTaskChatsInCommonFeed = settings.showTaskChatsInCommonFeed === true;
           /*
           FNXC:TaskDetailPlannerChat 2026-06-30-18:35:
           Planner-chat sessions may appear in global Chat only after a user has sent at least one message. Lazy creation prevents most empty rows; this server-side guard keeps stale/legacy task-planner rows with no messages out of every global Chat surface while preserving normal direct and room sessions.
+
+          FNXC:ChatModal 2026-07-01-00:00:
+          The common Chat feed now excludes task-planner sessions unless the project setting explicitly opts in. Resume lookups and task-detail Chat routes bypass this common-feed filter so task planning history remains reachable from task detail.
           */
-          sessions = sessions.filter((session) => !session.agentId.startsWith(TASK_PLANNER_CHAT_AGENT_ID_PREFIX) || lastMessages.has(session.id));
+          sessions = sessions.filter((session) => {
+            if (!session.agentId.startsWith(TASK_PLANNER_CHAT_AGENT_ID_PREFIX)) return true;
+            if (!showTaskChatsInCommonFeed) return false;
+            return lastMessages.has(session.id);
+          });
         }
 
         // Batch-gather generating session IDs to avoid N+1 calls

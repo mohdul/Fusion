@@ -546,6 +546,11 @@ export const DEFAULT_PROJECT_SETTINGS = {
   */
   quickChatCloseOnOutsideClick: true,
   showQuickChatFAB: false,
+  /*
+  FNXC:ChatModal 2026-07-01-00:00:
+  Task-scoped planner chats stay available from each task's Chat tab, but the common Chat feed hides them by default. This project-level opt-in preserves the previous populated-task-chat feed behavior only for operators who request it.
+  */
+  showTaskChatsInCommonFeed: false,
   chatAutoCleanupDays: 0,
   mailAutoCleanupDays: 0,
   operationalLogRetentionDays: 30,

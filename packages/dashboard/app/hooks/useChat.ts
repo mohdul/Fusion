@@ -21,8 +21,12 @@ import type { Agent, ChatInFlightGenerationState, ChatMessage } from "@fusion/co
 const ACTIVE_SESSION_STORAGE_KEY = "kb-chat-active-session";
 const TASK_PLANNER_CHAT_AGENT_ID_PREFIX = "task-planner:";
 
+function isTaskPlannerSession(session: ChatSessionInfo): boolean {
+  return session.agentId.startsWith(TASK_PLANNER_CHAT_AGENT_ID_PREFIX);
+}
+
 function isEmptyTaskPlannerSession(session: ChatSessionInfo): boolean {
-  return session.agentId.startsWith(TASK_PLANNER_CHAT_AGENT_ID_PREFIX) && !session.lastMessageAt && !session.lastMessagePreview;
+  return isTaskPlannerSession(session) && !session.lastMessageAt && !session.lastMessagePreview;
 }
 
 export interface ChatSessionInfo {
@@ -297,7 +301,12 @@ export function useChat(
         return [] as ChatSessionInfo[];
       }
 
-      return readCache<ChatSessionInfo[]>(cacheKey, { maxAgeMs: SWR_TASKS_MAX_AGE_MS }) ?? [];
+      const cachedSessions = readCache<ChatSessionInfo[]>(cacheKey, { maxAgeMs: SWR_TASKS_MAX_AGE_MS }) ?? [];
+      /*
+      FNXC:ChatModal 2026-07-01-00:00:
+      Server settings decide whether task-planner sessions belong in the common feed. Do not hydrate cached task chats before that filtered list returns, otherwise a stale cache can briefly expose hidden task-detail conversations and their controls.
+      */
+      return cachedSessions.filter((session) => !isTaskPlannerSession(session));
     },
     [getChatSessionsCacheKey],
   );
@@ -1329,10 +1338,13 @@ export function useChat(
       if (isStale()) return;
       const session: ChatSessionInfo = JSON.parse(e.data);
       /*
-      FNXC:TaskDetailPlannerChat 2026-06-30-18:35:
-      Global Chat may list task-planner sessions after user interaction, but SSE creation can arrive before the first message preview. Ignore empty planner-session creates and let the message event refresh the server-filtered list after the user message exists.
+      FNXC:TaskDetailPlannerChat 2026-07-01-00:00:
+      Task-planner visibility is project-settings controlled on the server. Treat any planner SSE create as a refresh hint instead of inserting it directly, so the common feed only shows populated planner sessions when the project explicitly opts in and never shows empty planner rows.
       */
-      if (isEmptyTaskPlannerSession(session)) return;
+      if (isTaskPlannerSession(session)) {
+        if (!isEmptyTaskPlannerSession(session)) void refreshSessions();
+        return;
+      }
       // Avoid duplicates
       setSessions((prev) => {
         if (prev.some((s) => s.id === session.id)) return prev;

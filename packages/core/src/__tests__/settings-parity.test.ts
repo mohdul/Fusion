@@ -112,6 +112,14 @@ describe("settings key parity", () => {
     expect(isGlobalSettingsKey("autoClaimCandidatesInPrompt")).toBe(false);
   });
 
+  it("defaults task chats out of the common feed and keeps the opt-in project-scoped", () => {
+    expect(DEFAULT_PROJECT_SETTINGS.showTaskChatsInCommonFeed).toBe(false);
+    expect(isProjectSettingsKey("showTaskChatsInCommonFeed")).toBe(true);
+    expect(isGlobalSettingsKey("showTaskChatsInCommonFeed")).toBe(false);
+    expect(PROJECT_SETTINGS_KEYS).toContain("showTaskChatsInCommonFeed");
+    expect(GLOBAL_SETTINGS_KEYS).not.toContain("showTaskChatsInCommonFeed");
+  });
+
   it("defaults chatAutoCleanupDays to off and keeps it project-scoped", () => {
     expect(DEFAULT_PROJECT_SETTINGS.chatAutoCleanupDays).toBe(0);
     expect(isProjectSettingsKey("chatAutoCleanupDays")).toBe(true);

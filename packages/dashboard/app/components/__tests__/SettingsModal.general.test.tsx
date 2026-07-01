@@ -729,6 +729,15 @@ describe("SettingsModal", () => {
       expect(onQuickChatButtonModeChange).toHaveBeenCalledWith("footer");
     });
 
+    it("defaults task chats common-feed opt-in to unchecked", async () => {
+      renderModal({ initialSection: "general" });
+      await waitForSettingsModalReady();
+
+      const toggle = screen.getByLabelText("Show task chats in common Chat feed") as HTMLInputElement;
+      expect(toggle).toBeInTheDocument();
+      expect(toggle.checked).toBe(false);
+    });
+
     it.each<PersistSettingInput>([
       {
         section: "Project General",
@@ -753,6 +762,14 @@ describe("SettingsModal", () => {
         value: false,
         scope: "project",
         expectedKey: "quickChatCloseOnOutsideClick",
+      },
+      {
+        section: "Project General",
+        label: "Show task chats in common Chat feed",
+        kind: "checkbox",
+        value: true,
+        scope: "project",
+        expectedKey: "showTaskChatsInCommonFeed",
       },
       {
         section: "Project General",
@@ -824,6 +841,7 @@ describe("SettingsModal", () => {
       const ephemeralToggle = screen.getByLabelText("Use ephemeral task-worker agents") as HTMLInputElement;
       expect(ephemeralToggle).toBeInTheDocument();
       expect(ephemeralToggle.checked).toBe(true);
+      expect(screen.getByLabelText("Show task chats in common Chat feed")).toBeInTheDocument();
 
       Object.defineProperty(window, "matchMedia", {
         writable: true,
