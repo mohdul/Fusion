@@ -1703,25 +1703,18 @@ describe("createFnAgent", () => {
     expect(anthropicRegistrations).toHaveLength(0);
   });
 
-  it("routes subscription-OAuth persisted Anthropic selections to the direct subscription provider even when the CLI picker toggle is unset", async () => {
+  // Restored v0.51.0 behavior: a subscription-OAuth `anthropic/<model>` selection stays on
+  // the built-in `anthropic` provider (pi-ai POSTs the OAuth token to /v1 with Claude Code
+  // impersonation). No `/v1`-based `anthropic-subscription` provider is registered, and there
+  // is no runtime reroute to `pi-claude-cli`.
+  it("keeps subscription-OAuth Anthropic selections on the direct anthropic provider", async () => {
     authStorageGetMock.mockImplementation((provider: string) => provider === "anthropic-subscription"
       ? { type: "oauth", access: "subscription-access-token", refresh: "refresh", expires: Date.now() + 3_600_000 }
       : undefined);
     authStorageHasAuthMock.mockImplementation((provider: string) => provider === "anthropic-subscription");
     authStorageGetApiKeyMock.mockResolvedValue(undefined);
     getAllMock.mockReturnValue([{ provider: "anthropic", id: "claude-opus-4-8", name: "Claude Opus 4.8" }]);
-    findMock.mockImplementation((provider: string, modelId: string) => {
-      if (provider === "anthropic" && modelId === "claude-opus-4-8") {
-        return { provider, id: modelId, baseUrl: "https://api.anthropic.com/v1" };
-      }
-      if (provider === "anthropic-subscription" && modelId === "claude-opus-4-8") {
-        return { provider, id: modelId, baseUrl: "https://api.anthropic.com/v1" };
-      }
-      if (provider === "pi-claude-cli" && modelId === "claude-opus-4-8") {
-        return { provider, id: modelId };
-      }
-      return { provider, id: modelId };
-    });
+    findMock.mockImplementation((provider: string, modelId: string) => ({ provider, id: modelId }));
 
     const { createFnAgent } = await import("../pi.js");
     await createFnAgent({
@@ -1732,14 +1725,10 @@ describe("createFnAgent", () => {
       defaultModelId: "claude-opus-4-8",
     });
 
-    expect(registerProviderMock).toHaveBeenCalledWith("anthropic-subscription", expect.objectContaining({
-      api: "anthropic-messages",
-      apiKey: "$ANTHROPIC_SUBSCRIPTION_API_KEY",
-      models: [expect.objectContaining({ id: "claude-opus-4-8" })],
-    }));
     expect(createAgentSessionMock).toHaveBeenCalledWith(expect.objectContaining({
-      model: { provider: "anthropic-subscription", id: "claude-opus-4-8", baseUrl: "https://api.anthropic.com/v1" },
+      model: { provider: "anthropic", id: "claude-opus-4-8" },
     }));
+    expect(registerProviderMock).not.toHaveBeenCalledWith("anthropic-subscription", expect.anything());
     expect(createAgentSessionMock).not.toHaveBeenCalledWith(expect.objectContaining({
       model: expect.objectContaining({ provider: "pi-claude-cli" }),
     }));
@@ -1783,6 +1772,8 @@ describe("createFnAgent", () => {
     }));
   });
 
+  // Subscription OAuth must NOT depend on the Claude CLI provider being present — direct
+  // OAuth to /v1 is its own surface. With pi-claude-cli unavailable it still runs on `anthropic`.
   it("does not require the Claude CLI provider for subscription-OAuth Anthropic execution", async () => {
     authStorageGetMock.mockImplementation((provider: string) => provider === "anthropic-subscription"
       ? { type: "oauth", access: "subscription-access-token", refresh: "refresh", expires: Date.now() + 3_600_000 }
@@ -1790,9 +1781,6 @@ describe("createFnAgent", () => {
     authStorageHasAuthMock.mockImplementation((provider: string) => provider === "anthropic-subscription");
     authStorageGetApiKeyMock.mockResolvedValue(undefined);
     findMock.mockImplementation((provider: string, modelId: string) => {
-      if (provider === "anthropic" && modelId === "claude-opus-4-8") {
-        return { provider, id: modelId };
-      }
       if (provider === "pi-claude-cli") {
         return undefined;
       }
@@ -1810,7 +1798,7 @@ describe("createFnAgent", () => {
     });
 
     expect(createAgentSessionMock).toHaveBeenCalledWith(expect.objectContaining({
-      model: { provider: "anthropic-subscription", id: "claude-opus-4-8" },
+      model: { provider: "anthropic", id: "claude-opus-4-8" },
     }));
   });
 

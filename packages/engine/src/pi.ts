@@ -31,7 +31,6 @@ import {
   ModelRegistry,
   SessionManager,
   SettingsManager,
-  type AuthStorage,
   type AgentSession,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -83,8 +82,6 @@ const RTK_ACCEPTED_REWRITE_EXIT_CODES = new Set([0, 3]);
 const RTK_EXPECTED_PASSTHROUGH_EXIT_CODES = new Set([1, 2]);
 const RTK_EXPECTED_FAIL_OPEN_ERROR_CODES = new Set(["ABORT_ERR", "ENOENT", "ETIMEDOUT"]);
 const RTK_REWRITE_MAX_BUFFER_BYTES = 64 * 1024;
-const ANTHROPIC_PROVIDER_ID = "anthropic";
-const ANTHROPIC_SUBSCRIPTION_PROVIDER_ID = "anthropic-subscription";
 
 export type RtkRewriteMode = "off" | "rewrite";
 
@@ -1174,79 +1171,10 @@ function readJsonObject(path: string): Record<string, any> {
   }
 }
 
-function resolveAnthropicSubscriptionModelForAnthropicSelection(
-  modelRegistry: ModelRegistry,
-  kind: "primary" | "fallback",
-  model: ReturnType<typeof resolveConfiguredModel>,
-) {
-  if (!model) return model;
-  const subscriptionModel = modelRegistry.find(ANTHROPIC_SUBSCRIPTION_PROVIDER_ID, model.id);
-  if (subscriptionModel) {
-    return subscriptionModel;
-  }
-
-  piLog.warn(`${kind} model ${ANTHROPIC_SUBSCRIPTION_PROVIDER_ID}/${model.id} not in registry; using the resolved Anthropic model as a subscription provider template`);
-  return { ...model, provider: ANTHROPIC_SUBSCRIPTION_PROVIDER_ID };
-}
-
-function registerAnthropicSubscriptionProvider(modelRegistry: ModelRegistry): void {
-  const models = modelRegistry.getAll()
-    .filter((model) => model.provider === ANTHROPIC_PROVIDER_ID)
-    .map((model) => ({
-      id: model.id,
-      name: model.name ?? model.id,
-      reasoning: model.reasoning ?? false,
-      input: Array.isArray(model.input) ? model.input : ["text" as const],
-      cost: model.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: model.contextWindow ?? 0,
-      maxTokens: model.maxTokens ?? 0,
-      ...(model.compat ? { compat: model.compat } : {}),
-    }));
-
-  if (models.length === 0) {
-    return;
-  }
-
-  /*
-  FNXC:ProviderAuth 2026-07-01-13:06:
-  Claude subscription OAuth is an execution-capable Anthropic surface, but it must not be saved or resolved as raw `ANTHROPIC_API_KEY` material for the public `anthropic` provider. Register a separate hidden `anthropic-subscription` runtime provider so persisted Anthropic selections can execute with OAuth through their own provider id while explicit `pi-claude-cli` selections remain CLI-only.
-  */
-  modelRegistry.registerProvider(ANTHROPIC_SUBSCRIPTION_PROVIDER_ID, {
-    name: "Anthropic Subscription",
-    baseUrl: "https://api.anthropic.com/v1",
-    apiKey: "$ANTHROPIC_SUBSCRIPTION_API_KEY",
-    api: "anthropic-messages",
-    models,
-  });
-  modelRegistry.refresh();
-}
-
-async function routeAnthropicSelectionForAvailableAuth(
-  authStorage: AuthStorage,
-  modelRegistry: ModelRegistry,
-  kind: "primary" | "fallback",
-  model: ReturnType<typeof resolveConfiguredModel>,
-) {
-  if (!model || model.provider !== ANTHROPIC_PROVIDER_ID) {
-    return model;
-  }
-
-  const rawApiKey = await authStorage.getApiKey(ANTHROPIC_PROVIDER_ID);
-  if (rawApiKey) {
-    return model;
-  }
-
-  const hasSubscriptionOAuth = authStorage.hasAuth?.(ANTHROPIC_SUBSCRIPTION_PROVIDER_ID) === true;
-  if (!hasSubscriptionOAuth) {
-    return model;
-  }
-
-  /*
-  FNXC:ProviderAuth 2026-07-01-13:08:
-  OAuth subscription credentials are execution credentials for the dedicated `anthropic-subscription` path, not status-only credentials and not raw `anthropic` `/v1` API keys. Route persisted `anthropic/<model>` selections without a raw key to the subscription provider; explicit `pi-claude-cli` selections remain the only CLI path.
-  */
-  return resolveAnthropicSubscriptionModelForAnthropicSelection(modelRegistry, kind, model);
-}
+/*
+FNXC:ProviderAuth 2026-07-01-14:55:
+Anthropic has three independent surfaces and NO runtime rerouting between them: (1) direct OAuth — a subscription/OAuth `anthropic/<model>` selection executes on pi-ai's built-in `anthropic` provider, which detects the `sk-ant-oat` token and POSTs to `api.anthropic.com/v1/messages` with full Claude Code impersonation (the v0.51.0 working path; `authStorage.getApiKey("anthropic")` supplies the OAuth token); (2) raw API key — a configured `ANTHROPIC_API_KEY` takes precedence in `getApiKey("anthropic")` and uses x-api-key on the same built-in provider; (3) Claude CLI — an explicit `pi-claude-cli/<model>` selection runs through the vendored CLI extension. FN-7291/FN-7391/FN-7396 added an `/v1`-based `anthropic-subscription` reroute on the incorrect premise that Anthropic blocks subscription OAuth on `/v1`; that reroute is intentionally absent so direct OAuth is not re-broken (issue #1857).
+*/
 
 function normalizeSessionHistoryEntries(sessionManager: SessionManagerLike): void {
   const entries = sessionManager.fileEntries;
@@ -2144,7 +2072,6 @@ export async function createFnAgent(options: AgentOptions): Promise<AgentResult>
   }
   modelRegistry.refresh();
   mergeSupplementalAnthropicModels(modelRegistry, (message) => extensionsLog.warn(message));
-  registerAnthropicSubscriptionProvider(modelRegistry);
 
   // Build the pi built-in tool set. We deliberately do NOT use the bundled
   // `createCodingTools` / `createReadOnlyTools` presets — they're missing
@@ -2241,19 +2168,6 @@ export async function createFnAgent(options: AgentOptions): Promise<AgentResult>
       options.fallbackModelId,
     );
   }
-
-  selectedModel = await routeAnthropicSelectionForAvailableAuth(
-    authStorage,
-    modelRegistry,
-    "primary",
-    selectedModel,
-  );
-  fallbackModel = await routeAnthropicSelectionForAvailableAuth(
-    authStorage,
-    modelRegistry,
-    "fallback",
-    fallbackModel,
-  );
 
   // Resolve skill selection: explicit skillSelection wins over convenience `skills`
   let effectiveSkillSelection: SkillSelectionContext | undefined = options.skillSelection;

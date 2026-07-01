@@ -531,7 +531,7 @@ describe("GET /models", () => {
       }));
     });
 
-    it("uses authStorage subscription OAuth plus Claude CLI to expose selectable CLI models only", async () => {
+    it("uses authStorage subscription OAuth plus Claude CLI to expose both direct Anthropic and CLI rows", async () => {
       await withNoFilesystemProviders(async () => {
         const authStorage = createMockAuthStorage({
           getOAuthProviders: vi.fn().mockReturnValue([{ id: "anthropic", name: "Anthropic" }]),
@@ -549,15 +549,16 @@ describe("GET /models", () => {
         expect(res.status).toBe(200);
         expect(res.body.models).not.toEqual([]);
         const providers = res.body.models.map((m: { provider: string }) => m.provider);
+        // Subscription OAuth exposes the direct `anthropic` provider AND the CLI is selectable.
+        expect(providers).toContain("anthropic");
         expect(providers).toContain("pi-claude-cli");
-        expect(providers).not.toContain("anthropic");
         expect(providers).not.toContain("anthropic-subscription");
         const cliSonnetFiveRows = res.body.models.filter((m: { provider: string; id: string }) => m.provider === "pi-claude-cli" && m.id === "claude-sonnet-5");
         expect(cliSonnetFiveRows).toHaveLength(1);
       });
     });
 
-    it("keeps legacy Anthropic OAuth from exposing direct rows while Claude CLI remains selectable", async () => {
+    it("exposes direct Anthropic rows for legacy OAuth while Claude CLI remains selectable", async () => {
       await withNoFilesystemProviders(async () => {
         const authStorage = createMockAuthStorage({
           getOAuthProviders: vi.fn().mockReturnValue([{ id: "anthropic", name: "Anthropic" }]),
@@ -574,8 +575,11 @@ describe("GET /models", () => {
 
         expect(res.status).toBe(200);
         const providers = res.body.models.map((m: { provider: string }) => m.provider);
+        // Restored v0.51.0: legacy OAuth makes the direct `anthropic` provider selectable
+        // (pi-ai runs it on /v1 via Claude Code impersonation). `anthropic-subscription` is
+        // an auth/status id only, never a picker row.
+        expect(providers).toContain("anthropic");
         expect(providers).toContain("pi-claude-cli");
-        expect(providers).not.toContain("anthropic");
         expect(providers).not.toContain("anthropic-subscription");
         expect(res.body.models).toEqual(expect.arrayContaining([
           expect.objectContaining({ provider: "pi-claude-cli", id: "claude-sonnet-5" }),
@@ -604,7 +608,7 @@ describe("GET /models", () => {
       });
     });
 
-    it("does not expose Anthropic rows for authStorage OAuth-only auth when Claude CLI is disabled", async () => {
+    it("exposes the direct Anthropic provider for subscription OAuth even when Claude CLI is disabled", async () => {
       await withNoFilesystemProviders(async () => {
         const authStorage = createMockAuthStorage({
           getOAuthProviders: vi.fn().mockReturnValue([{ id: "anthropic", name: "Anthropic" }]),
@@ -621,13 +625,15 @@ describe("GET /models", () => {
 
         expect(res.status).toBe(200);
         const providers = res.body.models.map((m: { provider: string }) => m.provider);
-        expect(providers).not.toContain("anthropic");
+        // Subscription OAuth drives the direct `anthropic` provider; the CLI stays hidden
+        // (disabled) and `anthropic-subscription` is never advertised as its own picker row.
+        expect(providers).toContain("anthropic");
         expect(providers).not.toContain("anthropic-subscription");
         expect(providers).not.toContain("pi-claude-cli");
       });
     });
 
-    it("hides direct Anthropic rows for OAuth-only subscription auth while showing distinct Claude CLI rows", async () => {
+    it("exposes direct Anthropic rows for OAuth-only subscription auth alongside distinct Claude CLI rows", async () => {
       await vi.mocked(fsPromises.readFile).withImplementation(async (path: unknown) => {
         const value = String(path);
         if (value.endsWith("auth.json")) {
@@ -653,14 +659,16 @@ describe("GET /models", () => {
         const res = await GET(buildAppWithSetting(true, registry), "/api/models");
         expect(res.status).toBe(200);
         const providers = res.body.models.map((m: { provider: string }) => m.provider);
+        // auth.json legacy + subscription OAuth both make the direct `anthropic` provider
+        // selectable; `anthropic-subscription` remains an auth id, not a picker row.
+        expect(providers).toContain("anthropic");
         expect(providers).toContain("pi-claude-cli");
         expect(providers).toContain("openai");
-        expect(providers).not.toContain("anthropic");
         expect(providers).not.toContain("anthropic-subscription");
       });
     });
 
-    it("hides all Anthropic model rows for OAuth-only auth when Claude CLI picker visibility is disabled", async () => {
+    it("exposes direct Anthropic rows for OAuth-only auth even when the Claude CLI picker is disabled", async () => {
       await vi.mocked(fsPromises.readFile).withImplementation(async (path: unknown) => {
         const value = String(path);
         if (value.endsWith("auth.json")) {
@@ -676,7 +684,9 @@ describe("GET /models", () => {
         const res = await GET(buildAppWithSetting(false, registryWithCli()), "/api/models");
         expect(res.status).toBe(200);
         const providers = res.body.models.map((m: { provider: string }) => m.provider);
-        expect(providers).not.toContain("anthropic");
+        // Subscription OAuth (file-scan path) advertises the direct `anthropic` provider; the
+        // CLI stays hidden while disabled, and `anthropic-subscription` is not a picker row.
+        expect(providers).toContain("anthropic");
         expect(providers).not.toContain("anthropic-subscription");
         expect(providers).not.toContain("pi-claude-cli");
       });
