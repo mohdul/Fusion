@@ -18,7 +18,11 @@ export function BranchGroupCard({ groupId, projectId }: BranchGroupCardProps) {
   const [error, setError] = useState<string | null>(null);
   const [promoting, setPromoting] = useState(false);
   const [abandoning, setAbandoning] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  /*
+  FNXC:BranchGroupDetails 2026-06-30-00:00:
+  Task-detail branch groups must be collapsed by default on every breakpoint while preserving the user's expand/collapse control for member and action inspection.
+  */
+  const [collapsed, setCollapsed] = useState(true);
 
   const loadGroup = useCallback(async () => {
     try {
@@ -38,28 +42,6 @@ export function BranchGroupCard({ groupId, projectId }: BranchGroupCardProps) {
     void loadGroup();
   }, [loadGroup]);
 
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-      return;
-    }
-    const mediaQuery = window.matchMedia("(max-width: 768px)");
-    const syncCollapsed = (matches: boolean) => {
-      setCollapsed(matches);
-    };
-
-    syncCollapsed(mediaQuery.matches);
-    const onMediaChange = (event: MediaQueryListEvent) => {
-      syncCollapsed(event.matches);
-    };
-
-    if (typeof mediaQuery.addEventListener === "function") {
-      mediaQuery.addEventListener("change", onMediaChange);
-      return () => mediaQuery.removeEventListener("change", onMediaChange);
-    }
-
-    mediaQuery.addListener(onMediaChange);
-    return () => mediaQuery.removeListener(onMediaChange);
-  }, []);
 
   useEffect(() => {
     const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
@@ -117,7 +99,7 @@ export function BranchGroupCard({ groupId, projectId }: BranchGroupCardProps) {
   const complete = group.completion.complete;
 
   return (
-    <section className="card branch-group-card">
+    <section className={`card branch-group-card${collapsed ? " branch-group-card--collapsed" : ""}`}>
       <header className="branch-group-card-header">
         <div className="branch-group-card-title">
           <GitBranch size={14} />

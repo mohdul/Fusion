@@ -21,7 +21,16 @@ import {
 import { TaskDetailContent, TaskDetailModal } from "../TaskDetailModal";
 
 vi.mock("../BranchGroupCard", () => ({
-  BranchGroupCard: ({ groupId }: { groupId: string }) => <div>Mock Branch Group {groupId}</div>,
+  BranchGroupCard: ({ groupId }: { groupId: string }) => {
+    const [expanded, setExpanded] = React.useState(false);
+    return (
+      <div>
+        Mock Branch Group {groupId}
+        <button type="button" onClick={() => setExpanded(true)}>Mock expand branch group</button>
+        {expanded && <span>Mock branch group expanded</span>}
+      </div>
+    );
+  },
 }));
 
 setupTaskDetailModalHooks();
@@ -593,20 +602,39 @@ describe("TaskDetailModal Raw Logs agent loading", () => {
 });
 
 describe("TaskDetailModal branch group surfacing", () => {
-  it("renders branch group card when task has group context", () => {
-    render(
+  const branchContext = { groupId: "BG-1", source: "planning", assignmentMode: "shared" } as const;
+
+  function renderTaskWithBranchContext(id: string) {
+    return (
       <TaskDetailModal
         initialTab="definition"
-        task={makeTask({ branchContext: { groupId: "BG-1", source: "planning", assignmentMode: "shared" } })}
+        task={makeTask({ id, branchContext })}
         onClose={noop}
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
         addToast={noop}
-      />,
+      />
     );
+  }
 
+  it("renders branch group card when task has group context", () => {
+    render(renderTaskWithBranchContext("FN-6041"));
+
+    expect(screen.getByText("Mock Branch Group BG-1")).toBeInTheDocument();
+  });
+
+  it("remounts the branch group card when switching tasks inside the same group", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(renderTaskWithBranchContext("FN-6041"));
+
+    await user.click(screen.getByRole("button", { name: "Mock expand branch group" }));
+    expect(screen.getByText("Mock branch group expanded")).toBeInTheDocument();
+
+    rerender(renderTaskWithBranchContext("FN-6042"));
+
+    expect(screen.queryByText("Mock branch group expanded")).not.toBeInTheDocument();
     expect(screen.getByText("Mock Branch Group BG-1")).toBeInTheDocument();
   });
 });

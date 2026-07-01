@@ -3115,7 +3115,8 @@ export function TaskDetailContent({
                 </div>
               </div>
               {task.branchContext?.groupId && (
-                <BranchGroupCard groupId={task.branchContext.groupId} projectId={projectId} />
+                /* FNXC:BranchGroupDetails 2026-06-30-00:00: Task-detail branch groups must return to their compact collapsed default when users switch tasks, including between members of the same shared branch group. Key by task and group so a manual expansion never leaks into the next task detail view. */
+                <BranchGroupCard key={`${task.id}:${task.branchContext.groupId}`} groupId={task.branchContext.groupId} projectId={projectId} />
               )}
               {/* FNXC:Workspace 2026-06-21-00:00: workspace tasks have no singular
                   task.worktree/task.branch; surface their acquired per-sub-repo worktrees
