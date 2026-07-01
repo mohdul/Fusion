@@ -129,8 +129,10 @@ describe("TaskPlannerChatTab", () => {
 
     expect(await screen.findByTestId("task-planner-chat-empty")).toBeInTheDocument();
     const toggle = screen.getByTestId("task-planner-chat-expand-toggle");
+    const modelBadge = screen.getByTestId("task-planner-chat-model");
     expect(toggle).toHaveAccessibleName("Collapse planner chat");
     expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(modelBadge.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByTestId("task-planner-chat-panel")).toContainElement(screen.getByLabelText("Message planner chat"));
     expect(screen.getByTestId("task-planner-chat-panel")).toContainElement(screen.getByRole("button", { name: "Send" }));
 

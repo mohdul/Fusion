@@ -868,7 +868,10 @@ The same expanded-mode chrome collapse now applies to all Activity segments: Liv
 
 /*
 FNXC:TaskDetailPlannerChat 2026-06-30-23:58:
-Planner Chat defaults to a focused state, but operator steering says large screens should keep the full task-detail context visible. Desktop therefore uses the same internal-scroll chat body without hiding rows; narrow/mobile layouts collapse nonessential title/meta/tabs/actions so the composer remains reachable while header identity and close/back controls stay available.
+Planner Chat defaults to a focused state, but operator steering says large screens should keep the full task-detail context visible. Desktop therefore uses the same internal-scroll chat body without hiding rows; narrow/mobile layouts collapse nonessential title/provenance/actions so the composer remains reachable while header identity and close/back controls stay available.
+
+FNXC:TaskDetailPlannerChat 2026-06-30-20:06:
+Expanded Planner Chat must still expose task Priority, Execution Mode, and the tab bar on mobile. Hide only lower-priority metadata in the metadata row so inline handlers and tab navigation remain reachable without overlapping the transcript/composer.
 */
 .detail-section--planner-chat {
   display: flex;
@@ -1168,12 +1171,12 @@ FN-6500 fixes a tablet regression from FN-5599: the task-detail overlay offset a
 
   .task-detail-content--planner-chat-expanded .detail-heading-row,
   .task-detail-content--planner-chat-expanded .detail-description-toggle,
-  .task-detail-content--planner-chat-expanded .detail-meta,
   .task-detail-content--planner-chat-expanded .detail-near-duplicate-banner,
-  .task-detail-content--planner-chat-expanded .detail-tabs,
   .task-detail-content--planner-chat-expanded .branch-group-card,
   .task-detail-content--planner-chat-expanded .workspace-worktrees-summary,
-  .task-detail-content--planner-chat-expanded .modal-actions {
+  .task-detail-content--planner-chat-expanded .modal-actions,
+  .task-detail-content--planner-chat-expanded .detail-provenance,
+  .task-detail-content--planner-chat-expanded .detail-timestamps {
     display: none;
   }
 
@@ -1181,6 +1184,16 @@ FN-6500 fixes a tablet regression from FN-5599: the task-detail overlay offset a
     flex: 0 0 auto;
     justify-content: space-between;
     padding-block: var(--space-sm);
+  }
+
+  .task-detail-content--planner-chat-expanded .detail-meta {
+    flex: 0 0 auto;
+    margin-bottom: var(--space-sm);
+  }
+
+  .task-detail-content--planner-chat-expanded .detail-tabs {
+    flex: 0 0 auto;
+    margin-bottom: var(--space-sm);
   }
 
   .task-detail-content--planner-chat-expanded .detail-body--planner-chat {

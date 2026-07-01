@@ -92,28 +92,39 @@ describe("TaskDetailModal", () => {
   describe("mobile responsive structure", () => {
     it("keeps planner chat composer usable on narrow task-detail layouts", () => {
       const css = readDashboardStylesSource();
+      const headerBlock = getExactCssRuleBlock(css, ".task-planner-chat-header");
+      const headerActionsBlock = getExactCssRuleBlock(css, ".task-planner-chat-header-actions");
+      const modelBlock = getExactCssRuleBlock(css, ".task-planner-chat-model");
       const composerBlock = getExactCssRuleBlock(css, ".task-planner-chat-composer");
       const inputBlock = getExactCssRuleBlock(css, ".task-planner-chat-input");
       const mobileBlock = getCssAtRuleBlockContaining(css, "@media (max-width: 768px)", ".task-planner-chat-composer");
       const mobileComposerBlock = getCssRuleBlock(mobileBlock, ".task-planner-chat-composer");
+      const mobileInputBlock = getCssRuleBlock(mobileBlock, ".task-planner-chat-input");
       const mobileSendBlock = getCssRuleBlock(mobileBlock, ".task-planner-chat-send");
 
       expectBaseRule(css, ".task-planner-chat", "display: flex;");
       expectBaseRule(css, ".task-planner-chat", "min-height: 0;");
       expectBaseRule(css, ".task-planner-chat-transcript", "overflow: auto;");
       expectBaseRule(css, ".task-planner-chat-transcript", "min-height: 0;");
+      expect(headerBlock).toContain("justify-content: space-between;");
+      expect(headerActionsBlock).toContain("justify-content: flex-end;");
+      expect(headerActionsBlock).not.toContain("flex-wrap: wrap;");
+      expect(modelBlock).toContain("text-overflow: ellipsis;");
       expect(composerBlock).toContain("display: flex;");
       expect(composerBlock).toContain("flex-wrap: wrap;");
       expect(composerBlock).toContain("align-items: stretch;");
       expect(composerBlock).toContain("flex: 0 0 auto;");
       expect(composerBlock).not.toContain("flex-direction: column;");
-      expect(inputBlock).toContain("height: calc(var(--space-lg) + (var(--space-sm) * 2) + (var(--btn-border-width) * 2));");
-      expect(inputBlock).toContain("min-height: calc(var(--space-lg) + (var(--space-sm) * 2) + (var(--btn-border-width) * 2));");
+      expect(inputBlock).toContain("height: calc(var(--space-2xl) + var(--space-sm));");
+      expect(inputBlock).toContain("min-height: calc(var(--space-2xl) + var(--space-sm));");
       expect(inputBlock).not.toContain("min-height: 5rem;");
       expect(mobileComposerBlock).toContain("flex-direction: column;");
       expect(mobileComposerBlock).toContain("align-items: stretch;");
+      expect(mobileInputBlock).toContain("height: calc(var(--space-2xl) + var(--space-lg));");
+      expect(mobileInputBlock).toContain("min-height: calc(var(--space-2xl) + var(--space-lg));");
       expect(mobileSendBlock).toContain("justify-content: center;");
       expect(mobileSendBlock).toContain("width: 100%;");
+      expect(mobileSendBlock).toContain("min-block-size: calc(var(--space-2xl) + var(--space-lg));");
       expectBaseRule(css, ".task-planner-chat-starters", "grid-template-columns: repeat(2, minmax(0, 1fr));");
       expectBaseRule(css, ".task-planner-chat-message .chat-question-response", "overflow-wrap: anywhere;");
       expect(mobileBlock).toContain(".task-planner-chat-starters");
@@ -122,13 +133,20 @@ describe("TaskDetailModal", () => {
       expect(mobileBlock).toContain("margin-inline: 0;");
 
       const detailCss = readDashboardStylesSource();
-      const plannerMobileBlock = getCssAtRuleBlockContaining(detailCss, "@media (max-width: 768px)", ".task-detail-content--planner-chat-expanded .detail-tabs");
+      const plannerMobileBlock = getCssAtRuleBlockContaining(detailCss, "@media (max-width: 768px)", ".task-detail-content--planner-chat-expanded .detail-meta");
+      const plannerExpandedTabsBlock = getCssRuleBlock(plannerMobileBlock, ".task-detail-content--planner-chat-expanded .detail-tabs");
+      const plannerExpandedMetaBlock = getCssRuleBlock(plannerMobileBlock, ".task-detail-content--planner-chat-expanded .detail-meta");
       expectBaseRule(detailCss, ".detail-body--planner-chat", "overflow-y: hidden;");
       expectBaseRule(detailCss, ".detail-section--planner-chat", "min-height: 0;");
       expect(plannerMobileBlock).toContain(".task-detail-content--planner-chat-expanded .detail-heading-row");
-      expect(plannerMobileBlock).toContain(".task-detail-content--planner-chat-expanded .detail-tabs");
+      expect(plannerMobileBlock).toContain(".task-detail-content--planner-chat-expanded .detail-provenance");
+      expect(plannerMobileBlock).toContain(".task-detail-content--planner-chat-expanded .detail-timestamps");
       expect(plannerMobileBlock).toContain(".task-detail-content--planner-chat-expanded .modal-actions");
       expect(plannerMobileBlock).toContain("display: none;");
+      expect(plannerMobileBlock).not.toMatch(/\.task-detail-content--planner-chat-expanded \.detail-meta,\s*\.task-detail-content--planner-chat-expanded \.detail-near-duplicate-banner/);
+      expect(plannerMobileBlock).not.toMatch(/\.task-detail-content--planner-chat-expanded \.detail-tabs,\s*\.task-detail-content--planner-chat-expanded \.branch-group-card/);
+      expect(plannerExpandedMetaBlock).toContain("flex: 0 0 auto;");
+      expect(plannerExpandedTabsBlock).toContain("flex: 0 0 auto;");
     });
 
     it("keeps detail metadata as a single wrapping flex row without mobile column fallbacks", () => {

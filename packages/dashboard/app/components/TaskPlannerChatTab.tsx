@@ -495,6 +495,11 @@ export function TaskPlannerChatTab({ task, projectId, active, expanded = false, 
           <p>{t("taskDetail.plannerChat.description", "Ask planning questions about this task's current status, recent activity, blockers, next steps, or definition.")}</p>
         </div>
         <div className="task-planner-chat-header-actions">
+          {isUsableModel(planningModel) && (
+            <span className="task-planner-chat-model" data-testid="task-planner-chat-model">
+              {planningModel.provider}/{planningModel.modelId}
+            </span>
+          )}
           {onExpandedChange && (
             <button
               type="button"
@@ -507,11 +512,6 @@ export function TaskPlannerChatTab({ task, projectId, active, expanded = false, 
             >
               {expanded ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
             </button>
-          )}
-          {isUsableModel(planningModel) && (
-            <span className="task-planner-chat-model" data-testid="task-planner-chat-model">
-              {planningModel.provider}/{planningModel.modelId}
-            </span>
           )}
         </div>
       </div>

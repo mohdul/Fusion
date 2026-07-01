@@ -13,12 +13,17 @@
   gap: var(--space-md);
 }
 
+.task-planner-chat-header > :first-child {
+  min-width: 0;
+}
+
 .task-planner-chat-header-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-sm);
-  flex-wrap: wrap;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .task-planner-chat-expand-toggle {
@@ -39,7 +44,12 @@
 }
 
 .task-planner-chat-model {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-inline-size: min(100%, calc(var(--space-2xl) * 8));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   border: var(--btn-border-width) solid var(--border);
   border-radius: var(--radius-pill);
   padding: var(--space-xs) var(--space-sm);
@@ -203,10 +213,13 @@
 
 /*
 FNXC:TaskDetailPlannerChat 2026-06-30-00:00:
-The Planner Chat composer should behave like a compact input/button row on desktop: match the textarea's default height to the Send button and let flex wrapping, not a forced column, decide when the controls no longer fit inline.
+The Planner Chat composer should behave like a compact input/button row on desktop: match the textarea's default height to the Activity chat input and let flex wrapping, not a forced column, decide when the controls no longer fit inline.
 
 FNXC:TaskDetailPlannerChat 2026-06-30-23:58:
 Keep the composer outside the transcript scroller and make the panel fill the modal body. Loading, errors, starters, history, and streaming content scroll inside `.task-planner-chat-transcript`, while the input row remains pinned and reachable in normal and mobile-expanded detail layouts.
+
+FNXC:TaskDetailPlannerChat 2026-06-30-20:06:
+Planner Chat must keep visual height parity with Activity chat: desktop textareas use the Activity compact min-height token, and the stacked mobile composer switches to the Activity mobile touch-height token without hardcoded dimensions.
 */
 .task-planner-chat-composer {
   display: flex;
@@ -220,14 +233,16 @@ Keep the composer outside the transcript scroller and make the panel fill the mo
   box-sizing: border-box;
   flex: 1 1 calc(var(--space-2xl) * 8);
   min-width: min(100%, calc(var(--space-2xl) * 8));
-  height: calc(var(--space-lg) + (var(--space-sm) * 2) + (var(--btn-border-width) * 2));
-  min-height: calc(var(--space-lg) + (var(--space-sm) * 2) + (var(--btn-border-width) * 2));
+  height: calc(var(--space-2xl) + var(--space-sm));
+  min-height: calc(var(--space-2xl) + var(--space-sm));
+  max-height: var(--task-chat-composer-max-height, 40vh);
   padding: var(--btn-padding);
   resize: vertical;
 }
 
 .task-planner-chat-send {
   flex: 0 0 auto;
+  min-block-size: calc(var(--space-2xl) + var(--space-sm));
 }
 
 @media (max-width: 768px) {
@@ -235,20 +250,33 @@ Keep the composer outside the transcript scroller and make the panel fill the mo
     min-height: 0;
   }
 
-  .task-planner-chat-header,
+  .task-planner-chat-header {
+    align-items: flex-start;
+    gap: var(--space-sm);
+  }
+
+  .task-planner-chat-header-actions {
+    flex: 0 1 auto;
+    justify-content: flex-end;
+  }
+
+  .task-planner-chat-model {
+    max-inline-size: calc(var(--space-2xl) * 5);
+  }
+
+  .task-planner-chat-expand-toggle {
+    min-inline-size: calc(var(--space-2xl) + var(--space-sm));
+    min-block-size: calc(var(--space-2xl) + var(--space-sm));
+  }
+
   .task-planner-chat-composer {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .task-planner-chat-header-actions {
-    justify-content: space-between;
-  }
-
-  .task-planner-chat-expand-toggle {
-    align-self: flex-end;
-    min-inline-size: calc(var(--space-2xl) + var(--space-sm));
-    min-block-size: calc(var(--space-2xl) + var(--space-sm));
+  .task-planner-chat-input {
+    height: calc(var(--space-2xl) + var(--space-lg));
+    min-height: calc(var(--space-2xl) + var(--space-lg));
   }
 
   .task-planner-chat-starters {
@@ -258,6 +286,7 @@ Keep the composer outside the transcript scroller and make the panel fill the mo
   .task-planner-chat-send {
     justify-content: center;
     width: 100%;
+    min-block-size: calc(var(--space-2xl) + var(--space-lg));
   }
 
   .task-planner-chat-message {
