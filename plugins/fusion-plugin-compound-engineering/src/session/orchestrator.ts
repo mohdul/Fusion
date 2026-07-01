@@ -291,6 +291,7 @@ export class CeOrchestrator {
   private buildSessionOptions(
     stage: CeStageDefinition,
     sessionId: string,
+    opts: { allowAnswerQuestionIdDrift?: boolean } = {},
   ): Parameters<CreateInteractiveAiSessionFactory>[0] {
     const defaultProvider = getDefaultProvider(this.ctx.settings);
     const defaultModelId = getDefaultModelId(this.ctx.settings);
@@ -302,7 +303,11 @@ export class CeOrchestrator {
       tools: "coding",
       requestedSkillNames: [stage.skillId],
       additionalSkillPaths,
-      allowAnswerQuestionIdDrift: true,
+      /*
+       * FNXC:CompoundEngineering 2026-07-01-17:31:
+       * Question-id drift tolerance is recovery-only. Fresh CE sessions keep the strict interactive seam guard so live/DB question divergence is surfaced immediately; rehydration enables the tolerance because the persisted session row is the recovery anchor after a restart.
+       */
+      ...(opts.allowAnswerQuestionIdDrift ? { allowAnswerQuestionIdDrift: true } : {}),
       onProgress: (event) => this.handleProgress(sessionId, event),
       ...(defaultProvider ? { defaultProvider } : {}),
       ...(defaultModelId ? { defaultModelId } : {}),
@@ -643,7 +648,9 @@ export class CeOrchestrator {
   }
 
   private async rehydrateReplay(session: CeSession, stage: CeStageDefinition): Promise<void> {
-    const interactive = await this.factory!(this.buildSessionOptions(stage, session.id));
+    const interactive = await this.factory!(
+      this.buildSessionOptions(stage, session.id, { allowAnswerQuestionIdDrift: true }),
+    );
     const live = interactive.session;
 
     // Walk the recorded user turns in order. The FIRST user turn is the opening

@@ -188,8 +188,8 @@ export interface CreateInteractiveAiSessionOptions {
   /**
    * Trust the caller's persisted/current question id when answering, even if a
    * rehydrated live handle generated a different question id while replaying.
-   * Default remains strict for planning surfaces; CE enables this because its
-   * persisted session row is the recovery anchor across dashboard restarts.
+   * Default remains strict for fresh planning/CE sessions; recovery paths may
+   * enable this when the persisted session row is the authoritative anchor.
    */
   allowAnswerQuestionIdDrift?: boolean;
 }
