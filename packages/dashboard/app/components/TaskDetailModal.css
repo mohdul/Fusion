@@ -880,6 +880,9 @@ Planner Chat defaults to a focused state, but operator steering says large scree
 
 FNXC:TaskDetailPlannerChat 2026-06-30-20:06:
 Expanded Planner Chat must still expose task Priority, Execution Mode, and the tab bar on mobile. Hide only lower-priority metadata in the metadata row so inline handlers and tab navigation remain reachable without overlapping the transcript/composer.
+
+FNXC:TaskDetailPlannerChat 2026-07-02-00:04:
+Expanded Planner Chat must keep the task title and workflow badge visible on mobile. The title preserves task identity, and the workflow badge is owned by the timestamps row, so this mode hides lower-priority metadata but not `.detail-heading-row` or `.detail-timestamps`; timestamp labels inside that row can hide so the workflow badge remains compact.
 */
 .detail-section--planner-chat {
   display: flex;
@@ -1176,14 +1179,12 @@ FN-6500 fixes a tablet regression from FN-5599: the task-detail overlay offset a
     display: none;
   }
 
-  .task-detail-content--planner-chat-expanded .detail-heading-row,
   .task-detail-content--planner-chat-expanded .detail-description-toggle,
   .task-detail-content--planner-chat-expanded .detail-near-duplicate-banner,
   .task-detail-content--planner-chat-expanded .branch-group-card,
   .task-detail-content--planner-chat-expanded .workspace-worktrees-summary,
   .task-detail-content--planner-chat-expanded .modal-actions,
-  .task-detail-content--planner-chat-expanded .detail-provenance,
-  .task-detail-content--planner-chat-expanded .detail-timestamps {
+  .task-detail-content--planner-chat-expanded .detail-provenance {
     display: none;
   }
 
@@ -1196,6 +1197,11 @@ FN-6500 fixes a tablet regression from FN-5599: the task-detail overlay offset a
   .task-detail-content--planner-chat-expanded .detail-meta {
     flex: 0 0 auto;
     margin-bottom: var(--space-sm);
+  }
+
+  .task-detail-content--planner-chat-expanded .detail-timestamps .detail-timestamp-item,
+  .task-detail-content--planner-chat-expanded .detail-timestamps .detail-timestamp-separator {
+    display: none;
   }
 
   .task-detail-content--planner-chat-expanded .detail-tabs {

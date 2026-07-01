@@ -121,7 +121,9 @@ describe("TaskDetailModal", () => {
       expect(headerBlock).toContain("justify-content: space-between;");
       expect(headerActionsBlock).toContain("justify-content: flex-end;");
       expect(headerActionsBlock).not.toContain("flex-wrap: wrap;");
-      expect(modelBlock).toContain("text-overflow: ellipsis;");
+      expect(modelBlock).toContain("display: inline-flex;");
+      expect(modelBlock).toContain("inline-size: calc(var(--space-2xl) + var(--space-sm));");
+      expect(modelBlock).not.toContain("text-overflow: ellipsis;");
       expect(composerBlock).toContain("display: flex;");
       expect(composerBlock).toContain("flex-wrap: wrap;");
       expect(composerBlock).toContain("align-items: stretch;");
@@ -130,12 +132,15 @@ describe("TaskDetailModal", () => {
       expect(inputBlock).toContain("height: calc(var(--space-2xl) + var(--space-sm));");
       expect(inputBlock).toContain("min-height: calc(var(--space-2xl) + var(--space-sm));");
       expect(inputBlock).not.toContain("min-height: 5rem;");
-      expect(mobileComposerBlock).toContain("flex-direction: column;");
-      expect(mobileComposerBlock).toContain("align-items: stretch;");
+      expect(mobileComposerBlock).toContain("flex-direction: row;");
+      expect(mobileComposerBlock).toContain("flex-wrap: nowrap;");
+      expect(mobileComposerBlock).toContain("align-items: flex-end;");
       expect(mobileInputBlock).toContain("height: calc(var(--space-2xl) + var(--space-lg));");
       expect(mobileInputBlock).toContain("min-height: calc(var(--space-2xl) + var(--space-lg));");
+      expect(mobileInputBlock).toContain("max-height: calc(var(--space-2xl) + var(--space-lg));");
+      expect(mobileInputBlock).toContain("resize: none;");
       expect(mobileSendBlock).toContain("justify-content: center;");
-      expect(mobileSendBlock).toContain("width: 100%;");
+      expect(mobileSendBlock).toContain("inline-size: calc(var(--space-2xl) + var(--space-lg));");
       expect(mobileSendBlock).toContain("min-block-size: calc(var(--space-2xl) + var(--space-lg));");
       expectBaseRule(css, ".task-planner-chat-starters", "grid-template-columns: repeat(2, minmax(0, 1fr));");
       expectBaseRule(css, ".task-planner-chat-message .chat-question-response", "overflow-wrap: anywhere;");
@@ -150,11 +155,12 @@ describe("TaskDetailModal", () => {
       const plannerExpandedMetaBlock = getCssRuleBlock(plannerMobileBlock, ".task-detail-content--planner-chat-expanded .detail-meta");
       expectBaseRule(detailCss, ".detail-body--planner-chat", "overflow-y: hidden;");
       expectBaseRule(detailCss, ".detail-section--planner-chat", "min-height: 0;");
-      expect(plannerMobileBlock).toContain(".task-detail-content--planner-chat-expanded .detail-heading-row");
       expect(plannerMobileBlock).toContain(".task-detail-content--planner-chat-expanded .detail-provenance");
-      expect(plannerMobileBlock).toContain(".task-detail-content--planner-chat-expanded .detail-timestamps");
       expect(plannerMobileBlock).toContain(".task-detail-content--planner-chat-expanded .modal-actions");
       expect(plannerMobileBlock).toContain("display: none;");
+      expect(plannerMobileBlock).not.toContain(".task-detail-content--planner-chat-expanded .detail-heading-row");
+      expect(plannerMobileBlock).not.toMatch(/\.task-detail-content--planner-chat-expanded \.detail-timestamps\s*\{/);
+      expect(plannerMobileBlock).toContain(".task-detail-content--planner-chat-expanded .detail-timestamps .detail-timestamp-item");
       expect(plannerMobileBlock).not.toMatch(/\.task-detail-content--planner-chat-expanded \.detail-meta,\s*\.task-detail-content--planner-chat-expanded \.detail-near-duplicate-banner/);
       expect(plannerMobileBlock).not.toMatch(/\.task-detail-content--planner-chat-expanded \.detail-tabs,\s*\.task-detail-content--planner-chat-expanded \.branch-group-card/);
       expect(plannerExpandedMetaBlock).toContain("flex: 0 0 auto;");
@@ -221,7 +227,7 @@ describe("TaskDetailModal", () => {
 
       expect(css).toMatch(/@media \(max-width: 768px\)[\s\S]*?\.detail-timestamps\s*\{[^}]*align-items:\s*center;[^}]*flex-wrap:\s*nowrap;/);
       expect(css).not.toMatch(/@media[^{]*\(max-width: 768px\)[^{]*\{[\s\S]*?\.detail-timestamps\s*\{[^}]*flex-direction:\s*column;/);
-      expect(css).not.toMatch(/@media[^{]*\(max-width: 768px\)[^{]*\{[\s\S]*?\.detail-timestamp-separator\s*\{[^}]*display:\s*none;/);
+      expect(css).toContain(".task-detail-content--planner-chat-expanded .detail-timestamps .detail-timestamp-separator");
     });
 
     it("keeps the canonical workflow badge owned by the timestamp group across breakpoints", () => {

@@ -110,6 +110,8 @@ describe("TaskPlannerChatTab", () => {
 
     const emptyState = await screen.findByTestId("task-planner-chat-empty");
     expect(emptyState).toHaveTextContent("Start a task-aware chat");
+    expect(document.querySelector(".task-planner-chat-header p")).toBeNull();
+    expect(emptyState).toHaveTextContent("Ask planning questions about this task's current status, recent activity, blockers, next steps, or definition.");
     expect(emptyState).toHaveTextContent("Starter prompts send as normal chat messages.");
     expect(mockFetchTaskPlannerChatSession).toHaveBeenCalledWith(
       "FN-7310",

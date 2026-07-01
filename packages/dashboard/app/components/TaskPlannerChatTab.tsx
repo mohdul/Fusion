@@ -503,7 +503,6 @@ export function TaskPlannerChatTab({ task, projectId, active, expanded = false, 
       <div className="task-planner-chat-header">
         <div>
           <h4>{t("taskDetail.plannerChat.heading", "Planner Chat")}</h4>
-          <p>{t("taskDetail.plannerChat.description", "Ask planning questions about this task's current status, recent activity, blockers, next steps, or definition.")}</p>
         </div>
         <div className="task-planner-chat-header-actions">
           {isUsableModel(planningModel) && (
@@ -543,7 +542,7 @@ export function TaskPlannerChatTab({ task, projectId, active, expanded = false, 
           <div className="task-planner-chat-empty" data-testid="task-planner-chat-empty">
             <div className="task-planner-chat-empty-copy">
               <h5>{t("taskDetail.plannerChat.emptyTitle", "Start a task-aware chat")}</h5>
-              <p>{t("taskDetail.plannerChat.emptyBody", "Ask the planner about current status, recent activity, next actions, or the task definition. Starter prompts send as normal chat messages.")}</p>
+              <p>{t("taskDetail.plannerChat.emptyBody", "Ask planning questions about this task's current status, recent activity, blockers, next steps, or definition. Starter prompts send as normal chat messages.")}</p>
             </div>
             {starterPrompts.length > 0 && (
               <div className="task-planner-chat-starters" aria-label={t("taskDetail.plannerChat.startersLabel", "Planner chat starter prompts")}>
