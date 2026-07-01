@@ -6363,6 +6363,18 @@ export class TaskExecutor {
         // Worktree isolation (KTD-11): review the instance's OWN worktree when set.
         const worktreePath = active.worktreePath || detail.worktree || this.rootDir;
         const reviewCwd = resolveReviewCheckoutCwd(detail, worktreePath);
+        // Make the actual review target visible: explicit
+        // sourceMetadata.externalReviewCheckout routes review to an external
+        // checkout; without valid metadata, review defaults to the task worktree.
+        if (reviewCwd !== worktreePath) {
+          reviewerLog.log(`${seamTask.id}: review routed to external checkout ${reviewCwd} (task worktree: ${worktreePath})`);
+        } else {
+          const sm = detail.sourceMetadata as Record<string, unknown> | undefined;
+          const hasExternalMeta = sm && typeof sm.externalReviewCheckout === "string" && sm.externalReviewCheckout.trim();
+          if (hasExternalMeta) {
+            reviewerLog.warn(`${seamTask.id}: external review checkout metadata present (${sm!.externalReviewCheckout}) but invalid — reviewing task worktree ${worktreePath}`);
+          }
+        }
         const stepName = detail.steps[stepIndex]?.name ?? `Step ${stepIndex}`;
         const promptContent = detail.prompt ?? "";
         const userComments = selectUserCommentsForAgentContext(detail, { limit: null });
@@ -12979,6 +12991,18 @@ export class TaskExecutor {
           const userComments = selectUserCommentsForAgentContext(latestDetailForReview, { limit: null });
           const settings = await mergeEffectiveSettings(store, latestDetailForReview, await store.getSettings());
           const reviewCwd = resolveReviewCheckoutCwd(latestDetailForReview, worktreePath);
+          // Make the actual review target visible: explicit
+          // sourceMetadata.externalReviewCheckout routes review to an external
+          // checkout; without valid metadata, review defaults to the task worktree.
+          if (reviewCwd !== worktreePath) {
+            reviewerLog.log(`${taskId}: review routed to external checkout ${reviewCwd} (task worktree: ${worktreePath})`);
+          } else {
+            const sm = latestDetailForReview.sourceMetadata as Record<string, unknown> | undefined;
+            const hasExternalMeta = sm && typeof sm.externalReviewCheckout === "string" && sm.externalReviewCheckout.trim();
+            if (hasExternalMeta) {
+              reviewerLog.warn(`${taskId}: external review checkout metadata present (${sm!.externalReviewCheckout}) but invalid — reviewing task worktree ${worktreePath}`);
+            }
+          }
           // Run the reviewer via semaphore.runNested so its slot accounting
           // is honest: activeCount transiently bumps to reflect the second
           // agent session, but the reviewer doesn't enter the wait queue
