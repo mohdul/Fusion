@@ -183,7 +183,7 @@ export function isFts5CorruptionError(error: unknown): boolean {
 
 // ── Schema Definition ────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 134;
+const SCHEMA_VERSION = 135;
 
 const TASKS_FTS_AUTOMERGE = 8;
 const TASKS_FTS_CRISISMERGE = 16;
@@ -339,6 +339,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   prInfos TEXT,
   issueInfo TEXT,
   githubTracking TEXT,
+  -- FNXC:GitLabTracking 2026-07-02-00:00: GitLab item links are a nullable JSON column so project/group issue and merge-request metadata from GitLab.com or self-managed instances round-trip without altering GitHub tracking/source-issue columns.
+  gitlabTracking TEXT,
   sourceIssueProvider TEXT,
   sourceIssueRepository TEXT,
   sourceIssueExternalIssueId TEXT,
@@ -5493,6 +5495,12 @@ export class Database {
       // FNXC:WorkflowIcons 2026-06-30-12:04: add optional custom workflow icon metadata for migrated DBs. Existing rows remain NULL so legacy custom workflows keep clean names without empty icon shells.
       this.applyMigration(134, () => {
         this.addColumnIfMissing("workflows", "icon", "TEXT");
+      });
+    }
+
+    if (version < 135) {
+      this.applyMigration(135, () => {
+        this.addColumnIfMissing("tasks", "gitlabTracking", "TEXT");
       });
     }
 

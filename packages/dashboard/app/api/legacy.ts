@@ -68,6 +68,8 @@ import type {
   ResearchRunStatus,
   TaskPriority,
   TaskSourceIssue,
+  TaskGitLabTracking,
+  TaskGitLabTrackedItem,
   PrConflictDiagnostics,
   PrInfo,
   ManagedDockerNodeInput,
@@ -535,6 +537,7 @@ export function updateTask(
       repoOverride?: string | null;
       issue?: null;
     } | null;
+    gitlabTracking?: (Omit<TaskGitLabTracking, "item"> & { item?: TaskGitLabTrackedItem | null }) | null;
     dismissNearDuplicate?: boolean;
   },
   projectId?: string,

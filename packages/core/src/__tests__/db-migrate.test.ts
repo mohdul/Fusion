@@ -687,6 +687,35 @@ describe("schema migration", () => {
     db.close();
   });
 
+  it("adds tasks.gitlabTracking when migrating from schema version 134", () => {
+    const db = new Database(fusionDir);
+    db.exec("CREATE TABLE IF NOT EXISTS __meta (key TEXT PRIMARY KEY, value TEXT)");
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY,
+        description TEXT NOT NULL,
+        "column" TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        githubTracking TEXT
+      )
+    `);
+    db.exec("INSERT INTO __meta (key, value) VALUES ('schemaVersion', '134')");
+    db.exec("INSERT INTO __meta (key, value) VALUES ('lastModified', '1000')");
+    db.exec(`INSERT INTO tasks (id, description, "column", createdAt, updatedAt, githubTracking) VALUES ('FN-legacy', 'legacy', 'todo', '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z', '{"enabled":true}')`);
+
+    db.init();
+
+    const columns = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).toContain("gitlabTracking");
+    const row = db.prepare("SELECT githubTracking, gitlabTracking FROM tasks WHERE id = 'FN-legacy'").get() as { githubTracking: string; gitlabTracking: string | null };
+    expect(JSON.parse(row.githubTracking).enabled).toBe(true);
+    expect(row.gitlabTracking).toBeNull();
+    expect(db.getSchemaVersion()).toBe(SCHEMA_VERSION);
+
+    db.close();
+  });
+
   it("adds deletedAt column + index when migrating from schema version 86", () => {
     const db = new Database(fusionDir);
     db.exec("CREATE TABLE IF NOT EXISTS __meta (key TEXT PRIMARY KEY, value TEXT)");

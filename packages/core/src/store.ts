@@ -308,6 +308,7 @@ interface TaskRow {
   prInfos: string | null;
   issueInfo: string | null;
   githubTracking: string | null;
+  gitlabTracking: string | null;
   sourceIssueProvider: string | null;
   sourceIssueRepository: string | null;
   sourceIssueExternalIssueId: string | null;
@@ -470,6 +471,7 @@ const TASK_COLUMN_DESCRIPTORS: TaskColumnDescriptor[] = [
   defineTaskColumn("prInfos", (task) => toJson(task.prInfos || [])),
   defineTaskColumn("issueInfo", (task) => toJsonNullable(task.issueInfo)),
   defineTaskColumn("githubTracking", (task) => toJsonNullable(task.githubTracking)),
+  defineTaskColumn("gitlabTracking", (task) => toJsonNullable(task.gitlabTracking)),
   defineTaskColumn("sourceIssueProvider", (task) => task.sourceIssue?.provider ?? null),
   defineTaskColumn("sourceIssueRepository", (task) => task.sourceIssue?.repository ?? null),
   defineTaskColumn("sourceIssueExternalIssueId", (task) => task.sourceIssue?.externalIssueId ?? null),
@@ -2189,6 +2191,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       })(),
       issueInfo: fromJson<import("./types.js").IssueInfo>(row.issueInfo),
       githubTracking: fromJson<import("./types.js").TaskGithubTracking>(row.githubTracking) ?? undefined,
+      gitlabTracking: fromJson<import("./types.js").TaskGitLabTracking>(row.gitlabTracking) ?? undefined,
       sourceIssue: (() => {
         if (
           row.sourceIssueProvider === null
@@ -2301,6 +2304,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       prInfos: slim ? undefined : entry.prInfos,
       issueInfo: slim ? undefined : entry.issueInfo,
       githubTracking: entry.githubTracking,
+      gitlabTracking: entry.gitlabTracking,
       sourceIssue: slim ? undefined : entry.sourceIssue,
       attachments: slim ? undefined : entry.attachments,
       comments: entry.comments,
@@ -2436,6 +2440,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       prInfos: task.prInfos,
       issueInfo: task.issueInfo,
       githubTracking: task.githubTracking,
+      gitlabTracking: task.gitlabTracking,
       sourceIssue: task.sourceIssue,
       attachments: task.attachments,
       comments: task.comments,
@@ -2662,7 +2667,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       "tokenUsageInputTokens", "tokenUsageOutputTokens", "tokenUsageCachedTokens", "tokenUsageCacheWriteTokens", "tokenUsageTotalTokens", "tokenUsageFirstUsedAt", "tokenUsageLastUsedAt", "tokenUsageModelProvider", "tokenUsageModelId", "tokenUsagePerModel", "tokenBudgetSoftAlertedAt", "tokenBudgetHardAlertedAt", "tokenBudgetOverride",
       "createdAt", "updatedAt", "columnMovedAt", "firstExecutionAt", "cumulativeActiveMs", "columnDwellMs", "executionStartedAt", "executionCompletedAt",
       "dependencies", "steps", "customFields", "comments", "review", "reviewState", "workflowStepResults", "steeringComments",
-      "attachments", "prInfo", "prInfos", "issueInfo", "githubTracking", "sourceIssueProvider", "sourceIssueRepository", "sourceIssueExternalIssueId", "sourceIssueNumber", "sourceIssueUrl", "sourceIssueClosedAt", "mergeDetails", "workspaceWorktrees",
+      "attachments", "prInfo", "prInfos", "issueInfo", "githubTracking", "gitlabTracking", "sourceIssueProvider", "sourceIssueRepository", "sourceIssueExternalIssueId", "sourceIssueNumber", "sourceIssueUrl", "sourceIssueClosedAt", "mergeDetails", "workspaceWorktrees",
       "breakIntoSubtasks", "noCommitsExpected", "enabledWorkflowSteps", "modifiedFiles", "workflowTransitionNotification",
       "missionId", "sliceId", "scopeOverride", "scopeOverrideReason", "scopeAutoWiden", "assignedAgentId", "pausedByAgentId", "assigneeUserId", "nodeId", "effectiveNodeId", "effectiveNodeSource",
       "sourceType", "sourceAgentId", "sourceRunId", "sourceSessionId", "sourceMessageId", "sourceParentTaskId", "sourceMetadata",
@@ -2758,7 +2763,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       "tokenUsageInputTokens", "tokenUsageOutputTokens", "tokenUsageCachedTokens", "tokenUsageCacheWriteTokens", "tokenUsageTotalTokens", "tokenUsageFirstUsedAt", "tokenUsageLastUsedAt", "tokenUsageModelProvider", "tokenUsageModelId", "tokenUsagePerModel", "tokenBudgetSoftAlertedAt", "tokenBudgetHardAlertedAt", "tokenBudgetOverride",
       "createdAt", "updatedAt", "columnMovedAt", "firstExecutionAt", "cumulativeActiveMs", "columnDwellMs", "executionStartedAt", "executionCompletedAt",
       "dependencies", "steps", "customFields", "attachments", "steeringComments",
-      "comments", "review", "reviewState", "workflowStepResults", "prInfo", "prInfos", "issueInfo", "githubTracking", "sourceIssueProvider", "sourceIssueRepository", "sourceIssueExternalIssueId", "sourceIssueNumber", "sourceIssueUrl", "sourceIssueClosedAt", "mergeDetails", "workspaceWorktrees",
+      "comments", "review", "reviewState", "workflowStepResults", "prInfo", "prInfos", "issueInfo", "githubTracking", "gitlabTracking", "sourceIssueProvider", "sourceIssueRepository", "sourceIssueExternalIssueId", "sourceIssueNumber", "sourceIssueUrl", "sourceIssueClosedAt", "mergeDetails", "workspaceWorktrees",
       "breakIntoSubtasks", "noCommitsExpected", "enabledWorkflowSteps", "modifiedFiles", "workflowTransitionNotification",
       "missionId", "sliceId", "scopeOverride", "scopeOverrideReason", "scopeAutoWiden", "assignedAgentId", "pausedByAgentId", "assigneeUserId", "nodeId", "effectiveNodeId", "effectiveNodeSource",
       "sourceType", "sourceAgentId", "sourceRunId", "sourceSessionId", "sourceMessageId", "sourceParentTaskId", "sourceMetadata",
@@ -4983,6 +4988,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
       tokenUsage: input.tokenUsage,
       sourceIssue: input.sourceIssue,
       githubTracking: input.githubTracking,
+      gitlabTracking: input.gitlabTracking,
       sourceType: input.source?.sourceType ?? "unknown",
       sourceAgentId: input.source?.sourceAgentId,
       sourceRunId: input.source?.sourceRunId,
@@ -8294,7 +8300,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
 
   async updateTask(
     id: string,
-    updates: { title?: string; description?: string; priority?: TaskPriority | null; prompt?: string; worktree?: string | null; workspaceWorktrees?: import("./types.js").Task["workspaceWorktrees"]; status?: string | null; dependencies?: string[]; steps?: import("./types.js").TaskStep[]; customFields?: Record<string, unknown>; currentStep?: number; blockedBy?: string | null; overlapBlockedBy?: string | null; assignedAgentId?: string | null; pausedByAgentId?: string | null; pausedReason?: string | null; tokenBudgetSoftAlertedAt?: string | null; worktrunkFallbackAlertedAt?: string | null; worktrunkFailure?: import("./types.js").Task["worktrunkFailure"] | null; tokenBudgetHardAlertedAt?: string | null; tokenBudgetOverride?: import("./types.js").TaskTokenBudgetOverride | null; dispatchStormCount?: number | null; lastDispatchAt?: string | null; assigneeUserId?: string | null; scopeOverride?: boolean | null; scopeOverrideReason?: string | null; scopeAutoWiden?: string[] | null; nodeId?: string | null; effectiveNodeId?: string | null; effectiveNodeSource?: string | null; checkedOutBy?: string | null; checkedOutAt?: string | null; checkoutNodeId?: string | null; checkoutRunId?: string | null; checkoutLeaseRenewedAt?: string | null; checkoutLeaseEpoch?: number | null; paused?: boolean; baseBranch?: string | null; autoMerge?: boolean | null; branch?: string | null; executionStartBranch?: string | null; baseCommitSha?: string | null; size?: "S" | "M" | "L"; reviewLevel?: number; executionMode?: import("./types.js").ExecutionMode | null; mergeRetries?: number; workflowStepRetries?: number; stuckKillCount?: number | null; resumeLimboCount?: number | null; graphResumeRetryCount?: number | null; resumeLimboTipSha?: string | null; resumeLimboStepSignature?: string | null; postReviewFixCount?: number | null; recoveryRetryCount?: number | null; taskDoneRetryCount?: number | null; worktreeSessionRetryCount?: number | null; completionHandoffLimboRecoveryCount?: number | null; verificationFailureCount?: number | null; mergeConflictBounceCount?: number | null; mergeAuditBounceCount?: number | null; mergeTransientRetryCount?: number | null; branchConflictRecoveryCount?: number | null; reviewerContextRetryCount?: number | null; reviewerFallbackRetryCount?: number | null; nextRecoveryAt?: string | null; enabledWorkflowSteps?: string[]; noCommitsExpected?: boolean | null; modelProvider?: string | null; modelId?: string | null; validatorModelProvider?: string | null; validatorModelId?: string | null; planningModelProvider?: string | null; planningModelId?: string | null; thinkingLevel?: string | null; error?: string | null; summary?: string | null; sessionFile?: string | null; firstExecutionAt?: string | null; cumulativeActiveMs?: number | null; executionStartedAt?: string | null; executionCompletedAt?: string | null; review?: import("./types.js").TaskReview | null; reviewState?: import("./types.js").TaskReviewState | null; workflowStepResults?: import("./types.js").WorkflowStepResult[] | null; mergeDetails?: import("./types.js").MergeDetails | null; sourceIssue?: import("./types.js").TaskSourceIssue | null; sourceMetadataPatch?: Record<string, unknown> | null; githubTracking?: import("./types.js").TaskGithubTracking | null; tokenUsage?: import("./types.js").TaskTokenUsage | null; modifiedFiles?: string[] | null; workflowTransitionNotification?: import("./types.js").Task["workflowTransitionNotification"] | null; missionId?: string | null; sliceId?: string | null },
+    updates: { title?: string; description?: string; priority?: TaskPriority | null; prompt?: string; worktree?: string | null; workspaceWorktrees?: import("./types.js").Task["workspaceWorktrees"]; status?: string | null; dependencies?: string[]; steps?: import("./types.js").TaskStep[]; customFields?: Record<string, unknown>; currentStep?: number; blockedBy?: string | null; overlapBlockedBy?: string | null; assignedAgentId?: string | null; pausedByAgentId?: string | null; pausedReason?: string | null; tokenBudgetSoftAlertedAt?: string | null; worktrunkFallbackAlertedAt?: string | null; worktrunkFailure?: import("./types.js").Task["worktrunkFailure"] | null; tokenBudgetHardAlertedAt?: string | null; tokenBudgetOverride?: import("./types.js").TaskTokenBudgetOverride | null; dispatchStormCount?: number | null; lastDispatchAt?: string | null; assigneeUserId?: string | null; scopeOverride?: boolean | null; scopeOverrideReason?: string | null; scopeAutoWiden?: string[] | null; nodeId?: string | null; effectiveNodeId?: string | null; effectiveNodeSource?: string | null; checkedOutBy?: string | null; checkedOutAt?: string | null; checkoutNodeId?: string | null; checkoutRunId?: string | null; checkoutLeaseRenewedAt?: string | null; checkoutLeaseEpoch?: number | null; paused?: boolean; baseBranch?: string | null; autoMerge?: boolean | null; branch?: string | null; executionStartBranch?: string | null; baseCommitSha?: string | null; size?: "S" | "M" | "L"; reviewLevel?: number; executionMode?: import("./types.js").ExecutionMode | null; mergeRetries?: number; workflowStepRetries?: number; stuckKillCount?: number | null; resumeLimboCount?: number | null; graphResumeRetryCount?: number | null; resumeLimboTipSha?: string | null; resumeLimboStepSignature?: string | null; postReviewFixCount?: number | null; recoveryRetryCount?: number | null; taskDoneRetryCount?: number | null; worktreeSessionRetryCount?: number | null; completionHandoffLimboRecoveryCount?: number | null; verificationFailureCount?: number | null; mergeConflictBounceCount?: number | null; mergeAuditBounceCount?: number | null; mergeTransientRetryCount?: number | null; branchConflictRecoveryCount?: number | null; reviewerContextRetryCount?: number | null; reviewerFallbackRetryCount?: number | null; nextRecoveryAt?: string | null; enabledWorkflowSteps?: string[]; noCommitsExpected?: boolean | null; modelProvider?: string | null; modelId?: string | null; validatorModelProvider?: string | null; validatorModelId?: string | null; planningModelProvider?: string | null; planningModelId?: string | null; thinkingLevel?: string | null; error?: string | null; summary?: string | null; sessionFile?: string | null; firstExecutionAt?: string | null; cumulativeActiveMs?: number | null; executionStartedAt?: string | null; executionCompletedAt?: string | null; review?: import("./types.js").TaskReview | null; reviewState?: import("./types.js").TaskReviewState | null; workflowStepResults?: import("./types.js").WorkflowStepResult[] | null; mergeDetails?: import("./types.js").MergeDetails | null; sourceIssue?: import("./types.js").TaskSourceIssue | null; sourceMetadataPatch?: Record<string, unknown> | null; githubTracking?: import("./types.js").TaskGithubTracking | null; gitlabTracking?: (Omit<import("./types.js").TaskGitLabTracking, "item"> & { item?: import("./types.js").TaskGitLabTrackedItem | null }) | null; tokenUsage?: import("./types.js").TaskTokenUsage | null; modifiedFiles?: string[] | null; workflowTransitionNotification?: import("./types.js").Task["workflowTransitionNotification"] | null; missionId?: string | null; sliceId?: string | null },
     runContext?: RunMutationContext,
   ): Promise<Task> {
     return this.withTaskLock(id, () => this.updateTaskUnlocked(id, updates, runContext));
@@ -9226,6 +9232,40 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
         }
 
         task.githubTracking = nextTracking;
+      }
+      if (updates.gitlabTracking === null) {
+        task.gitlabTracking = undefined;
+      } else if (updates.gitlabTracking !== undefined) {
+        const previousTracking = task.gitlabTracking;
+        const previousItem = previousTracking?.item;
+        const { item: gitlabItemPatch, ...gitlabTrackingPatch } = updates.gitlabTracking;
+        const nextTracking: import("./types.js").TaskGitLabTracking = {
+          ...(previousTracking ?? {}),
+          ...gitlabTrackingPatch,
+        };
+
+        if (gitlabItemPatch === null) {
+          if (previousItem) {
+            task.log.push({
+              timestamp: new Date().toISOString(),
+              action: "GitLab item unlinked",
+              outcome: `${previousItem.host} ${previousItem.kind} !${previousItem.iid}`,
+              ...(runContext ? { runContext } : {}),
+            });
+          }
+          nextTracking.item = undefined;
+          nextTracking.unlinkedAt = new Date().toISOString();
+        } else if (gitlabItemPatch !== undefined) {
+          nextTracking.item = gitlabItemPatch;
+          task.log.push({
+            timestamp: new Date().toISOString(),
+            action: "GitLab item linked",
+            outcome: `${gitlabItemPatch.host} ${gitlabItemPatch.kind} !${gitlabItemPatch.iid}`,
+            ...(runContext ? { runContext } : {}),
+          });
+        }
+
+        task.gitlabTracking = nextTracking;
       }
       if (updates.tokenUsage === null) {
         task.tokenUsage = undefined;
@@ -14107,6 +14147,94 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
     });
   }
 
+  async updateGitLabTracking(
+    id: string,
+    tracking: import("./types.js").TaskGitLabTracking | null,
+  ): Promise<Task> {
+    return this.withTaskLock(id, async () => {
+      const dir = this.taskDir(id);
+      const task = await this.readTaskJson(dir);
+      const nextTracking = tracking ?? undefined;
+      const previousTracking = task.gitlabTracking;
+
+      if (JSON.stringify(previousTracking ?? null) === JSON.stringify(nextTracking ?? null)) {
+        return task;
+      }
+
+      task.gitlabTracking = nextTracking;
+      task.log.push({
+        timestamp: new Date().toISOString(),
+        action: nextTracking?.item ? "GitLab item linked" : "GitLab tracking cleared",
+        outcome: nextTracking?.item ? `${nextTracking.item.host} ${nextTracking.item.kind} !${nextTracking.item.iid}` : undefined,
+      });
+      task.updatedAt = new Date().toISOString();
+
+      await this.atomicWriteTaskJson(dir, task);
+      if (this.isWatching) this.taskCache.set(id, { ...task });
+      this.emit("task:updated", task);
+      return task;
+    });
+  }
+
+  async linkGitLabItem(
+    id: string,
+    item: import("./types.js").TaskGitLabTrackedItem,
+  ): Promise<Task> {
+    return this.withTaskLock(id, async () => {
+      const dir = this.taskDir(id);
+      const task = await this.readTaskJson(dir);
+      const previous = task.gitlabTracking ?? {};
+      const nextTracking: import("./types.js").TaskGitLabTracking = { ...previous, item };
+
+      if (JSON.stringify(previous) === JSON.stringify(nextTracking)) {
+        return task;
+      }
+
+      task.gitlabTracking = nextTracking;
+      task.log.push({
+        timestamp: new Date().toISOString(),
+        action: "GitLab item linked",
+        outcome: `${item.host} ${item.kind} !${item.iid}`,
+      });
+      task.updatedAt = new Date().toISOString();
+
+      await this.atomicWriteTaskJson(dir, task);
+      if (this.isWatching) this.taskCache.set(id, { ...task });
+      this.emit("task:updated", task);
+      return task;
+    });
+  }
+
+  async unlinkGitLabItem(id: string): Promise<Task> {
+    return this.withTaskLock(id, async () => {
+      const dir = this.taskDir(id);
+      const task = await this.readTaskJson(dir);
+      const previous = task.gitlabTracking;
+      const previousItem = previous?.item;
+
+      if (!previousItem || !previous) {
+        return task;
+      }
+
+      task.gitlabTracking = {
+        ...previous,
+        item: undefined,
+        unlinkedAt: new Date().toISOString(),
+      };
+      task.log.push({
+        timestamp: new Date().toISOString(),
+        action: "GitLab item unlinked",
+        outcome: `${previousItem.host} ${previousItem.kind} !${previousItem.iid}`,
+      });
+      task.updatedAt = new Date().toISOString();
+
+      await this.atomicWriteTaskJson(dir, task);
+      if (this.isWatching) this.taskCache.set(id, { ...task });
+      this.emit("task:updated", task);
+      return task;
+    });
+  }
+
   /**
    * Read historical agent log entries for a task from JSONL storage.
    * Returns entries in chronological order (oldest first).
@@ -14743,6 +14871,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
       review: entry.review,
       issueInfo: entry.issueInfo,
       githubTracking: entry.githubTracking,
+      gitlabTracking: entry.gitlabTracking,
       sourceIssue: entry.sourceIssue,
       attachments: entry.attachments,
       log: [...entry.log, { timestamp: new Date().toISOString(), action: "Task restored from archive" }],

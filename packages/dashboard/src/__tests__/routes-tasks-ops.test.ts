@@ -3046,6 +3046,142 @@ describe("PATCH /tasks/:id", () => {
     expect(res.body.error).toContain("sourceIssue.externalIssueId");
   });
 
+  it("forwards gitlabTracking updates for project issues, group issues, and merge requests", async () => {
+    const items = [
+      {
+        kind: "project_issue",
+        url: "https://gitlab.com/acme/app/-/issues/42",
+        instanceUrl: "https://gitlab.com",
+        host: "gitlab.com",
+        iid: 42,
+        projectId: 7,
+        projectPath: "acme/app",
+        title: "Project issue",
+        state: "opened",
+        createdAt: "2026-07-02T00:00:00.000Z",
+        lastSyncedAt: "2026-07-02T00:01:00.000Z",
+      },
+      {
+        kind: "group_issue",
+        url: "https://git.example.test/groups/platform/-/issues/9",
+        instanceUrl: "https://git.example.test",
+        host: "git.example.test",
+        iid: 9,
+        groupPath: "platform",
+        title: "Group issue",
+        state: "opened",
+        createdAt: "2026-07-02T00:00:00.000Z",
+        staleAt: "2026-07-02T01:00:00.000Z",
+        staleReason: "GitLab sync failed",
+      },
+      {
+        kind: "merge_request",
+        url: "https://gitlab.example.org/acme/app/-/merge_requests/5",
+        instanceUrl: "https://gitlab.example.org",
+        host: "gitlab.example.org",
+        iid: 5,
+        projectPath: "acme/app",
+        title: "Merge request",
+        state: "merged",
+        createdAt: "2026-07-02T00:00:00.000Z",
+      },
+    ];
+
+    for (const item of items) {
+      (store.updateTask as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ...FAKE_TASK_DETAIL, gitlabTracking: { item } });
+      const res = await REQUEST(buildApp(), "PATCH", "/api/tasks/KB-001", JSON.stringify({ gitlabTracking: { item } }), {
+        "Content-Type": "application/json",
+      });
+
+      expect(res.status).toBe(200);
+      expect(store.updateTask).toHaveBeenLastCalledWith("KB-001", {
+        gitlabTracking: { item: expect.objectContaining({ kind: item.kind, iid: item.iid, host: item.host }) },
+      });
+    }
+  });
+
+  it("forwards gitlabTracking unlink without triggering GitHub issue creation", async () => {
+    const createIssueSpy = vi.spyOn(GitHubClient.prototype, "createIssue").mockResolvedValue({
+      owner: "runfusion",
+      repo: "fusion",
+      number: 102,
+      htmlUrl: "https://github.com/runfusion/fusion/issues/102",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    (store.updateTask as ReturnType<typeof vi.fn>).mockResolvedValue({ ...FAKE_TASK_DETAIL, gitlabTracking: { unlinkedAt: "2026-07-02T00:00:00.000Z" } });
+
+    const res = await REQUEST(buildApp(), "PATCH", "/api/tasks/KB-001", JSON.stringify({ gitlabTracking: { item: null } }), {
+      "Content-Type": "application/json",
+    });
+
+    expect(res.status).toBe(200);
+    expect(store.updateTask).toHaveBeenCalledWith("KB-001", { gitlabTracking: { item: null } });
+    expect(createIssueSpy).not.toHaveBeenCalled();
+    createIssueSpy.mockRestore();
+  });
+
+  it("returns 400 for malformed gitlabTracking metadata", async () => {
+    const invalidPayloads = [
+      { gitlabTracking: { item: { kind: "epic", url: "https://gitlab.com/acme/app/-/issues/1", instanceUrl: "https://gitlab.com", host: "gitlab.com", iid: 1, createdAt: "2026-07-02T00:00:00.000Z" } } },
+      { gitlabTracking: { item: { kind: "project_issue", url: "notaurl", instanceUrl: "https://gitlab.com", host: "gitlab.com", iid: 1, createdAt: "2026-07-02T00:00:00.000Z" } } },
+      { gitlabTracking: { item: { kind: "project_issue", url: "https://gitlab.com/acme/app/-/issues/1", instanceUrl: "https://gitlab.com", host: "gitlab.com", iid: -1, createdAt: "2026-07-02T00:00:00.000Z" } } },
+      { gitlabTracking: { item: { kind: "project_issue", url: "https://gitlab.com/acme/app/-/issues/1", instanceUrl: "https://gitlab.com", host: "example.com", iid: 1, createdAt: "2026-07-02T00:00:00.000Z" } } },
+    ];
+
+    for (const payload of invalidPayloads) {
+      const res = await REQUEST(buildApp(), "PATCH", "/api/tasks/KB-001", JSON.stringify(payload), {
+        "Content-Type": "application/json",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("gitlabTracking");
+    }
+  });
+
+  it("PATCH persists gitlabTracking with a real store without clearing GitHub fields", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "kb-routes-patch-gitlab-tracking-"));
+    const globalDir = mkdtempSync(join(tmpdir(), "kb-routes-patch-gitlab-tracking-global-"));
+    const realStore = new CoreTaskStore(rootDir, globalDir, { inMemoryDb: true });
+    await realStore.init();
+
+    try {
+      const created = await realStore.createTask({
+        description: "route gitlab patch flow",
+        column: "todo",
+        githubTracking: { enabled: true, repoOverride: "runfusion/fusion" },
+      });
+      const item = {
+        kind: "project_issue",
+        url: "https://gitlab.com/acme/app/-/issues/42",
+        instanceUrl: "https://gitlab.com",
+        host: "gitlab.com",
+        iid: 42,
+        projectPath: "acme/app",
+        title: "Project issue",
+        state: "opened",
+        createdAt: "2026-07-02T00:00:00.000Z",
+      };
+
+      const app = express();
+      app.use(express.json());
+      app.use("/api", createApiRoutes(realStore));
+
+      const res = await REQUEST(app, "PATCH", `/api/tasks/${created.id}`, JSON.stringify({ gitlabTracking: { item } }), {
+        "Content-Type": "application/json",
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.gitlabTracking?.item).toMatchObject({ kind: "project_issue", iid: 42, host: "gitlab.com" });
+      expect(res.body.githubTracking?.repoOverride).toBe("runfusion/fusion");
+      const persisted = await realStore.getTask(created.id);
+      expect(persisted.gitlabTracking?.item?.url).toBe("https://gitlab.com/acme/app/-/issues/42");
+      expect(persisted.githubTracking?.repoOverride).toBe("runfusion/fusion");
+    } finally {
+      realStore.close();
+      rmSync(rootDir, { recursive: true, force: true });
+      rmSync(globalDir, { recursive: true, force: true });
+    }
+  });
+
   it("forwards githubTracking updates including null issue unlink", async () => {
     (store.updateTask as ReturnType<typeof vi.fn>).mockResolvedValue({ ...FAKE_TASK_DETAIL });
 

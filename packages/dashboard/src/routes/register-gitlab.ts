@@ -87,6 +87,7 @@ async function importItem(ctx: ApiRoutesContext, req: Parameters<ApiRoutesContex
     column: "triage",
     dependencies: [],
     sourceIssue: provenance.sourceIssue,
+    gitlabTracking: provenance.gitlabTracking,
     source: { sourceType: "gitlab_import", sourceMetadata: provenance.sourceMetadata },
   });
   await store.logEntry(task.id, args.resourceType === "merge_request" ? "Imported merge request from GitLab" : "Imported from GitLab", args.item.webUrl);

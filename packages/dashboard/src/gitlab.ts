@@ -1,4 +1,4 @@
-import type { Task, TaskSourceIssue } from "@fusion/core";
+import type { Task, TaskGitLabTracking, TaskSourceIssue } from "@fusion/core";
 import type { ResolvedGitlabAuth } from "./gitlab-auth.js";
 
 export type GitLabResourceType = "project_issue" | "group_issue" | "merge_request";
@@ -267,12 +267,13 @@ export function buildGitLabTaskProvenance(args: {
   item: GitLabIssue | GitLabMergeRequest;
   projectInput?: string | number;
   groupInput?: string | number;
-}): { sourceIssue: TaskSourceIssue; sourceMetadata: Record<string, unknown> } {
+}): { sourceIssue: TaskSourceIssue; gitlabTracking: TaskGitLabTracking; sourceMetadata: Record<string, unknown> } {
   const { auth, resourceType, item } = args;
   const repository = projectIdentity(item);
   const externalIssueId = resourceType === "merge_request"
     ? `gitlab:mr:${item.projectId ?? repository}:${item.id ?? item.iid}`
     : String(item.id ?? `${item.projectId ?? repository}:${item.iid}`);
+  const url = new URL(item.webUrl);
   return {
     sourceIssue: {
       provider: "gitlab",
@@ -280,6 +281,25 @@ export function buildGitLabTaskProvenance(args: {
       externalIssueId,
       issueNumber: item.iid,
       url: item.webUrl,
+    },
+    gitlabTracking: {
+      item: {
+        kind: resourceType,
+        url: item.webUrl,
+        instanceUrl: auth.webBaseUrl,
+        host: url.host,
+        iid: item.iid,
+        ...(typeof item.id === "number" ? { id: item.id } : {}),
+        ...(typeof item.projectId === "number" ? { projectId: item.projectId } : {}),
+        ...(typeof item.projectPath === "string" ? { projectPath: item.projectPath } : {}),
+        ...("groupId" in item && item.groupId !== undefined ? { groupId: item.groupId } : {}),
+        ...("groupPath" in item && item.groupPath !== undefined ? { groupPath: item.groupPath } : {}),
+        title: item.title,
+        state: item.state,
+        createdAt: item.createdAt ?? new Date().toISOString(),
+        linkedAt: new Date().toISOString(),
+        ...(item.updatedAt ? { lastSyncedAt: item.updatedAt } : {}),
+      },
     },
     sourceMetadata: {
       provider: "gitlab",

@@ -1007,6 +1007,49 @@ export interface TaskGithubTrackedIssue {
 
 export type GithubIssueAction = "close" | "delete" | "leave" | "auto";
 
+export type GitLabTrackedItemKind = "project_issue" | "group_issue" | "merge_request";
+
+/*
+FNXC:GitLabTracking 2026-07-02-00:00:
+GitLab tracking is a first-class task contract instead of overloading GitHub tracking because GitLab items can come from GitLab.com or self-managed instances and may be project issues, group issues, or merge requests. Store only public metadata and stale/link timestamps; never persist GitLab tokens here.
+*/
+export interface TaskGitLabTrackedItem {
+  /** GitLab work item kind imported or linked to this task. */
+  kind: GitLabTrackedItemKind;
+  /** Canonical browser URL for GitLab.com or a self-managed GitLab instance. */
+  url: string;
+  /** GitLab web instance/base URL, for example https://gitlab.com or a self-managed host. */
+  instanceUrl: string;
+  /** Parsed host for compact display/dedup diagnostics. */
+  host: string;
+  /** GitLab IID visible inside a project or group namespace. */
+  iid: number;
+  /** Optional global GitLab database id when import APIs supplied it. */
+  id?: number;
+  /** Project numeric id when the item belongs to a concrete project. */
+  projectId?: number;
+  /** Project path with namespace, when available from import or URL parsing. */
+  projectPath?: string;
+  /** Group id/path for group-issue searches where GitLab returns a group-scoped source. */
+  groupId?: number | string;
+  groupPath?: string;
+  /** Optional display title and live state snapshot; these are staleable metadata, not auth state. */
+  title?: string;
+  state?: string;
+  createdAt: string;
+  linkedAt?: string;
+  lastSyncedAt?: string;
+  staleAt?: string;
+  staleReason?: string;
+}
+
+export interface TaskGitLabTracking {
+  /** Per-task linked GitLab metadata. Separate from GitHub tracking because GitLab supports GitLab.com plus self-managed project/group/MR URLs without GitHub issue semantics. */
+  item?: TaskGitLabTrackedItem;
+  /** ISO-8601 of the most recent manual unlink, retained for audit. */
+  unlinkedAt?: string;
+}
+
 export interface TaskGithubTracking {
   /** Per-task enabled override. When undefined, project/global default applies. */
   enabled?: boolean;
@@ -2230,6 +2273,8 @@ export interface Task {
   source?: TaskSource;
   /** Durable source provenance for the originating external issue. */
   sourceIssue?: TaskSourceIssue;
+  /** Linked GitLab tracking metadata for GitLab.com and self-managed GitLab items. */
+  gitlabTracking?: TaskGitLabTracking;
   log: TaskLogEntry[];
   /** Pre-aggregated sum of `[timing] … in <N>ms` log durations, in milliseconds.
    *  Computed server-side so slim board listings can render the card timer
@@ -2592,6 +2637,8 @@ export interface TaskCreateInput {
   autoMerge?: boolean;
   /** Durable source provenance for the originating external issue. */
   sourceIssue?: TaskSourceIssue;
+  /** Linked GitLab tracking metadata for GitLab.com and self-managed GitLab items. */
+  gitlabTracking?: TaskGitLabTracking;
   /** Optional persisted aggregate token usage snapshot for task creation/import paths. */
   tokenUsage?: TaskTokenUsage;
   /** Provenance metadata for task creation. */
@@ -4804,6 +4851,8 @@ export interface ArchivedTaskEntry {
   prInfos?: PrInfo[];
   issueInfo?: IssueInfo;
   githubTracking?: TaskGithubTracking;
+  /** Linked GitLab tracking metadata for GitLab.com and self-managed GitLab items. */
+  gitlabTracking?: TaskGitLabTracking;
   /** Durable source provenance for the originating external issue. */
   sourceIssue?: TaskSourceIssue;
   /** Attachment metadata (filenames, mime types, etc.) without file content */

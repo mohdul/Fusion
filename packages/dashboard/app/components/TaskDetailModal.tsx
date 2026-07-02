@@ -11,7 +11,7 @@ import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { sharedRehypePlugins, createMermaidCodeComponent } from "./markdownPipeline";
-import type { Task, TaskDetail, TaskAttachment, Column, ColumnId, MergeResult, Settings, GlobalSettings, Agent, TaskPriority, TaskSourceIssue, WorkflowStepResult, GithubIssueAction } from "@fusion/core";
+import type { Task, TaskDetail, TaskAttachment, Column, ColumnId, MergeResult, Settings, GlobalSettings, Agent, TaskPriority, TaskSourceIssue, WorkflowStepResult, GithubIssueAction, TaskGitLabTrackedItem } from "@fusion/core";
 import {
   DEFAULT_TASK_PRIORITY,
   REPO_OVERRIDE_RE,
@@ -116,6 +116,16 @@ const markdownLinkifyComponents: Components = {
   // Mermaid fences render as diagrams; all other code falls through to file-path linkify.
   code: createMermaidCodeComponent("task-detail-mermaid-diagram", markdownLinkifyCodeComponent),
 };
+
+function formatGitLabItemKind(item: Pick<TaskGitLabTrackedItem, "kind">, t?: TFunction): string {
+  if (item.kind === "merge_request") return t ? t("taskDetail.gitlabTracking.kindMergeRequest", "Merge request") : "Merge request";
+  if (item.kind === "group_issue") return t ? t("taskDetail.gitlabTracking.kindGroupIssue", "Group issue") : "Group issue";
+  return t ? t("taskDetail.gitlabTracking.kindProjectIssue", "Project issue") : "Project issue";
+}
+
+function formatGitLabItemMarker(item: Pick<TaskGitLabTrackedItem, "kind" | "iid">): string {
+  return `${item.kind === "merge_request" ? "!" : "#"}${item.iid}`;
+}
 
 function hasUsableTrackingTitle(task: { title?: string | null; description?: string | null }): boolean {
   if ((task.title ?? "").trim().length > 0) {
@@ -638,6 +648,7 @@ export function TaskDetailContent({
       prompt: fullDetail.prompt,
       log: fullDetail.log,
       githubTracking: task.githubTracking ?? fullDetail.githubTracking,
+      gitlabTracking: task.gitlabTracking ?? fullDetail.gitlabTracking,
       assignedAgentId: task.assignedAgentId === undefined ? fullDetail.assignedAgentId : task.assignedAgentId,
       checkedOutBy: task.checkedOutBy === undefined ? fullDetail.checkedOutBy : task.checkedOutBy,
       status: task.status === undefined ? fullDetail.status : task.status,
@@ -938,6 +949,7 @@ export function TaskDetailContent({
   const [activityViewMenuPosition, setActivityViewMenuPosition] = useState<ActivityViewMenuPosition | null>(null);
   const [sourceIssueExpanded, setSourceIssueExpanded] = useState(false);
   const [retriesExpanded, setRetriesExpanded] = useState(initialTab === "retries");
+  const [gitlabTrackingExpanded, setGitlabTrackingExpanded] = useState(false);
   const [githubTrackingExpanded, setGithubTrackingExpanded] = useState(false);
   const [githubRepoOverrideDraft, setGithubRepoOverrideDraft] = useState(task.githubTracking?.repoOverride ?? "");
   const [githubTrackingEnabledDraft, setGithubTrackingEnabledDraft] = useState<boolean | null>(null);
@@ -1342,6 +1354,7 @@ export function TaskDetailContent({
   const canEditGithubTracking = GITHUB_TRACKING_EDITABLE_COLUMNS.has(task.column) && !isSaving;
   const githubTrackingEnabled = githubTrackingEnabledDraft ?? (workingTask.githubTracking?.enabled === true);
   const githubTrackedIssue = workingTask.githubTracking?.issue;
+  const gitlabTrackedItem = workingTask.gitlabTracking?.item;
   const githubTrackingDetailPending = detailLoading && typeof task.githubTracking === "undefined";
   const canCreateTrackingIssue = hasUsableTrackingTitle(task);
   const showInlineGithubTrackingEnableButton =
@@ -1349,7 +1362,7 @@ export function TaskDetailContent({
     && !githubTrackedIssue
     && !githubTrackingDetailPending
     && (!githubTrackingEnabled || (isSavingGithubTracking && workingTask.githubTracking?.enabled !== true));
-  const showGithubTrackingSection = canEditGithubTracking || githubTrackingEnabled || Boolean(githubTrackedIssue);
+  const showGithubTrackingSection = (canEditGithubTracking && !gitlabTrackedItem) || githubTrackingEnabled || Boolean(githubTrackedIssue);
   const retrySummary = task.retrySummary;
   const retryRows = [
     { key: "stuckKill", label: t("taskDetail.retries.stuckKill", "Stuck kills"), title: t("taskDetail.retries.stuckKillTitle", "Stuck-task detector forced agent kill retries"), value: retrySummary?.stuckKill ?? 0 },
@@ -1363,6 +1376,13 @@ export function TaskDetailContent({
     { key: "reviewerContext", label: t("taskDetail.retries.reviewerContext", "Reviewer context retries"), title: t("taskDetail.retries.reviewerContextTitle", "FN-4082 compact reviewer retry"), value: retrySummary?.reviewerContext ?? 0 },
     { key: "reviewerFallback", label: t("taskDetail.retries.reviewerFallback", "Reviewer fallback retries"), title: t("taskDetail.retries.reviewerFallbackTitle", "FN-4092 fallback-model retry"), value: retrySummary?.reviewerFallback ?? 0 },
   ].filter((row) => row.value > 0);
+  const gitlabTrackingStale = Boolean(gitlabTrackedItem?.staleAt || gitlabTrackedItem?.staleReason);
+  const gitlabTrackingStatus = gitlabTrackingStale
+    ? t("taskDetail.gitlabTracking.statusStale", "Stale")
+    : gitlabTrackedItem
+      ? t("taskDetail.gitlabTracking.statusLinked", "Linked")
+      : t("taskDetail.gitlabTracking.statusUnlinked", "Unlinked");
+  const showGitLabTrackingSection = Boolean(gitlabTrackedItem || workingTask.gitlabTracking?.unlinkedAt);
   const githubTrackingStatus = githubTrackingDetailPending
     ? t("taskDetail.githubTracking.statusLoading", "Loading")
     : githubTrackedIssue
@@ -1886,6 +1906,31 @@ export function TaskDetailContent({
       if (mountedRef.current) setIsSavingGithubTracking(false);
     }
   }, [addToast, canEdit, confirm, githubTrackedIssue, isSavingGithubTracking, onTaskUpdated, projectId, task.id]);
+
+  const handleUnlinkGitLabItem = useCallback(async () => {
+    if (!canEdit || !gitlabTrackedItem || isSavingGithubTracking) return;
+    const confirmed = await confirm({
+      title: t("taskDetail.gitlabTracking.unlinkTitle", "Unlink GitLab item?"),
+      message: t("taskDetail.gitlabTracking.unlinkMessage", "This removes the local GitLab tracking link. The GitLab issue or merge request itself will not be modified."),
+      confirmLabel: t("taskDetail.gitlabTracking.unlinkConfirm", "Unlink"),
+      danger: true,
+    });
+    if (!confirmed) return;
+
+    setIsSavingGithubTracking(true);
+    try {
+      const updatedTask = await updateTask(task.id, { gitlabTracking: { item: null } }, projectId);
+      setFullDetail((prev) => prev
+        ? ({ ...prev, ...updatedTask, gitlabTracking: updatedTask.gitlabTracking } as TaskDetail)
+        : (updatedTask as TaskDetail));
+      onTaskUpdated?.(updatedTask);
+      addToast(t("taskDetail.gitlabTracking.itemUnlinked", "GitLab item unlinked"), "success");
+    } catch (err) {
+      addToast(t("taskDetail.updateFailed", "Failed to update {{id}}: {{error}}", { id: task.id, error: getErrorMessage(err) }), "error");
+    } finally {
+      if (mountedRef.current) setIsSavingGithubTracking(false);
+    }
+  }, [addToast, canEdit, confirm, gitlabTrackedItem, isSavingGithubTracking, onTaskUpdated, projectId, task.id, t]);
 
   const {
     entries: agentLogEntries,
@@ -3998,6 +4043,12 @@ export function TaskDetailContent({
                       <span>{t("taskDetail.sourceIssue.githubBadge", "GitHub")}</span>
                     </span>
                   )}
+                  {task.sourceIssue.provider.toLowerCase() === "gitlab" && (
+                    <span className="detail-source-provider-badge" aria-label={t("taskDetail.sourceIssue.gitlabAriaLabel", "GitLab source item")}>
+                      <GitBranch aria-hidden="true" />
+                      <span>{t("taskDetail.sourceIssue.gitlabBadge", "GitLab")}</span>
+                    </span>
+                  )}
                   {task.sourceIssue.url ? (
                     <a
                       className="detail-source-link detail-source-link--summary detail-source-number"
@@ -4240,6 +4291,85 @@ export function TaskDetailContent({
               <div className="detail-prompt">{t("taskDetail.spec.noPrompt", "(no prompt)")}</div>
             )}
           </div>
+          {showGitLabTrackingSection && (
+            <div className="detail-section detail-gitlab-tracking-section" data-testid="detail-gitlab-tracking-section">
+              <div className="detail-source-header">
+                <div className="detail-source-summary">
+                  <span className="detail-source-label">{t("taskDetail.gitlabTracking.label", "GitLab tracking")}</span>
+                  <span className={`detail-source-provider-badge ${gitlabTrackingStale ? "detail-source-provider-badge--stale" : ""}`} aria-label={t("taskDetail.gitlabTracking.statusAriaLabel", "GitLab tracking status")}>
+                    <GitBranch aria-hidden="true" />
+                    <span>{gitlabTrackingStatus}</span>
+                  </span>
+                  {gitlabTrackedItem ? (
+                    <a className="detail-source-link detail-source-link--summary detail-source-number" href={gitlabTrackedItem.url} target="_blank" rel="noopener noreferrer">
+                      {`${formatGitLabItemKind(gitlabTrackedItem, t)} ${formatGitLabItemMarker(gitlabTrackedItem)}`}
+                    </a>
+                  ) : (
+                    <span className="detail-source-empty">{t("taskDetail.gitlabTracking.unlinked", "No linked GitLab item")}</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="detail-source-toggle"
+                  aria-expanded={gitlabTrackingExpanded}
+                  aria-label={gitlabTrackingExpanded ? t("taskDetail.gitlabTracking.collapse", "Collapse GitLab tracking details") : t("taskDetail.gitlabTracking.expand", "Expand GitLab tracking details")}
+                  onClick={() => setGitlabTrackingExpanded((expanded) => !expanded)}
+                >
+                  <ChevronRight size={16} className={gitlabTrackingExpanded ? "detail-source-chevron--expanded" : undefined} />
+                </button>
+              </div>
+              {gitlabTrackingExpanded && (
+                <div className="detail-gitlab-tracking-content">
+                  {gitlabTrackedItem && (
+                    <dl className="detail-source-grid detail-gitlab-tracking-grid">
+                      <div>
+                        <dt>{t("taskDetail.gitlabTracking.item", "Item")}</dt>
+                        <dd><a className="detail-source-link" href={gitlabTrackedItem.url} target="_blank" rel="noopener noreferrer">{gitlabTrackedItem.title || `${formatGitLabItemKind(gitlabTrackedItem, t)} ${formatGitLabItemMarker(gitlabTrackedItem)}`}</a></dd>
+                      </div>
+                      <div>
+                        <dt>{t("taskDetail.gitlabTracking.kind", "Kind")}</dt>
+                        <dd>{formatGitLabItemKind(gitlabTrackedItem, t)}</dd>
+                      </div>
+                      <div>
+                        <dt>{t("taskDetail.gitlabTracking.state", "State")}</dt>
+                        <dd><span className={`detail-gitlab-item-state ${gitlabTrackingStale ? "detail-gitlab-item-state--stale" : ""}`}>{gitlabTrackedItem.state || t("taskDetail.gitlabTracking.stateUnknown", "unknown")}</span></dd>
+                      </div>
+                      <div>
+                        <dt>{t("taskDetail.gitlabTracking.instance", "Instance")}</dt>
+                        <dd>{gitlabTrackedItem.host}</dd>
+                      </div>
+                      {(gitlabTrackedItem.projectPath || gitlabTrackedItem.groupPath) && (
+                        <div>
+                          <dt>{t("taskDetail.gitlabTracking.namespace", "Namespace")}</dt>
+                          <dd>{gitlabTrackedItem.projectPath || gitlabTrackedItem.groupPath}</dd>
+                        </div>
+                      )}
+                      {gitlabTrackedItem.lastSyncedAt && (
+                        <div>
+                          <dt>{t("taskDetail.gitlabTracking.lastSynced", "Last synced")}</dt>
+                          <dd>{formatTimestamp(gitlabTrackedItem.lastSyncedAt)}</dd>
+                        </div>
+                      )}
+                      {gitlabTrackingStale && (
+                        <div>
+                          <dt>{t("taskDetail.gitlabTracking.stale", "Stale")}</dt>
+                          <dd>{gitlabTrackedItem.staleReason || (gitlabTrackedItem.staleAt ? formatTimestamp(gitlabTrackedItem.staleAt) : t("taskDetail.gitlabTracking.staleUnknown", "Sync data is stale"))}</dd>
+                        </div>
+                      )}
+                    </dl>
+                  )}
+                  {gitlabTrackedItem && (
+                    <div className="detail-gitlab-tracking-controls">
+                      <a className="btn btn-sm touch-target" href={gitlabTrackedItem.url} target="_blank" rel="noopener noreferrer" aria-label={t("taskDetail.gitlabTracking.openAriaLabel", "Open linked GitLab item")}>{t("taskDetail.gitlabTracking.openBtn", "Open in GitLab")}</a>
+                      {canEdit && (
+                        <button className="btn btn-sm btn-danger touch-target" onClick={() => void handleUnlinkGitLabItem()} disabled={isSavingGithubTracking}>{t("taskDetail.gitlabTracking.unlinkBtn", "Unlink GitLab item")}</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           {showGithubTrackingSection && (
             <div className="detail-section detail-github-tracking-section">
               <div className="detail-source-header">

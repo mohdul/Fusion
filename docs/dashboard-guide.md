@@ -138,6 +138,7 @@ Features:
 - Inline quick entry creation
 - The quick-entry GitHub icon is a per-task tracking override: leave it untouched to use the project default, turn it on to opt the next task into tracking when the default is off, or turn it off to opt the next task out when the default is on.
 - PR/issue badges with live updates
+- GitLab tracking badges on task cards for linked GitLab project issues, group issues, and merge requests; stale GitLab metadata uses a warning-colored badge while GitHub badges remain unchanged.
 - GitHub provenance marker on task cards imported from GitHub (`sourceType: github_import`), shown in the footer with other external-source metadata
 - Task card header meta badges group priority, fast mode, agent-created provenance, workflow identity, and elapsed/created-time chips into one wrapping row; agent labels prefer `sourceMetadata.agentName` over raw agent IDs
 - Task detail surfaces show the selected/effective workflow identity near the task's workflow controls so individual cards remain understandable when Board is in **All workflows** or another aggregate/mixed context.
@@ -1072,6 +1073,8 @@ Inspect task definition, logs, review feedback, comments, artifacts, workflow ou
 - After delete confirmations are complete, Task Detail closes immediately while the delete request finishes in the background; success and error outcomes still appear as toasts.
 - Eligible existing tasks (triage, todo, in-progress, in-review) expose a **GitHub tracking** section directly in Task Detail, even when tracking is currently disabled.
 - The GitHub tracking section now defaults to a compact summary row; use the disclosure arrow to expand linked-issue details plus tracking edit controls.
+- Tasks linked to GitLab imports show a separate **GitLab tracking** section for GitLab.com and self-managed project issues, group issues, and merge requests. The section provides **Open in GitLab** and local **Unlink GitLab item** actions only; comment posting, remote close/delete, and auto-close behavior are reserved for later GitLab parity work.
+- GitLab stale state means Fusion is displaying the last persisted GitLab metadata after a sync/import refresh could not confirm a newer state; no GitLab token or secret is stored on the task.
 - Backstop reconciliation runs every 15 minutes to close tracked GitHub issues for soft-deleted and archived tasks even after restart; the sweep is paginated so large archive backlogs are eventually drained.
 - In shared task edit/create forms, GitHub Tracking appears at the bottom of **More options**, after **Workflow Steps**.
 - From this section you can explicitly enable/disable tracking and manage a per-task repo override (`owner/repo`). Clearing the override saves `null` and falls back to project/global defaults.
