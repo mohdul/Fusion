@@ -287,7 +287,7 @@ describe("main", () => {
       writeJson(rootDir, "scripts/lib/test-quarantine.json", {
         entries: [
           {
-            file: "packages/engine/src/__tests__/executor-pause.test.ts",
+            file: "packages/engine/src/__tests__/hypothetical-quarantined.test.ts",
             reason: "FN-7239: stale post-cutover direct-dispatch StepSessionExecutor/legacy pause assertions fail after builtin:coding graph cutover.",
             quarantinedAt: "2026-06-29",
           },
