@@ -3164,6 +3164,14 @@ export interface GlobalSettings {
   /** Global fallback GitLab REST API base URL. When unset, Fusion derives `<instance>/api/v4`.
    *  Project gitlabApiBaseUrl overrides this value. */
   gitlabApiBaseUrl?: string;
+  /**
+   * FNXC:GitLabAuthentication 2026-07-02-00:00:
+   * FN-7423 accepts personal, project, and group GitLab access tokens for later HTTP API import/tracking/comment/close tasks. Global values are fallbacks only; project settings override them and project/group token resource membership still constrains runtime access.
+   */
+  /** Global fallback GitLab access token. Stored as a plain settings string in this phase; UI must render it only as a password field. */
+  gitlabAuthToken?: string;
+  /** Global fallback GitLab token type label. Defaults effectively to "personal" when a token exists and this is unset. */
+  gitlabAuthTokenType?: GitlabAuthTokenType;
   /** Cadence for automatic update checks. The dashboard's `/update-check`
    *  route uses this to decide whether to consult npm or return a cached
    *  result.
@@ -3476,6 +3484,9 @@ export interface RemoteAccessProjectSettings {
 
 /** GitHub authentication strategy used by project issue-tracking settings (FN-3868). */
 export type GithubAuthMode = "gh-cli" | "token";
+
+/** GitLab access-token family configured for future HTTP API integrations (FN-7423). */
+export type GitlabAuthTokenType = "personal" | "project" | "group";
 
 export interface SecretsEnvSettings {
   /** Default: false. When true, materialize env_exportable secrets into the worktree on creation. */
@@ -4278,12 +4289,16 @@ export interface ProjectSettings {
   githubTrackingDefaultRepo?: string;
   /**
    * FNXC:GitLabConfiguration 2026-07-02-00:00:
-   * FN-7422 adds only durable GitLab instance/API URL settings for GitLab.com and self-managed hosts. Later GitLab auth/import/tracking subtasks must consume the normalized resolver rather than adding tokens or network behavior here.
+   * FN-7422 adds durable GitLab instance/API URL settings for GitLab.com and self-managed hosts. FN-7423 layers token settings onto the same project-over-global configuration contract without adding runtime GitLab imports or tracking.
    */
   /** Project GitLab web instance URL. Falls back to global gitlabInstanceUrl, then https://gitlab.com. */
   gitlabInstanceUrl?: string;
   /** Project GitLab REST API base URL. Falls back to global gitlabApiBaseUrl, then derives `<instance>/api/v4`. */
   gitlabApiBaseUrl?: string;
+  /** Project GitLab access token for HTTP API auth. Stored as a plain settings string in this phase; UI must render it only as a password field. */
+  gitlabAuthToken?: string;
+  /** Project GitLab token type label. Defaults effectively to "personal" when a token exists and this is unset. */
+  gitlabAuthTokenType?: GitlabAuthTokenType;
   /** When true, tracking issue creation searches open/closed repo issues for likely duplicates before opening a new issue.
    *  Default: true (set false to opt out). */
   githubTrackingDedupEnabled?: boolean;

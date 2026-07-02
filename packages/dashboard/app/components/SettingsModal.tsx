@@ -2488,6 +2488,8 @@ export function SettingsModal({
         githubTrackingDefaultRepo: form.githubTrackingDefaultRepo?.trim() || undefined,
         gitlabInstanceUrl: form.gitlabInstanceUrl?.trim() || undefined,
         gitlabApiBaseUrl: form.gitlabApiBaseUrl?.trim() || undefined,
+        gitlabAuthToken: form.gitlabAuthToken?.trim() || undefined,
+        gitlabAuthTokenType: form.gitlabAuthTokenType ?? "personal",
         githubAuthToken: form.githubAuthToken?.trim() || undefined,
         prTitlePromptInstructions: form.prTitlePromptInstructions?.trim() || undefined,
         prDescriptionPromptInstructions: form.prDescriptionPromptInstructions?.trim() || undefined,

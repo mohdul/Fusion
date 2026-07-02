@@ -674,7 +674,7 @@ Recovery/backfill guidance:
 
 ## GitHub Issue Import and PR Creation
 
-GitLab instance/API URL configuration is available in Settings for GitLab.com and self-managed GitLab (`gitlabInstanceUrl`, optional `gitlabApiBaseUrl`). Forward-looking GitLab import/tracking parity is mapped in [GitLab Parity Inventory](./gitlab-parity-inventory.md); GitLab token auth, issue/MR import, tracking, comments, auto-close, Command Center signals, research/search support, and star-prompt behavior are not implemented by this configuration-only step.
+GitLab instance/API URL and access-token configuration are available in Settings for GitLab.com and self-managed GitLab (`gitlabInstanceUrl`, optional `gitlabApiBaseUrl`, `gitlabAuthToken`, `gitlabAuthTokenType`). Fusion accepts personal, project, and group access tokens for later GitLab HTTP API tasks; read-only operations require `read_api` or `api`, while later write actions such as comments and auto-close require `api`. Runtime GitLab issue/MR import, tracking, comments, auto-close, Command Center signals, research/search support, and star-prompt behavior remain out of scope until the later GitLab parity tasks mapped in [GitLab Parity Inventory](./gitlab-parity-inventory.md).
 
 Import issues:
 

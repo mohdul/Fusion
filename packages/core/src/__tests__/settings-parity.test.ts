@@ -81,19 +81,21 @@ describe("settings key parity", () => {
     expect(isProjectSettingsKey("agentMemoryInclusionMode")).toBe(false);
   });
 
-  it("keeps GitLab URL configuration dual-scoped with blank defaults", () => {
+  it("keeps GitLab URL and token configuration dual-scoped with blank defaults", () => {
     expect(DEFAULT_GLOBAL_SETTINGS.gitlabInstanceUrl).toBeUndefined();
     expect(DEFAULT_GLOBAL_SETTINGS.gitlabApiBaseUrl).toBeUndefined();
+    expect(DEFAULT_GLOBAL_SETTINGS.gitlabAuthToken).toBeUndefined();
+    expect(DEFAULT_GLOBAL_SETTINGS.gitlabAuthTokenType).toBeUndefined();
     expect(DEFAULT_PROJECT_SETTINGS.gitlabInstanceUrl).toBeUndefined();
     expect(DEFAULT_PROJECT_SETTINGS.gitlabApiBaseUrl).toBeUndefined();
-    expect(isGlobalSettingsKey("gitlabInstanceUrl")).toBe(true);
-    expect(isGlobalSettingsKey("gitlabApiBaseUrl")).toBe(true);
-    expect(isProjectSettingsKey("gitlabInstanceUrl")).toBe(true);
-    expect(isProjectSettingsKey("gitlabApiBaseUrl")).toBe(true);
-    expect(PROJECT_SETTINGS_KEYS).toContain("gitlabInstanceUrl");
-    expect(PROJECT_SETTINGS_KEYS).toContain("gitlabApiBaseUrl");
-    expect(GLOBAL_SETTINGS_KEYS).toContain("gitlabInstanceUrl");
-    expect(GLOBAL_SETTINGS_KEYS).toContain("gitlabApiBaseUrl");
+    expect(DEFAULT_PROJECT_SETTINGS.gitlabAuthToken).toBeUndefined();
+    expect(DEFAULT_PROJECT_SETTINGS.gitlabAuthTokenType).toBeUndefined();
+    for (const key of ["gitlabInstanceUrl", "gitlabApiBaseUrl", "gitlabAuthToken", "gitlabAuthTokenType"] as const) {
+      expect(isGlobalSettingsKey(key)).toBe(true);
+      expect(isProjectSettingsKey(key)).toBe(true);
+      expect(PROJECT_SETTINGS_KEYS).toContain(key);
+      expect(GLOBAL_SETTINGS_KEYS).toContain(key);
+    }
   });
 
   it("defaults persisted thinking logs to disabled", () => {
@@ -421,9 +423,11 @@ describe("settings key parity", () => {
     // FNXC:SettingsScopeParity 2026-06-26-17:35:
     // mcpServers is intentionally dual-scoped (FN-7077, "inject configured MCP servers across
     // agent surfaces"): a global default applies to every project while a project override
-    // tailors the MCP server set per project. GitLab URL settings are also dual-scoped (FN-7422)
+    // tailors the MCP server set per project. GitLab URL settings are dual-scoped (FN-7422)
     // so operators can set an organization-wide self-managed instance while individual projects
-    // can override hosts or API prefixes. Keep this allow-list in GLOBAL_SETTINGS_KEYS order.
+    // can override hosts or API prefixes; GitLab token settings are dual-scoped (FN-7423)
+    // so projects can override global fallback credentials without treating project/group tokens
+    // as globally authorized. Keep this allow-list in GLOBAL_SETTINGS_KEYS order.
     expect(overlap).toEqual([
       "testMode",
       "mergeRequestContractShadowEnabled",
@@ -431,6 +435,8 @@ describe("settings key parity", () => {
       "githubTrackingDefaultRepo",
       "gitlabInstanceUrl",
       "gitlabApiBaseUrl",
+      "gitlabAuthToken",
+      "gitlabAuthTokenType",
       "mcpServers",
       "worktrunk",
       "owningNodeHandoffPolicy",

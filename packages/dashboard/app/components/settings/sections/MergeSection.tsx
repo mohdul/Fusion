@@ -294,6 +294,28 @@ export function MergeSection({ scopeBanner, form, setForm, integrationBranchOpti
           <label htmlFor="githubAuthToken">{t("settings.merge.gitHubPersonalAccessToken", "GitHub personal access token")}</label>
           <input id="githubAuthToken" type="password" className="input" value={form.githubAuthToken ?? ""} onChange={(e) => setForm((f) => ({ ...f, githubAuthToken: e.target.value || undefined }))}/>
         </div>)}
+      <h4 className="settings-section-heading settings-section-heading--spaced">{t("settings.merge.gitLabAuthentication", "GitLab Authentication")}</h4>
+      {/**
+       * FNXC:GitLabAuthentication 2026-07-02-00:00:
+       * FN-7423 exposes project GitLab token configuration only as secret-safe password input plus a personal/project/group token-type label. Later GitLab import/tracking/comment/close runtime tasks consume PRIVATE-TOKEN auth and must enforce read_api/api scope requirements documented here and in user docs.
+       */}
+      <div className="form-group">
+        <label htmlFor="gitlabAuthTokenType">{t("settings.merge.gitLabTokenType", "GitLab token type")}</label>
+        <select id="gitlabAuthTokenType" className="select" value={form.gitlabAuthTokenType ?? "personal"} onChange={(e) => setForm((f) => ({ ...f, gitlabAuthTokenType: e.target.value as "personal" | "project" | "group" }))}>
+          <option value="personal">{t("settings.merge.gitLabPersonalAccessToken", "Personal access token")}</option>
+          <option value="project">{t("settings.merge.gitLabProjectAccessToken", "Project access token")}</option>
+          <option value="group">{t("settings.merge.gitLabGroupAccessToken", "Group access token")}</option>
+        </select>
+      </div>
+      <div className="form-group">
+        <label htmlFor="gitlabAuthToken">{t("settings.merge.gitLabAccessToken", "GitLab access token")}</label>
+        <input id="gitlabAuthToken" type="password" className="input" autoComplete="off" value={form.gitlabAuthToken ?? ""} onChange={(e) => setForm((f) => ({ ...f, gitlabAuthToken: e.target.value || undefined }))}/>
+        <small className="settings-description">{t("settings.merge.gitLabAuthTokenHint", "Read-only GitLab operations need read_api or api. Future write actions such as comments and auto-close need api. Project and group tokens are limited to their associated resource and role membership.")}</small>
+      </div>
+      <details className="settings-option-details">
+        <summary>{t("settings.merge.moreDetails", "More details")}</summary>
+        <small>{t("settings.merge.gitLabAuthDetails", "Fusion uses GitLab REST API token authentication with the PRIVATE-TOKEN header. Leave the token blank to clear the project override and fall back to a configured global GitLab token or GITLAB_TOKEN where available.")}</small>
+      </details>
       <div className="form-group">
         <label htmlFor="includeTaskIdInCommit" className="checkbox-label">
           <input id="includeTaskIdInCommit" type="checkbox" checked={form.includeTaskIdInCommit !== false} onChange={(e) => setForm((f) => ({ ...f, includeTaskIdInCommit: e.target.checked }))}/>{t("settings.merge.includeTaskIDInCommitScope", " Include task ID in commit scope ")}</label>

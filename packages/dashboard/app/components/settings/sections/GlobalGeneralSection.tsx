@@ -22,7 +22,10 @@ export function GlobalGeneralSection({ scopeBanner, form, setForm, globalTrackin
       </div>
       {/*
         FNXC:GitLabConfiguration 2026-07-02-00:00:
-        Global GitLab URL settings are fallbacks for projects that do not set their own self-managed GitLab instance/API URLs. FN-7422 keeps this to configuration only; auth, import, tracking, comments, and auto-close remain deferred.
+        Global GitLab URL settings are fallbacks for projects that do not set their own self-managed GitLab instance/API URLs.
+
+        FNXC:GitLabAuthentication 2026-07-02-00:00:
+        Global GitLab token settings are secret-safe fallbacks for projects without their own token override. They do not make project/group access tokens globally authorized; resource membership still applies to future GitLab runtime tasks.
       */}
       <div className="form-group">
         <label htmlFor="globalGitlabInstanceUrl">{t("settings.globalGeneral.gitLabInstanceUrl", "Global GitLab instance URL")}</label>
@@ -33,6 +36,19 @@ export function GlobalGeneralSection({ scopeBanner, form, setForm, globalTrackin
         <label htmlFor="globalGitlabApiBaseUrl">{t("settings.globalGeneral.gitLabApiBaseUrlOptional", "Global GitLab API base URL (optional / advanced)")}</label>
         <input id="globalGitlabApiBaseUrl" className="input" type="url" placeholder="https://gitlab.com/api/v4" value={form.gitlabApiBaseUrl ?? ""} onChange={(e) => setForm((f) => ({ ...f, gitlabApiBaseUrl: e.target.value || undefined }))}/>
         <small>{t("settings.globalGeneral.gitLabApiBaseUrlHint", "Blank derives <instance>/api/v4. Override only for self-managed GitLab API gateways that use a different absolute http:// or https:// URL.")}</small>
+      </div>
+      <div className="form-group">
+        <label htmlFor="globalGitlabAuthTokenType">{t("settings.globalGeneral.gitLabTokenType", "Global GitLab token type")}</label>
+        <select id="globalGitlabAuthTokenType" className="select" value={form.gitlabAuthTokenType ?? "personal"} onChange={(e) => setForm((f) => ({ ...f, gitlabAuthTokenType: e.target.value as "personal" | "project" | "group" }))}>
+          <option value="personal">{t("settings.globalGeneral.gitLabPersonalAccessToken", "Personal access token")}</option>
+          <option value="project">{t("settings.globalGeneral.gitLabProjectAccessToken", "Project access token")}</option>
+          <option value="group">{t("settings.globalGeneral.gitLabGroupAccessToken", "Group access token")}</option>
+        </select>
+      </div>
+      <div className="form-group">
+        <label htmlFor="globalGitlabAuthToken">{t("settings.globalGeneral.gitLabAccessToken", "Global GitLab access token")}</label>
+        <input id="globalGitlabAuthToken" className="input" type="password" autoComplete="off" value={form.gitlabAuthToken ?? ""} onChange={(e) => setForm((f) => ({ ...f, gitlabAuthToken: e.target.value || undefined }))}/>
+        <small className="settings-description">{t("settings.globalGeneral.gitLabAuthTokenHint", "Projects inherit this fallback only when they do not set a project GitLab token. Read-only operations need read_api or api; future write actions need api; project/group tokens remain limited by resource membership.")}</small>
       </div>
       <CliBinaryPanel />
       <div className="form-group">
