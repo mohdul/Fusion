@@ -768,7 +768,8 @@ For the full research workflow, provider setup, CLI commands, API reference, and
 
 The Files modal provides a workspace-aware file browser and editor.
 
-- Use **New File** or **New Folder** in the browser header to create entries in the current folder; new files open in the editor after creation
+- In **Files — Project**, use the visible **Create new file** and **Create new folder** buttons in the browser header to create entries in the current folder; new files open in the editor after creation
+- In **Files — Project**, use **Search project files** to find project files recursively without navigating the tree; matching rows include path context so duplicate filenames can be distinguished
 - Source/text editing supports a **Line #** header toggle to show or hide line numbers in the editor gutter
 - The line-number preference is saved per project and restored automatically when you switch projects
 - Known image, video/movie, audio, and PDF files render browser-native read-only previews inline with their real content type from the selected project or task workspace download URL; the explicit **Download** action still saves files as attachments, text files remain editable, and unknown binary files keep the read-only editor fallback
