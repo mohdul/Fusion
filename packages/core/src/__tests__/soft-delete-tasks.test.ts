@@ -118,6 +118,135 @@ describe("TaskStore soft delete", () => {
     expect((store as any).archiveDb.get(doneTask.id)?.id).toBe(doneTask.id);
   });
 
+  it("deletes cold archive snapshots through soft-delete tombstones", async () => {
+    const store = harness.store();
+    const task = await store.createTask({
+      column: "todo",
+      title: "Cold Archived Delete",
+      description: "cold-archive-delete-needle description",
+    });
+    await store.addComment(task.id, "cold-archive-comment-needle", "operator");
+    const taskDir = join(harness.rootDir(), ".fusion", "tasks", task.id);
+
+    await store.archiveTask(task.id, true);
+
+    expect(existsSync(taskDir)).toBe(false);
+    expect((store as any).archiveDb.get(task.id)?.id).toBe(task.id);
+    expect((await store.searchTasks("cold-archive-delete-needle", { includeArchived: true })).map((entry) => entry.id)).toContain(task.id);
+    expect((await store.searchTasks("cold-archive-comment-needle", { includeArchived: true })).map((entry) => entry.id)).toContain(task.id);
+
+    const deletedEvents: string[] = [];
+    store.on("task:deleted", (event) => deletedEvents.push(event.id));
+
+    const deleted = await store.deleteTask(task.id);
+
+    expect(deleted).toMatchObject({ id: task.id, column: "archived", title: "Cold Archived Delete" });
+    expect((store as any).archiveDb.get(task.id)).toBeUndefined();
+    expect((await store.listTasks({ column: "archived", includeArchived: true })).map((entry) => entry.id)).not.toContain(task.id);
+    expect((await store.listTasks({ includeArchived: true })).map((entry) => entry.id)).not.toContain(task.id);
+    expect((await store.searchTasks("cold-archive-delete-needle", { includeArchived: true })).map((entry) => entry.id)).not.toContain(task.id);
+    expect((await store.searchTasks("cold-archive-comment-needle", { includeArchived: true })).map((entry) => entry.id)).not.toContain(task.id);
+    expect((await store.searchTasks(task.id, { includeArchived: true })).map((entry) => entry.id)).not.toContain(task.id);
+    await expect(store.getTask(task.id)).rejects.toThrow(`Task ${task.id} not found`);
+
+    const row = (store as any).db
+      .prepare("SELECT id, deletedAt, allowResurrection, \"column\" FROM tasks WHERE id = ?")
+      .get(task.id) as { id: string; deletedAt: string | null; allowResurrection: number; column: string };
+    expect(row).toMatchObject({ id: task.id, allowResurrection: 0, column: "archived" });
+    expect(row.deletedAt).toBeTruthy();
+    expect(() => (store as any).assertTaskIdAvailable(task.id)).toThrow();
+    expect((store as any).taskIdExistsAnywhere(task.id)).toBe(true);
+    expect((store as any).isTaskArchived(task.id)).toBe(false);
+    expect(deletedEvents).toEqual([task.id]);
+  });
+
+  it("honors allowResurrection when deleting cold archived snapshots", async () => {
+    const store = harness.store();
+    const task = await store.createTask({ column: "todo", description: "resurrectable cold archive" });
+
+    await store.archiveTask(task.id, true);
+    await store.deleteTask(task.id, { allowResurrection: true });
+
+    const row = (store as any).db
+      .prepare("SELECT deletedAt, allowResurrection FROM tasks WHERE id = ?")
+      .get(task.id) as { deletedAt: string | null; allowResurrection: number };
+    expect(row.deletedAt).toBeTruthy();
+    expect(row.allowResurrection).toBe(1);
+    expect((store as any).taskIdExistsAnywhere(task.id)).toBe(true);
+    expect(() => (store as any).assertTaskIdAvailable(task.id)).toThrow();
+    expect(() => (store as any).maybeResolveTombstonedTaskId(task.id, { forceResurrect: false }, "createTask")).not.toThrow();
+  });
+
+  it("applies dependency and lineage guards when deleting cold archives", async () => {
+    const store = harness.store();
+    const parent = await store.createTask({ column: "todo", description: "cold parent" });
+    const dependent = await store.createTask({ column: "todo", description: "live dependent" });
+    await store.updateTask(dependent.id, { dependencies: [parent.id] });
+
+    await store.archiveTask(parent.id, true);
+
+    await expect(store.deleteTask(parent.id)).rejects.toThrow("still referenced as a dependency");
+    await expect(store.deleteTask(parent.id, { removeDependencyReferences: true })).resolves.toMatchObject({ id: parent.id });
+    expect((await store.getTask(dependent.id)).dependencies).toEqual([]);
+
+    const lineageParent = await store.createTask({ column: "todo", description: "cold lineage parent" });
+    const lineageChild = await store.createTask({ column: "todo", description: "live lineage child" });
+    await store.archiveTask(lineageParent.id, true);
+    (store as any).db.prepare("UPDATE tasks SET sourceParentTaskId = ?, sourceType = ?, updatedAt = ? WHERE id = ?").run(
+      lineageParent.id,
+      "duplicate",
+      new Date().toISOString(),
+      lineageChild.id,
+    );
+
+    await expect(store.deleteTask(lineageParent.id)).rejects.toThrow("still referenced as a lineage parent");
+    await expect(store.deleteTask(lineageParent.id, { removeLineageReferences: true })).resolves.toMatchObject({ id: lineageParent.id });
+    expect((await store.getTask(lineageChild.id)).sourceParentTaskId).toBeUndefined();
+  });
+
+  it("removes duplicate archive snapshots when deleting the authoritative active row", async () => {
+    const store = harness.store();
+    const task = await store.createTask({ column: "todo", title: "Authoritative Active", description: "stale-archive-duplicate-needle" });
+    const staleEntry = await (store as any).taskToArchiveEntry({ ...task, column: "archived" }, new Date().toISOString());
+    (store as any).archiveDb.upsert(staleEntry);
+
+    expect((store as any).archiveDb.get(task.id)?.id).toBe(task.id);
+
+    await store.deleteTask(task.id);
+
+    expect((store as any).archiveDb.get(task.id)).toBeUndefined();
+    expect((await store.listTasks({ includeArchived: true })).map((entry) => entry.id)).not.toContain(task.id);
+    expect((await store.searchTasks("stale-archive-duplicate-needle", { includeArchived: true })).map((entry) => entry.id)).not.toContain(task.id);
+  });
+
+  it("deletes hot archived rows idempotently without duplicate delete events", async () => {
+    const store = harness.store();
+    const task = await store.createTask({ column: "todo", description: "hot archive delete target" });
+    await store.archiveTask(task.id, false);
+
+    const deletedEvents: string[] = [];
+    store.on("task:deleted", (event) => deletedEvents.push(event.id));
+
+    const firstResult = await store.deleteTask(task.id);
+    const firstRow = (store as any).db
+      .prepare("SELECT deletedAt, updatedAt, \"column\" FROM tasks WHERE id = ?")
+      .get(task.id) as { deletedAt: string | null; updatedAt: string | null; column: string | null };
+
+    const secondResult = await store.deleteTask(task.id);
+    const secondRow = (store as any).db
+      .prepare("SELECT deletedAt, updatedAt, \"column\" FROM tasks WHERE id = ?")
+      .get(task.id) as { deletedAt: string | null; updatedAt: string | null; column: string | null };
+
+    expect(firstResult).toMatchObject({ id: task.id, column: "archived" });
+    expect(firstRow.deletedAt).toBeTruthy();
+    expect(firstRow.column).toBe("archived");
+    expect(secondResult.deletedAt).toBe(firstRow.deletedAt);
+    expect(deletedEvents).toEqual([task.id]);
+    expect(secondRow.deletedAt).toBe(firstRow.deletedAt);
+    expect(secondRow.updatedAt).toBe(firstRow.updatedAt);
+    expect(secondRow.column).toBe("archived");
+  });
+
   it("is idempotent on re-delete and does not re-emit task:deleted", async () => {
     const store = harness.store();
     const task = await store.createTask({ column: "todo", description: "idempotent re-delete target" });

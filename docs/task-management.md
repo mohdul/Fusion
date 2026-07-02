@@ -617,6 +617,7 @@ Behavior:
 - `fn task archive <id>` moves any live-board task (`triage`, `todo`, `in-progress`, `in-review`, or `done`) to `archived`; tasks already in `archived` are rejected.
 - Archive records the task's `preArchiveColumn` so restore can return to the original live column instead of always assuming `done`.
 - Dashboard delete confirmations for live tasks include an **Archive Instead** action so users can preserve history without soft-deleting the task.
+- Archived tasks can also be deleted from the dashboard/API/CLI. Deleting an archived task removes the archived snapshot from lists and search, but first materializes the normal soft-delete tombstone so the task ID remains reserved unless the operator explicitly chooses allow-resurrection behavior.
 - Cleanup mode can persist compact metadata and remove the task directory
 - Archived tasks are read-only for task log/document writes:
   - `logEntry()` throws `Task <id> is archived — logging is read-only`
@@ -625,7 +626,7 @@ Behavior:
 
 ### Cleanup behavior
 
-- Archived entries are persisted as compact archive snapshots (current runtime stores these in SQLite `archivedTasks`; legacy docs may refer to `.fusion/archive.jsonl`)
+- Archived entries are persisted as compact archive snapshots in `archive.db`; legacy in-main-DB `archivedTasks` rows and older `.fusion/archive.jsonl` references may still appear in historical data/docs.
 - Task directory (`task.json`, `PROMPT.md`, `agent.log`, attachments) can be removed
 
 ### Compact archive entry format

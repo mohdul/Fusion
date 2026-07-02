@@ -11391,9 +11391,22 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
       // Flush buffered agent logs inside the lock so no new appends for this
       // task can sneak in between flush and soft-delete mutation.
       this.flushAgentLogBuffer();
-      const task = this.readTaskFromDb(id, { includeDeleted: true });
+      let task = this.readTaskFromDb(id, { includeDeleted: true });
+      let restoredColdArchive = false;
       if (!task) {
-        throw new Error(`Task ${id} not found`);
+        const archivedEntry = await this.findInArchive(id);
+        if (!archivedEntry) {
+          throw new Error(`Task ${id} not found`);
+        }
+        /*
+        FNXC:TaskDeletion 2026-07-01-23:58:
+        Cold archived tasks exist only as archive.db snapshots, but deleting them must still leave a tasks-table soft-delete tombstone. Restore the snapshot into the normal delete path so task IDs stay reserved and allowResurrection keeps using the existing tombstone contract instead of hard-dropping history.
+
+        FNXC:TaskDeletion 2026-07-02-00:00:
+        The restore helper only materializes task files; cold archived deletes must also insert the restored task row inside the delete transaction before applying the tombstone update, otherwise the archive snapshot can be removed with no DB row preserving the ID reservation.
+        */
+        task = await this.restoreFromArchive(archivedEntry);
+        restoredColdArchive = true;
       }
 
       if (task.deletedAt) {
@@ -11431,9 +11444,15 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
         rewrittenDependents = this.rewriteDependentsForRemoval(id, dependentIds);
         rewrittenBlockedByResidueDependents = this.rewriteBlockedByResidueDependentsForRemoval(id, new Set(dependentIds));
         rewrittenLineageChildren = this.rewriteLineageChildrenForRemoval(id, lineageChildIds);
+        if (restoredColdArchive) {
+          this.upsertTaskWithFtsRecovery(task);
+        }
         const deletedAt = new Date().toISOString();
         const allowResurrection = options?.allowResurrection === true ? 1 : 0;
         this.db.prepare("UPDATE tasks SET \"column\" = 'archived', deletedAt = ?, allowResurrection = ?, updatedAt = ? WHERE id = ?").run(deletedAt, allowResurrection, deletedAt, id);
+        task.deletedAt = deletedAt;
+        task.allowResurrection = options?.allowResurrection === true ? true : undefined;
+        task.updatedAt = deletedAt;
         this.recordRunAuditEvent({
           domain: "database",
           mutationType: "task:deleted",
@@ -11468,6 +11487,8 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
       if (this.agentLogBuffer.length > 0) {
         this.agentLogBuffer = this.agentLogBuffer.filter((entry) => entry.taskId !== id);
       }
+
+      this.archiveDb.delete(id);
 
       // Remove from cache if watcher is active
       if (this.isWatching) this.taskCache.delete(id);

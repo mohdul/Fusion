@@ -1898,6 +1898,30 @@ describe("DELETE /tasks/:id", () => {
     }));
   });
 
+  it("returns 200 for archived tasks and forwards every delete option unchanged", async () => {
+    const deletedTask = { ...FAKE_TASK_DETAIL, id: "KB-ARCHIVED", column: "archived" };
+    (store.deleteTask as ReturnType<typeof vi.fn>).mockResolvedValue(deletedTask);
+
+    const res = await REQUEST(
+      buildApp(),
+      "DELETE",
+      "/api/tasks/KB-ARCHIVED?allowResurrection=1&removeDependencyReferences=1&removeLineageReferences=true&githubIssueAction=leave",
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ id: "KB-ARCHIVED", column: "archived" });
+    expect(store.deleteTask).toHaveBeenCalledWith("KB-ARCHIVED", expect.objectContaining({
+      allowResurrection: true,
+      removeDependencyReferences: true,
+      removeLineageReferences: true,
+      githubIssueAction: "leave",
+      auditContext: expect.objectContaining({
+        agentId: "system",
+        runId: expect.stringMatching(/^synthetic-dashboard-delete-KB-ARCHIVED-/),
+      }),
+    }));
+  });
+
   it.each(["close", "delete", "leave", "auto"] as const)("forwards githubIssueAction=%s", async (githubIssueAction) => {
     const deletedTask = { ...FAKE_TASK_DETAIL, id: "KB-001" };
     (store.deleteTask as ReturnType<typeof vi.fn>).mockResolvedValue(deletedTask);
