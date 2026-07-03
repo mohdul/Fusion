@@ -337,7 +337,7 @@ function AppInner() {
   const { pushNav, replaceCurrent, removeNav } = useNavigationHistory({ enabled: true });
 
   // View state must be defined before useTasks since useTasks depends on taskView for SSE gating
-  const { viewMode, setViewMode, taskView, handleChangeTaskView } = useViewState({
+  const { viewMode, setViewMode, taskView, setTaskView, handleChangeTaskView } = useViewState({
     projectsLoading,
     projectsError,
     currentProjectLoading,
@@ -718,6 +718,7 @@ function AppInner() {
     setCurrentProject,
     clearCurrentProject,
     setViewMode,
+    setTaskView,
     currentProject,
     refreshProjects,
     toggleFavoriteProvider,
