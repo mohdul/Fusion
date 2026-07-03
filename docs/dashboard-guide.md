@@ -793,6 +793,8 @@ First-run setup and embedded project setup both expose a **Repository setup** se
 - **Initialize New Repository** registers the selected local folder and relies on the server-side project registration path to run `git init` if the folder is not already a git repository.
 - **Clone Git Repository** requires a non-blank remote URL and an absolute destination path. Fusion runs `git clone` with argument-vector execution, requires the destination to be absent or empty, cleans up a newly-created failed destination best-effort, then registers the cloned folder.
 
+When creating a folder from the project directory picker, Fusion selects the newly created folder immediately so registration targets that folder instead of its parent.
+
 Advanced setup remains limited to runtime node and isolation-mode choices, so repository mode selection is not hidden behind the advanced panel.
 
 ## Agents View

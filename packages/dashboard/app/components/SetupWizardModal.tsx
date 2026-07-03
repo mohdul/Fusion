@@ -150,7 +150,7 @@ export function SetupWizardModal({
 
   const handlePathChange = useCallback((path: string) => {
     setState((prev) => {
-      const updates: Partial<WizardState> = { manualPath: path, detectedRepos: [], workspaceMode: false };
+      const updates: Partial<WizardState> = { manualPath: path, detectedRepos: [], workspaceMode: false, error: null };
       // Auto-suggest name when path changes and name is empty or was previously auto-suggested
       if (path && (!prev.manualName || prev.manualName === suggestProjectName(prev.manualPath))) {
         updates.manualName = suggestProjectName(path);
@@ -496,6 +496,7 @@ export function SetupWizardModal({
                   onChange={handlePathChange}
                   nodeId={state.manualNodeId || undefined}
                   localNodeId={localNodeId}
+                  selectCreatedDirectory
                   placeholder={isCloneMode ? t("setup.clonePathPlaceholder", "/path/for/new-clone") : isInitMode ? t("setup.initPathPlaceholder", "/path/to/new-project") : t("setup.projectPathPlaceholder", "/path/to/your/project")}
                 />
                 <p className="form-hint">

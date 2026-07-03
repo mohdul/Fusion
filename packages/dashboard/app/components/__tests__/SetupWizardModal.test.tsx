@@ -52,6 +52,7 @@ vi.mock("../../api", () => ({
     parentPath: "/home",
     entries: [],
   }),
+  createDirectory: vi.fn().mockResolvedValue({ success: true, path: "/home/user/fresh-project" }),
 }));
 
 vi.mock("../ExperimentalAgentOnboardingModal", () => ({
@@ -84,12 +85,14 @@ vi.mock("../ExperimentalAgentOnboardingModal", () => ({
   ),
 }));
 
-import { createAgent, registerProject, detectWorkspace } from "../../api";
+import { createAgent, registerProject, detectWorkspace, browseDirectory, createDirectory } from "../../api";
 import { useNodes } from "../../hooks/useNodes";
 
 const mockRegisterProject = vi.mocked(registerProject);
 const mockCreateAgent = vi.mocked(createAgent);
 const mockDetectWorkspace = vi.mocked(detectWorkspace);
+const mockBrowseDirectory = vi.mocked(browseDirectory);
+const mockCreateDirectory = vi.mocked(createDirectory);
 const mockUseNodes = vi.mocked(useNodes);
 
 function buildMockProject(overrides = {}) {
@@ -135,6 +138,12 @@ describe("SetupWizardModal", () => {
     mockRegisterProject.mockReset();
     mockCreateAgent.mockReset();
     mockDetectWorkspace.mockResolvedValue({ repos: [], isWorkspace: false });
+    mockBrowseDirectory.mockResolvedValue({
+      currentPath: "/home/user",
+      parentPath: "/home",
+      entries: [],
+    });
+    mockCreateDirectory.mockResolvedValue({ success: true, path: "/home/user/fresh-project" });
   });
 
   it("starts on the project form without an auth token step", () => {
@@ -188,6 +197,38 @@ describe("SetupWizardModal", () => {
 
     const nameInput = screen.getByPlaceholderText("my-project") as HTMLInputElement;
     expect(nameInput.value).toBe("my-awesome-project");
+  });
+
+  it("selects a newly created project directory and derives the project name", async () => {
+    mockBrowseDirectory.mockResolvedValue({
+      currentPath: "/home/user",
+      parentPath: "/home",
+      entries: [],
+    });
+    mockCreateDirectory.mockResolvedValue({ success: true, path: "/home/user/fresh-project" });
+
+    render(
+      <SetupWizardModal
+        onProjectRegistered={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByText("Browse"));
+
+    await waitFor(() => {
+      expect(screen.getByText("No subdirectories")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Create new folder" }));
+    fireEvent.change(screen.getByPlaceholderText("Folder name"), { target: { value: "fresh-project" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect((screen.getByPlaceholderText("/path/to/your/project") as HTMLInputElement).value).toBe("/home/user/fresh-project");
+    });
+    expect((screen.getByPlaceholderText("my-project") as HTMLInputElement).value).toBe("fresh-project");
+    expect(mockCreateDirectory).toHaveBeenCalledWith("/home/user/fresh-project");
   });
 
   it("register button is disabled when required fields are empty", () => {

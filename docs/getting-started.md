@@ -98,6 +98,7 @@ On first launch, Fusion opens an onboarding wizard with guided setup steps:
    - **Use Existing Directory** registers a folder that is already a git repository or a workspace root with detected sub-repositories.
    - **Initialize New Repository** registers an existing local folder and lets the server run `git init` during registration when the folder is not already a git repository.
    - **Clone Git Repository** runs `git clone` from a remote URL into an empty or absent destination directory, then registers the cloned folder. Fusion rejects blank clone URLs and populated destinations.
+   - Creating a folder from the project directory picker automatically selects that new folder for registration.
 4. **First Task** — create your first task or import one from GitHub.
 
 The wizard is dismissible and non-blocking. You can skip it and continue using Fusion, then reopen it later from **Settings → Authentication**.
