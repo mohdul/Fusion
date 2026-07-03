@@ -245,10 +245,11 @@ function getProviderDisplayName(providerId: string): string {
 }
 
 /*
-FNXC:ProviderAuth 2026-06-29-23:58:
-Onboarding quick start must show Anthropic subscription OAuth and raw Anthropic API-key auth as separate first-class cards; keep the legacy `anthropic` id as a fallback only for older status payloads.
+FNXC:Onboarding 2026-07-03-00:00:
+Onboarding quick start must show practical first-run choices beyond Anthropic, including OpenAI/ChatGPT, Google/Gemini, OpenRouter, and Ollama when those visible providers are configured.
+Keep Anthropic subscription OAuth and raw Anthropic API-key auth as separate first-class cards; use the legacy `anthropic` id only as a fallback for older status payloads.
 */
-const QUICK_START_PROVIDER_IDS = ["anthropic-subscription", "anthropic-api-key", "anthropic", "openai", "google", "gemini", "ollama"] as const;
+const QUICK_START_PROVIDER_IDS = ["anthropic-subscription", "anthropic-api-key", "anthropic", "openai", "google", "gemini", "openrouter", "ollama"] as const;
 
 const ONBOARDING_CURATED_PROVIDER_FAMILY_ORDER = [
   "anthropic",
@@ -257,6 +258,7 @@ const ONBOARDING_CURATED_PROVIDER_FAMILY_ORDER = [
   "cursor-cli",
   "llama-cpp",
   "openai-codex",
+  "openrouter",
   "gemini",
   "minimax",
   "kimi",
@@ -2539,6 +2541,48 @@ export function ModelOnboardingModal({
                         {t("setup.noQuickStartProviders", "No quick-start providers are available in this environment.")}
                       </p>
                     )}
+
+                    {/*
+                    FNXC:Onboarding 2026-07-03-00:00:
+                    Expanded/all-provider controls belong directly under quick-start providers so the advanced provider list, custom-provider list, and add-custom-provider form stay visually tied to the first provider decision.
+                    */}
+                    <OnboardingDisclosure summary={t("setup.advancedProviderSettings", "Advanced provider settings")} className="onboarding-provider-advanced">
+                      <div data-testid="onboarding-advanced-provider-settings">
+                        {advancedProviders.length > 0 ? (
+                          <div className="model-onboarding-providers">
+                            {advancedProviders.map((provider) => renderAiProviderCard(provider))}
+                          </div>
+                        ) : (
+                          <p className="onboarding-helper-text">
+                            {t("setup.allProvidersShown", "All currently available providers are already shown above.")}
+                          </p>
+                        )}
+
+                        {customProviders.length > 0 ? (
+                          <div className="onboarding-custom-provider-list">
+                            {customProviders.map((provider) => (
+                              <div key={provider.id} className="onboarding-custom-provider-item">
+                                <ProviderIcon provider={provider.id} size="sm" />
+                                <span>{provider.name || provider.id}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {!showCustomProviderForm ? (
+                          <button type="button" className="btn btn-sm" onClick={() => setShowCustomProviderForm(true)}>
+                            {t("setup.addCustomProvider", "Add custom provider")}
+                          </button>
+                        ) : (
+                          <CustomProviderForm
+                            onSave={handleSaveCustomProvider}
+                            onCancel={() => { setShowCustomProviderForm(false); setCustomProviderError(undefined); }}
+                            saving={customProviderSaving}
+                            error={customProviderError}
+                          />
+                        )}
+                      </div>
+                    </OnboardingDisclosure>
                   </section>
 
                   {connectedNonQuickStartProviders.length > 0 && (
@@ -2591,44 +2635,6 @@ export function ModelOnboardingModal({
                       </div>
                     )}
                   </div>
-
-                  <OnboardingDisclosure summary={t("setup.advancedProviderSettings", "Advanced provider settings")} className="onboarding-provider-advanced">
-                    <div data-testid="onboarding-advanced-provider-settings">
-                      {advancedProviders.length > 0 ? (
-                        <div className="model-onboarding-providers">
-                          {advancedProviders.map((provider) => renderAiProviderCard(provider))}
-                        </div>
-                      ) : (
-                        <p className="onboarding-helper-text">
-                          {t("setup.allProvidersShown", "All currently available providers are already shown above.")}
-                        </p>
-                      )}
-
-                      {customProviders.length > 0 ? (
-                        <div className="onboarding-custom-provider-list">
-                          {customProviders.map((provider) => (
-                            <div key={provider.id} className="onboarding-custom-provider-item">
-                              <ProviderIcon provider={provider.id} size="sm" />
-                              <span>{provider.name || provider.id}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-
-                      {!showCustomProviderForm ? (
-                        <button type="button" className="btn btn-sm" onClick={() => setShowCustomProviderForm(true)}>
-                          {t("setup.addCustomProvider", "Add custom provider")}
-                        </button>
-                      ) : (
-                        <CustomProviderForm
-                          onSave={handleSaveCustomProvider}
-                          onCancel={() => { setShowCustomProviderForm(false); setCustomProviderError(undefined); }}
-                          saving={customProviderSaving}
-                          error={customProviderError}
-                        />
-                      )}
-                    </div>
-                  </OnboardingDisclosure>
 
                   {/* OAuth login disclosure */}
                   {hasOauthProviders && (

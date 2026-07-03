@@ -225,6 +225,12 @@ async function navigateToFirstTaskStep() {
   });
 }
 
+function getProviderOrderInSection(container: HTMLElement): string[] {
+  return Array.from(container.querySelectorAll<HTMLElement>("[data-testid^='onboarding-provider-card-']"))
+    .map((card) => card.dataset.testid?.replace("onboarding-provider-card-", "") ?? "")
+    .filter(Boolean);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   clearAuthToken();
@@ -603,6 +609,43 @@ describe("ModelOnboardingModal", () => {
       expect(screen.getByRole("button", { name: /Advanced provider settings/ })).toBeTruthy();
     });
 
+    it("orders practical quick-start providers without showing filtered providers", async () => {
+      mockFetchAuthStatus.mockResolvedValueOnce({
+        providers: [
+          { id: "minimax", name: "MiniMax", authenticated: false, type: "api_key" },
+          { id: "ollama", name: "Ollama", authenticated: false, type: "api_key" },
+          { id: "openrouter", name: "OpenRouter", authenticated: false, type: "api_key" },
+          { id: "google-antigravity", name: "Google Antigravity", authenticated: false, type: "oauth" },
+          { id: "google", name: "Google", authenticated: false, type: "api_key" },
+          { id: "openai", name: "OpenAI", authenticated: false, type: "api_key" },
+          { id: "anthropic", name: "Anthropic", authenticated: false, type: "oauth" },
+        ],
+      });
+
+      render(<ModelOnboardingModal onComplete={vi.fn()} addToast={vi.fn()} projectId="proj_123" />);
+
+      const quickStartSection = await screen.findByTestId("onboarding-quick-start-providers");
+      expect(getProviderOrderInSection(quickStartSection)).toEqual(["anthropic", "openai", "google", "openrouter", "ollama"]);
+      expect(screen.queryByTestId("onboarding-provider-card-google-antigravity")).toBeNull();
+    });
+
+    it("preserves split Anthropic quick-start cards and suppresses legacy Anthropic fallback", async () => {
+      mockFetchAuthStatus.mockResolvedValueOnce({
+        providers: [
+          { id: "openai", name: "OpenAI", authenticated: false, type: "api_key" },
+          { id: "anthropic", name: "Anthropic", authenticated: false, type: "oauth" },
+          { id: "anthropic-api-key", name: "Anthropic API Key", authenticated: false, type: "api_key" },
+          { id: "anthropic-subscription", name: "Anthropic Subscription", authenticated: false, type: "oauth" },
+        ],
+      });
+
+      render(<ModelOnboardingModal onComplete={vi.fn()} addToast={vi.fn()} projectId="proj_123" />);
+
+      const quickStartSection = await screen.findByTestId("onboarding-quick-start-providers");
+      expect(getProviderOrderInSection(quickStartSection)).toEqual(["anthropic-subscription", "anthropic-api-key", "openai"]);
+      expect(within(quickStartSection).queryByTestId("onboarding-provider-card-anthropic")).toBeNull();
+    });
+
     it("keeps advanced providers hidden by default until advanced settings is expanded", async () => {
       mockFetchAuthStatus.mockResolvedValueOnce({
         providers: [
@@ -629,7 +672,7 @@ describe("ModelOnboardingModal", () => {
       mockFetchAuthStatus.mockResolvedValueOnce({
         providers: [
           { id: "anthropic", name: "Anthropic", authenticated: false, type: "oauth" },
-          { id: "openrouter", name: "OpenRouter", authenticated: true, type: "api_key" },
+          { id: "minimax", name: "MiniMax", authenticated: true, type: "api_key" },
         ],
       });
 
@@ -640,8 +683,8 @@ describe("ModelOnboardingModal", () => {
       });
 
       const connectedSection = screen.getByTestId("onboarding-connected-providers");
-      expect(within(connectedSection).getByText("OpenRouter")).toBeTruthy();
-      expect(screen.queryByTestId("onboarding-provider-card-openrouter")).toBeTruthy();
+      expect(within(connectedSection).getByText("MiniMax")).toBeTruthy();
+      expect(screen.queryByTestId("onboarding-provider-card-minimax")).toBeTruthy();
       expect(screen.queryByTestId("onboarding-advanced-provider-settings")).toBeNull();
     });
 
@@ -649,14 +692,75 @@ describe("ModelOnboardingModal", () => {
       mockFetchAuthStatus.mockResolvedValueOnce({
         providers: [
           { id: "anthropic", name: "Anthropic", authenticated: false, type: "oauth" },
-          { id: "openrouter", name: "OpenRouter", authenticated: true, type: "api_key" },
+          { id: "minimax", name: "MiniMax", authenticated: true, type: "api_key" },
         ],
       });
 
       render(<ModelOnboardingModal onComplete={vi.fn()} addToast={vi.fn()} projectId="proj_123" />);
 
-      const openRouterWrapper = await screen.findByTestId("onboarding-provider-icon-openrouter");
-      expect(within(openRouterWrapper).getByTestId("provider-icon")).toHaveAttribute("data-provider", "openrouter");
+      const minimaxWrapper = await screen.findByTestId("onboarding-provider-icon-minimax");
+      expect(within(minimaxWrapper).getByTestId("provider-icon")).toHaveAttribute("data-provider", "minimax");
+    });
+
+    it("places the single advanced-provider disclosure inside quick start before default model selection", async () => {
+      render(<ModelOnboardingModal onComplete={vi.fn()} addToast={vi.fn()} projectId="proj_123" />);
+
+      const quickStartSection = await screen.findByTestId("onboarding-quick-start-providers");
+      const advancedButtons = screen.getAllByRole("button", { name: /Advanced provider settings/ });
+      expect(advancedButtons).toHaveLength(1);
+      expect(quickStartSection).toContainElement(advancedButtons[0]);
+
+      const defaultModelHeading = screen.getByText("Default Model (Optional)");
+      expect(
+        quickStartSection.compareDocumentPosition(defaultModelHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+
+    it("shows empty advanced state when every visible provider is already quick-start", async () => {
+      mockFetchAuthStatus.mockResolvedValueOnce({
+        providers: [
+          { id: "anthropic", name: "Anthropic", authenticated: false, type: "oauth" },
+          { id: "openai", name: "OpenAI", authenticated: false, type: "api_key" },
+        ],
+      });
+
+      render(<ModelOnboardingModal onComplete={vi.fn()} addToast={vi.fn()} projectId="proj_123" />);
+
+      expect(await screen.findByTestId("onboarding-quick-start-providers")).toBeTruthy();
+      expect(screen.queryByTestId("onboarding-advanced-provider-settings")).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: /Advanced provider settings/ }));
+
+      expect(await screen.findByTestId("onboarding-advanced-provider-settings")).toHaveTextContent(
+        "All currently available providers are already shown above.",
+      );
+    });
+
+    it("keeps existing custom providers and add-custom controls in the quick-start advanced area", async () => {
+      mockFetchCustomProviders.mockResolvedValueOnce({
+        providers: [
+          { id: "custom-openai", name: "Custom OpenAI", baseUrl: "https://example.com", api: "openai-responses", models: [] },
+        ],
+      });
+
+      render(<ModelOnboardingModal onComplete={vi.fn()} addToast={vi.fn()} projectId="proj_123" />);
+
+      const quickStartSection = await screen.findByTestId("onboarding-quick-start-providers");
+      fireEvent.click(within(quickStartSection).getByRole("button", { name: /Advanced provider settings/ }));
+
+      const advancedPanel = await screen.findByTestId("onboarding-advanced-provider-settings");
+      expect(within(advancedPanel).getByText("Custom OpenAI")).toBeTruthy();
+      expect(within(advancedPanel).getByRole("button", { name: /Add custom provider/ })).toBeTruthy();
+    });
+
+    it("shows the no-provider empty state without rendering leftover advanced-provider controls", async () => {
+      mockFetchAuthStatus.mockResolvedValueOnce({ providers: [] });
+
+      render(<ModelOnboardingModal onComplete={vi.fn()} addToast={vi.fn()} projectId="proj_123" />);
+
+      expect(await screen.findByText("No AI providers are configured. Please check your Fusion configuration.")).toBeTruthy();
+      expect(screen.queryByTestId("onboarding-quick-start-providers")).toBeNull();
+      expect(screen.queryByRole("button", { name: /Advanced provider settings/ })).toBeNull();
     });
 
     it("shows model dropdown in AI Setup step", async () => {
