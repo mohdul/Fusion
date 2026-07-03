@@ -123,8 +123,14 @@ export function DesktopLaunchGate({ children }: PropsWithChildren) {
            * running or starting, actively (re)start it via setDesktopMode("local") — idempotent
            * and awaits startup — before polling, so the gate can never wait for a runtime nobody
            * launched.
+           *
+           * Re-read the runtime state immediately before deciding: the `state` snapshot was captured
+           * at mount and may not yet reflect a runtime main already started, which would fire a
+           * redundant setDesktopMode("local") on normal boots.
            */
-          const rt = state.localRuntime;
+          const freshState = await shell.getState();
+          if (cancelled) return;
+          const rt = freshState.localRuntime;
           if (rt?.state !== "running" && rt?.state !== "starting") {
             try {
               await shell.setDesktopMode("local");
@@ -225,7 +231,7 @@ export function DesktopLaunchGate({ children }: PropsWithChildren) {
             await shell.setDesktopMode(mode);
             if (mode === "local") {
               const { baseUrl } = await waitForLocalRuntime(shell);
-              applyServerBaseUrl(baseUrl);
+              navigateToLocalRuntimeOrigin(baseUrl);
               return;
             }
             await shell.openConnectionManager();

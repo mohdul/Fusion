@@ -86,7 +86,20 @@ function runNpmInstall(): Promise<InstallResult> {
     });
     const timer = setTimeout(() => {
       timedOut = true;
-      try { child.kill("SIGKILL"); } catch { /* ignore */ }
+      /*
+       * FNXC:CliBinaryInstall 2026-07-03-05:00:
+       * With shell:true on Windows the spawned child is cmd.exe; killing it leaves the underlying
+       * npm.cmd/node running in the background. Kill the whole process tree via taskkill /T so a
+       * timed-out install can't keep running detached. POSIX has no shell wrapper here, so SIGKILL
+       * on the child suffices.
+       */
+      try {
+        if (process.platform === "win32" && typeof child.pid === "number") {
+          spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" }).on("error", () => {});
+        } else {
+          child.kill("SIGKILL");
+        }
+      } catch { /* ignore */ }
     }, INSTALL_TIMEOUT_MS);
 
     const append = (target: "stdout" | "stderr", chunk: Buffer): void => {
