@@ -3,7 +3,7 @@ import { appendFileSync } from "node:fs";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { ensureDesktopRuntimeProject } from "./engine-runtime.js";
+import { resolveDesktopRuntimePrimaryProject } from "./engine-runtime.js";
 
 /*
  * FNXC:DesktopRuntime 2026-07-02-14:35:
@@ -83,17 +83,25 @@ async function createDashboardServerDefault(store: TaskStoreLike, rootDir: strin
   try {
     strace("createDashboardServer: centralCore.init");
     await centralCore.init();
-    strace("createDashboardServer: ensureDesktopRuntimeProject");
-    const rootProject = await ensureDesktopRuntimeProject(centralCore, rootDir);
-    strace(`createDashboardServer: startAll (rootProject=${rootProject.id})`);
+    /*
+     * FNXC:DesktopRuntime 2026-07-03-03:30:
+     * Do NOT auto-register the home directory as a project. Start engines for whatever projects the
+     * operator has already onboarded (none on a fresh install), and only pick a default/primary engine
+     * when such a project exists. With zero projects the server starts engine-less and the dashboard
+     * shows its onboarding empty state; new projects register via POST /api/projects and their engines
+     * spin up lazily through onProjectFirstAccessed / reconciliation.
+     */
+    void rootDir; // runtime root no longer implies a project; kept for signature/back-compat.
+    strace("createDashboardServer: startAll");
     await engineManager.startAll();
     strace("createDashboardServer: startAll DONE; startReconciliation");
     engineManager.startReconciliation();
-    strace("createDashboardServer: ensureEngine(rootProject)");
-    const primaryEngine = await engineManager.ensureEngine(rootProject.id);
+    const rootProject = await resolveDesktopRuntimePrimaryProject(centralCore);
+    strace(`createDashboardServer: primaryProject=${rootProject?.id ?? "none"}`);
+    const primaryEngine = rootProject ? await engineManager.ensureEngine(rootProject.id) : undefined;
     strace("createDashboardServer: createServer");
     const app = createServer(store as never, {
-      engine: primaryEngine,
+      ...(primaryEngine ? { engine: primaryEngine } : {}),
       engineManager,
       centralCore,
       onProjectFirstAccessed: (projectId: string) => engineManager.onProjectAccessed(projectId),

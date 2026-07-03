@@ -2,7 +2,7 @@ import type { AddressInfo } from "node:net";
 import { once } from "node:events";
 import type { Server } from "node:http";
 
-import { ensureDesktopRuntimeProject } from "./engine-runtime.js";
+import { resolveDesktopRuntimePrimaryProject } from "./engine-runtime.js";
 
 type TaskStoreLike = {
   init(): Promise<void>;
@@ -70,12 +70,13 @@ export class DesktopLocalServerManager {
         await centralCore.close?.();
       };
       await centralCore.init();
-      const rootProject = await ensureDesktopRuntimeProject(centralCore, this.rootDir);
+      // FNXC:DesktopRuntime 2026-07-03-03:30: never auto-register the runtime root as a project (see engine-runtime.ts).
       await engineManager.startAll();
       engineManager.startReconciliation();
-      const primaryEngine = await engineManager.ensureEngine(rootProject.id);
+      const rootProject = await resolveDesktopRuntimePrimaryProject(centralCore);
+      const primaryEngine = rootProject ? await engineManager.ensureEngine(rootProject.id) : undefined;
       const app = createServer(store as never, {
-        engine: primaryEngine,
+        ...(primaryEngine ? { engine: primaryEngine } : {}),
         engineManager,
         centralCore,
         onProjectFirstAccessed: (projectId: string) => engineManager.onProjectAccessed(projectId),
