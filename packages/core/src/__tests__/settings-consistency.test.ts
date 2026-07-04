@@ -12,6 +12,7 @@
 import { describe, it, expect } from "vitest";
 import { MOVED_SETTINGS_KEYS } from "../moved-settings.js";
 import {
+  BUILTIN_OVERSIGHT_SETTINGS,
   BUILTIN_REVIEW_REVISION_SETTINGS,
   BUILTIN_TRIAGE_POLICY_SETTINGS,
   BUILTIN_WORKFLOW_SETTINGS,
@@ -50,11 +51,12 @@ describe("settings consistency (U5)", () => {
     const nativeCatalogs = [
       { name: "BUILTIN_TRIAGE_POLICY_SETTINGS", ids: BUILTIN_TRIAGE_POLICY_SETTINGS.map((s) => s.id) },
       { name: "BUILTIN_REVIEW_REVISION_SETTINGS", ids: BUILTIN_REVIEW_REVISION_SETTINGS.map((s) => s.id) },
+      { name: "BUILTIN_OVERSIGHT_SETTINGS", ids: BUILTIN_OVERSIGHT_SETTINGS.map((s) => s.id) },
     ];
     const native = new Set(nativeCatalogs.flatMap((catalog) => catalog.ids));
     /*
      * FNXC:SettingsRegimes 2026-07-02-08:20:
-     * Workflow-native settings include triage policy and review/revision policy. They must be recognized by the consistency guard without being tombstoned in MOVED_SETTINGS_KEYS or reintroduced into project/global schemas.
+     * Workflow-native settings include triage policy, review/revision policy, and planner oversight policy. They must be recognized by the consistency guard without being tombstoned in MOVED_SETTINGS_KEYS or reintroduced into project/global schemas.
      */
 
     // Every moved key has a declaration.

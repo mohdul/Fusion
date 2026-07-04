@@ -187,6 +187,7 @@ export {
   BUILTIN_WORKFLOW_SETTINGS,
   BUILTIN_MOVED_WORKFLOW_SETTINGS,
   BUILTIN_TRIAGE_POLICY_SETTINGS,
+  BUILTIN_OVERSIGHT_SETTINGS,
   renderTriagePolicyPlaceholders,
 } from "./builtin-workflow-settings.js";
 export {

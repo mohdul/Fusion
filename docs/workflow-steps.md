@@ -829,13 +829,16 @@ engine resolves *effective settings* per task as `stored value ?? declaration
 default`, dropping any stored value that no longer validates against the current
 declaration (drop-on-orphan) and falling back to the default.
 
-The **step-execution**, **review/approval**, **per-phase model-lane**, and
-**triage/spec policy** knobs are workflow settings declared by `builtin:coding`.
-Triage policy includes `triageProactiveSubtaskSplittingEnabled` (default `true`),
-which controls automatic large-task splitting guidance for oversized M/L work.
-Set it to `false` in a workflow's Values tab when triage should keep large tasks
-whole unless the task explicitly has `breakIntoSubtasks: true`; explicit subtask
-requests still follow the mandatory split flow. See
+The **step-execution**, **review/approval**, **per-phase model-lane**,
+**triage/spec policy**, and **planner oversight** knobs are workflow settings
+declared by `builtin:coding`. Triage policy includes
+`triageProactiveSubtaskSplittingEnabled` (default `true`), which controls
+automatic large-task splitting guidance for oversized M/L work. Set it to `false`
+in a workflow's Values tab when triage should keep large tasks whole unless the
+task explicitly has `breakIntoSubtasks: true`; explicit subtask requests still
+follow the mandatory split flow. Planner oversight uses `plannerOversightLevel`
+(default `autonomous`) with `off`, `observe`, `steer`, and `autonomous` values;
+per-task override and engine runtime behavior are follow-up work. See
 [Settings Reference → Workflow Settings](./settings-reference.md#workflow-settings)
 for the full moved-key catalog, the editor walkthrough, and the export/sync posture.
 

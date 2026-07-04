@@ -148,6 +148,7 @@ describe("resolveEffectiveSettings (per-task)", () => {
         expect(eff[s.id]).toStrictEqual(s.default);
       }
     }
+    expect(eff.plannerOversightLevel).toBe("autonomous");
   });
 
   it("a stored value for (workflow, project) is returned over the default", async () => {
