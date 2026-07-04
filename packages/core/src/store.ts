@@ -4639,6 +4639,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
     // When a project default workflow is configured, new tasks inherit it
     // (compiled to steps) ahead of the legacy default-on step behavior.
     let pendingWorkflowSelection: { workflowId: string; stepIds: string[] } | undefined;
+    let resolvedEntryColumn: string | undefined;
     /*
     FNXC:WorkflowCreation 2026-06-28-23:09:
     User-facing task creation can submit a selected workflowId and optional-group toggles together. The visible workflow selection is operator intent and must persist as task_workflow_selection; enabledWorkflowSteps only overrides that workflow's default optional-group seed.
@@ -4657,6 +4658,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
           ? (resolvedWorkflowSteps ?? [])
           : undefined;
         resolvedWorkflowSteps = explicitStepIds ?? selected.stepIds;
+        resolvedEntryColumn = selected.entryColumnId;
         pendingWorkflowSelection = {
           workflowId: selected.workflowId,
           stepIds: explicitStepIds ?? selected.stepIds,
@@ -4667,6 +4669,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
         const inherited = await this.materializeDefaultWorkflowSteps();
         if (inherited) {
           resolvedWorkflowSteps = inherited.stepIds;
+          resolvedEntryColumn = inherited.entryColumnId;
           pendingWorkflowSelection = inherited;
         }
       } catch (err) {
@@ -4708,7 +4711,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
           title,
           resolvedWorkflowSteps,
           taskId,
-          { invokeTaskCreatedHook: shouldInvokeTaskCreatedHook && !hasPendingSummarization, reservationCommit },
+          { invokeTaskCreatedHook: shouldInvokeTaskCreatedHook && !hasPendingSummarization, reservationCommit, resolvedEntryColumn },
         );
       },
     });
@@ -4833,6 +4836,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
       : undefined;
 
     let pendingWorkflowSelection: { workflowId: string; stepIds: string[] } | undefined;
+    let resolvedEntryColumn: string | undefined;
     /*
     FNXC:WorkflowCreation 2026-06-28-23:09:
     Reserved-id task creation must match normal task creation: workflowId and enabledWorkflowSteps are independent create controls, so explicit optional toggles do not erase the selected workflow row.
@@ -4850,6 +4854,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
           ? (resolvedWorkflowSteps ?? [])
           : undefined;
         resolvedWorkflowSteps = explicitStepIds ?? selected.stepIds;
+        resolvedEntryColumn = selected.entryColumnId;
         pendingWorkflowSelection = {
           workflowId: selected.workflowId,
           stepIds: explicitStepIds ?? selected.stepIds,
@@ -4862,6 +4867,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
         const inherited = await this.materializeDefaultWorkflowSteps();
         if (inherited) {
           resolvedWorkflowSteps = inherited.stepIds;
+          resolvedEntryColumn = inherited.entryColumnId;
           pendingWorkflowSelection = inherited;
         }
       } catch (err) {
@@ -4893,14 +4899,13 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
       resolvedWorkflowSteps = [];
     }
 
-    // U7c: selection seeds are optional-group node ids (not materialized
-    // `workflow_steps` rows), so a failed task creation strands nothing to clean.
     const createdTask: Task = await this._createTaskInternal(input, title, resolvedWorkflowSteps, id, {
       createdAt: options.createdAt,
       updatedAt: options.updatedAt,
       promptOverride: options.prompt,
       invokeTaskCreatedHook: options.invokeTaskCreatedHook,
       reservationCommit: options.reservationCommit,
+      resolvedEntryColumn,
     });
 
     // Record the inherited workflow selection now that the task row exists.
@@ -4974,6 +4979,11 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
       promptOverride?: string;
       invokeTaskCreatedHook?: boolean;
       reservationCommit?: { reservationId: string; nodeId: string };
+      /*
+      FNXC:CodingIdeasWorkflow 2026-07-04-10:02:
+      The resolved workflow's intake column id. When the caller omits an explicit `input.column`, the task lands here instead of the legacy "triage" default so workflows with a manual intake (e.g. Coding (Ideas) → "ideas") capture new cards without auto-planning them. Defaults to "triage" when unset, preserving byte-identical behavior for the default workflow.
+      */
+      resolvedEntryColumn?: string;
     },
   ): Promise<Task> {
     const now = options?.createdAt ?? new Date().toISOString();
@@ -4999,7 +5009,7 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
       branchContext: input.branchContext,
       autoMerge: input.autoMerge,
       autoMergeProvenance: input.autoMerge === undefined ? undefined : "user",
-      column: input.column || "triage",
+      column: input.column || options?.resolvedEntryColumn || "triage",
       dependencies: input.dependencies || [],
       breakIntoSubtasks: input.breakIntoSubtasks === true ? true : undefined,
       noCommitsExpected: input.noCommitsExpected === true ? true : undefined,
@@ -5049,8 +5059,16 @@ ${TASK_UPSERT_SQL_ASSIGNMENTS}
     // Update cache if watcher is active
     if (this.isWatching) this.taskCache.set(id, { ...task });
 
+    /*
+    FNXC:CodingIdeasWorkflow 2026-07-04-10:10:
+    A freshly created task has no specification yet regardless of which intake/planning column it lands in (triage, ideas, or a merged todo). Use the bootstrap stub for every pre-execution column so the spec-detection helpers (isBootstrapPromptStub) treat the card as unplanned until triage replaces it with a real PROMPT.md. Execution/review/done/archived columns keep the generated specified prompt for the legacy direct-create paths.
+    */
+    const isPrePlanningColumn = task.column !== "in-progress"
+      && task.column !== "in-review"
+      && task.column !== "done"
+      && task.column !== "archived";
     const prompt = options?.promptOverride
-      ?? (task.column === "triage"
+      ?? (isPrePlanningColumn
         ? buildBootstrapPrompt(id, task.title, task.description)
         : this.generateSpecifiedPrompt(task));
     const validation = validateFileScopeInPromptContent(prompt);

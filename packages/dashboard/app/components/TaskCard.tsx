@@ -777,6 +777,7 @@ function TaskCardComponent({
   const [isRetrying, setIsRetrying] = useState(false);
   const [isPrCreateOpen, setIsPrCreateOpen] = useState(false);
   const [isAddressingPrFeedback, setIsAddressingPrFeedback] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
   const [timeIndicatorNowMs, setTimeIndicatorNowMs] = useState(() => Date.now());
 
   const descTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1406,7 +1407,8 @@ function TaskCardComponent({
     || Boolean(task.blockedBy)
     || Boolean(task.overlapBlockedBy)
     || Boolean(fanout && fanout.totalCount > 0);
-  const shouldRenderActionRow = Boolean(onPromote) || showCreatePrQuickAction || showAddressPrFeedbackAction || (showInReviewMoveControl && !metaRowVisible);
+  const showStartAction = task.column === "ideas" && Boolean(onMoveTask);
+  const shouldRenderActionRow = Boolean(onPromote) || showCreatePrQuickAction || showAddressPrFeedbackAction || showStartAction || (showInReviewMoveControl && !metaRowVisible);
 
   const renderInReviewMoveControl = () => (
     <div className="card-send-back" ref={sendBackRef}>
@@ -2184,6 +2186,19 @@ function TaskCardComponent({
     if (!onPromote || isPromoting) return;
     void onPromote(task.id);
   }, [isPromoting, onPromote, task.id]);
+  const handleStartClick = useCallback(async (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (!onMoveTask || isStarting) return;
+    setIsStarting(true);
+    try {
+      await onMoveTask(task.id, "todo");
+      addToast(t("tasks.startedPlanning", "Started planning {{taskId}}", { taskId: task.id }), "success");
+    } catch (err) {
+      addToast(getErrorMessage(err), "error");
+    } finally {
+      setIsStarting(false);
+    }
+  }, [addToast, isStarting, onMoveTask, t, task.id]);
 
   const handleAddressPrFeedbackClick = useCallback(async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
@@ -2398,6 +2413,15 @@ function TaskCardComponent({
             className={`card-status-badge card-status-badge--${task.column}${isAwaitingApproval ? " awaiting-approval" : ""}${isAwaitingInput ? " awaiting-input" : ""}${ACTIVE_STATUSES.has(visualStatus) ? " pulsing" : ""}${isFailed ? " failed" : ""}${isStuck ? " stuck" : ""}`}
           >
             {isStuck ? t("tasks.stuck", "Stuck") : isAwaitingApproval ? t("tasks.awaitingApproval", "Awaiting Approval") : isAwaitingInput ? t("tasks.needsInput", "Needs input") : visualStatus === "merging-fix" ? t("tasks.statusMergingFix", "Merging fixes…") : getTaskStatusLabel(visualStatus, t)}
+          </span>
+        )}
+        {/*
+        FNXC:CodingIdeasWorkflow 2026-07-04-11:10:
+        In the merged planner/capacity "todo" column (Coding (Ideas)), a planned task with no active status is ready and waiting for an in-progress slot. Show a "Ready" badge so operators can distinguish planned cards from freshly promoted unplanned ones. Tasks still being planned surface the "planning" status badge above instead.
+        */}
+        {!isPaused && task.column === "todo" && !visualStatus && (task.steps?.length ?? 0) > 0 && (
+          <span className="card-status-badge card-status-badge--todo ready" data-testid={`card-ready-${task.id}`}>
+            {t("tasks.ready", "Ready")}
           </span>
         )}
         {hasInReviewStall && stallCopy && (
@@ -3036,6 +3060,20 @@ function TaskCardComponent({
               */}
               <Bot size={12} />
               {isAddressingPrFeedback ? t("tasks.addressingPrFeedback", "Addressing…") : t("tasks.addressPrFeedback", "Address PR feedback")}
+            </button>
+          )}
+          {showStartAction && (
+            <button
+              type="button"
+              className="card-promote-action card-send-back-btn"
+              data-testid={`card-start-${task.id}`}
+              title={t("tasks.startTask", "Start — plan this task")}
+              aria-label={t("tasks.startTask", "Start — plan this task")}
+              disabled={isStarting}
+              onClick={handleStartClick}
+            >
+              <Zap size={12} />
+              {isStarting ? t("tasks.starting", "Starting…") : t("tasks.start", "Start")}
             </button>
           )}
           {onPromote && (
