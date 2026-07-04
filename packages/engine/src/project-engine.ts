@@ -13,13 +13,14 @@ import type {
   ResearchSynthesisRequest,
   ResearchSynthesisResult,
 } from "@fusion/core";
-import { allowsAutoMergeProcessing, compareTasksByPriorityThenAgeAndId, getTaskHardMergeBlocker, isSharedBranchGroupMemberIntegration, isWorkspaceTask, normalizeMergerMode, resolveMaxAutoMergeRetries, sortTasksByPriorityThenAgeAndId } from "@fusion/core";
+import { allowsAutoMergeProcessing, compareTasksByPriorityThenAgeAndId, getTaskHardMergeBlocker, isSharedBranchGroupMemberIntegration, isWorkspaceTask, normalizeMergerMode, resolveEffectivePlannerOversightLevel, resolveEffectiveSettings, resolveMaxAutoMergeRetries, sortTasksByPriorityThenAgeAndId } from "@fusion/core";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { InProcessRuntime } from "./runtimes/in-process-runtime.js";
 import type { WorktreePool } from "./worktree-pool.js";
 import type { ProjectRuntimeConfig } from "./project-runtime.js";
 import { PrMonitor } from "./pr-monitor.js";
+import { PlannerOverseerMonitor } from "./planner-overseer.js";
 import type { PrNodeGithubOps } from "./pr-nodes.js";
 import { PrReconciler, type PrReconcileGithubOps } from "./pr-reconcile.js";
 import { PrCommentHandler } from "./pr-comment-handler.js";
@@ -322,6 +323,18 @@ export class ProjectEngine {
   private runtime: InProcessRuntime;
   private started = false;
   private prMonitor?: PrMonitor;
+  /**
+   * FNXC:PlannerOversight 2026-07-04-00:00:
+   * FN-7511 records-only planner-overseer monitor. Watches in-flight tasks
+   * (in-progress/in-review) across the executor/reviewer/merger/pull-request/
+   * workflow-gate stages, gated by the task's effective planner oversight
+   * level (`resolveEffectivePlannerOversightLevel`). No lifecycle mutation —
+   * steering/recovery land in FN-7512+.
+   */
+  private plannerOverseer?: PlannerOverseerMonitor;
+  private plannerOverseerPollTimer: ReturnType<typeof setInterval> | null = null;
+  /** Conservative poll cadence for the records-only planner-overseer monitor (45s). */
+  private static readonly PLANNER_OVERSEER_POLL_INTERVAL_MS = 45 * 1000;
   private prReconciler?: PrReconciler;
   private prCommentHandler?: PrCommentHandler;
   private notifier?: NtfyNotifier;
@@ -577,6 +590,11 @@ export class ProjectEngine {
       runtimeLog.warn(`Remote tunnel restore evaluation failed (continuing startup): ${message}`);
     }
 
+    // FN-7511: Initialize the records-only planner-overseer monitor and start
+    // its bounded, gated poll over in-flight tasks.
+    this.plannerOverseer = new PlannerOverseerMonitor({ store });
+    this.startPlannerOverseerPoll(store);
+
     // 2. Initialize PrMonitor + PrCommentHandler
     this.prMonitor = new PrMonitor();
     this.prCommentHandler = new PrCommentHandler(store);
@@ -809,6 +827,7 @@ export class ProjectEngine {
       clearInterval(this.mergeActiveReconcileTimer);
       this.mergeActiveReconcileTimer = null;
     }
+    this.stopPlannerOverseerPoll();
 
     // Abort active/pending merge work before tearing down sessions.
     this.mergeAbortController?.abort();
@@ -974,6 +993,11 @@ export class ProjectEngine {
   /** Get the PrMonitor (if initialized). */
   getPrMonitor(): PrMonitor | undefined {
     return this.prMonitor;
+  }
+
+  /** Get the records-only PlannerOverseerMonitor (if initialized). See FN-7511. */
+  getPlannerOverseer(): PlannerOverseerMonitor | undefined {
+    return this.plannerOverseer;
   }
 
   /** Get the CronRunner (if initialized). */
@@ -1778,6 +1802,73 @@ export class ProjectEngine {
       cleared++;
     }
     return cleared;
+  }
+
+  /**
+   * FNXC:PlannerOversight 2026-07-04-00:00:
+   * Bounded, gated poll over in-flight tasks (in-progress/in-review). For
+   * each task, resolves the effective planner oversight level and, unless it
+   * is "off" or the task resolves to no watched stage, records one
+   * `OverseerStageObservation` via `PlannerOverseerMonitor#observeTask`.
+   * Records-only: no lifecycle mutation, retry, or notification here.
+   * Cleared on `stop()`. Never an unbounded loop — a single bounded
+   * `setInterval` at a conservative cadence.
+   */
+  private startPlannerOverseerPoll(store: TaskStore): void {
+    if (this.plannerOverseerPollTimer) {
+      return;
+    }
+    this.plannerOverseerPollTimer = setInterval(() => {
+      void this.pollPlannerOverseer(store);
+    }, ProjectEngine.PLANNER_OVERSEER_POLL_INTERVAL_MS);
+  }
+
+  private async pollPlannerOverseer(store: TaskStore): Promise<void> {
+    if (!this.plannerOverseer || this.shuttingDown) {
+      return;
+    }
+    const overseer = this.plannerOverseer;
+    try {
+      const [inProgress, inReview] = await Promise.all([
+        store.listTasks({ column: "in-progress" }).catch(() => [] as Task[]),
+        store.listTasks({ column: "in-review" }).catch(() => [] as Task[]),
+      ]);
+      const inFlight = [...inProgress, ...inReview];
+      const inFlightIds = new Set(inFlight.map((t) => t.id));
+
+      for (const task of inFlight) {
+        try {
+          const workflowEffective = await resolveEffectiveSettings(store, { id: task.id }).catch(() => ({}) as Record<string, unknown>);
+          const level = resolveEffectivePlannerOversightLevel(
+            task.plannerOversightLevel,
+            workflowEffective.plannerOversightLevel as string | undefined,
+          );
+          if (level === "off") {
+            continue;
+          }
+          await overseer.observeTask(task, level);
+        } catch {
+          // Best-effort per-task — never let one task's failure block the poll.
+        }
+      }
+
+      // Drop retained observations for tasks that have left the in-flight set
+      // (moved to done/archived/failed/etc.) so the ring buffers don't leak.
+      for (const taskId of overseer.getObservedTaskIds()) {
+        if (!inFlightIds.has(taskId)) {
+          overseer.clear(taskId);
+        }
+      }
+    } catch {
+      // Best-effort poll — degrade silently, never throw out of the interval.
+    }
+  }
+
+  private stopPlannerOverseerPoll(): void {
+    if (this.plannerOverseerPollTimer) {
+      clearInterval(this.plannerOverseerPollTimer);
+      this.plannerOverseerPollTimer = null;
+    }
   }
 
   private scheduleMergeActiveReconciliation(intervalMs: number): void {

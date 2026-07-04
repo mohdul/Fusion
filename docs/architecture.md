@@ -1352,6 +1352,32 @@ Limits are controlled by project settings (`maxSpawnedAgentsPerParent`, `maxSpaw
 ### Custom instructions
 `packages/engine/src/agent-instructions.ts` resolves per-agent instruction text/path with path-traversal and extension validation.
 
+### Planner overseer monitoring (records-only)
+
+/*
+FNXC:PlannerOversight 2026-07-04-00:00:
+FN-7511 delivers the monitoring foundation for a planner-oversight layer that watches an in-flight task's
+lifecycle without steering it. `packages/engine/src/planner-overseer.ts` declares the five watched stages
+(`OVERSEER_WATCHED_STAGES`: executor, reviewer, merger, pull-request, workflow-gate), a normalized
+`OverseerStageObservation` model, and a `resolveWatchedStage(task)` resolver with deterministic precedence
+(workflow-gate > pull-request > merger > reviewer > executor) so a task in a compound state resolves to
+exactly one stage. `PlannerOverseerMonitor#observeTask(task, level)` is the gating seam: when the task's
+effective planner oversight level (`resolveEffectivePlannerOversightLevel`, FN-7508/FN-7509/FN-7510) is
+`"off"`, nothing is recorded; otherwise exactly one observation is recorded into a bounded per-task ring
+buffer (default cap 20) and the optional `onObservation` callback is invoked best-effort.
+*/
+
+`ProjectEngine` constructs a `PlannerOverseerMonitor` alongside `PrMonitor` and exposes it via
+`getPlannerOverseer()`. A bounded `setInterval` poll (45s cadence, cleared on `stop()`) walks the
+current `in-progress`/`in-review` tasks, resolves each task's effective planner oversight level, and
+calls `observeTask` — skipping tasks that resolve to `"off"` or to no watched stage. Observations for
+tasks that leave the in-flight set are dropped from the ring buffer on the next poll.
+
+This layer is **records-only**: no lifecycle mutation, retry, merge, notification, or external-service
+call happens here, and it emits no run-audit events or dashboard UI. Steering/recovery, confirmation
+gates, human-control safeguards, and dashboard/UI/run-audit surfaces are deferred to FN-7512 through
+FN-7520; this module is the seam those subtasks read observations from.
+
 ---
 
 ## 11) Multi-Project Architecture

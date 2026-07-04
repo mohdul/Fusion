@@ -636,6 +636,18 @@ export {
 } from "./research/providers/index.js";
 export { PrMonitor, type PrComment, type TrackedPr, type OnNewCommentsCallback } from "./pr-monitor.js";
 export {
+  PlannerOverseerMonitor,
+  OVERSEER_WATCHED_STAGES,
+  resolveWatchedStage,
+  type OverseerWatchedStage,
+  type OverseerObservationSignal,
+  type OverseerStageObservation,
+  type OverseerSourceLink,
+  type OverseerTaskRef,
+  type OverseerLogStore,
+  type PlannerOverseerMonitorOptions,
+} from "./planner-overseer.js";
+export {
   SECRET_MUTATION_TYPES,
   SECRET_AUDIT_PLAINTEXT_FORBIDDEN_KEYS,
   assertNoSecretPlaintext,

@@ -461,6 +461,8 @@ A gate node also has a `gateMode`:
 Defaults:
 - gates are `advisory` by default (advisory-by-default per FN-4368); opt in to `gate` by setting the node's `gateMode` in the [Workflow Editor](./workflow-editor.md).
 
+A task paused awaiting a prompt/script gate's cli-approval or ask-input response (`pausedReason` prefixed `workflow-cli-approval:` or `workflow-input:`) is one of the five stages the records-only planner-overseer monitor watches (`workflow-gate`, `packages/engine/src/planner-overseer.ts`, FN-7511) — see **`docs/architecture.md` § "Planner overseer monitoring (records-only)"**.
+
 ## Built-In Quality Gates
 
 <!--
