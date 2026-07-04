@@ -444,6 +444,13 @@ export {
   type DecidePlannerRecoveryInput,
 } from "./planner-recovery.js";
 export {
+  PLANNER_OVERSEER_STATES,
+  derivePlannerOverseerState,
+  type PlannerOverseerState,
+  type PlannerOverseerRuntimeSnapshot,
+  type DerivePlannerOverseerStateInput,
+} from "./planner-overseer-state.js";
+export {
   classifyPlannerActionSideEffect,
   requiresPlannerConfirmation,
   type PlannerActionSideEffectClass,

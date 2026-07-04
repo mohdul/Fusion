@@ -647,6 +647,14 @@ export {
   type OverseerLogStore,
   type PlannerOverseerMonitorOptions,
 } from "./planner-overseer.js";
+// FN-7531: re-export the core planner-overseer state types for engine consumers
+// (e.g. `ProjectEngine.getPlannerOverseerRuntimeSnapshot`).
+export {
+  PLANNER_OVERSEER_STATES,
+  derivePlannerOverseerState,
+  type PlannerOverseerState,
+  type PlannerOverseerRuntimeSnapshot,
+} from "@fusion/core";
 export {
   PlannerRecoveryController,
   type PlannerRecoveryContext,

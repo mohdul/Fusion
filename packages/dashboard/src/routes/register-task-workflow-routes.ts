@@ -859,7 +859,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
 
   router.get("/tasks", async (req, res) => {
     try {
-      const { store: scopedStore } = await getProjectContext(req);
+      const { store: scopedStore, engine } = await getProjectContext(req);
       const limit = typeof req.query.limit === "string" ? Number.parseInt(req.query.limit, 10) : undefined;
       const offset = typeof req.query.offset === "string" ? Number.parseInt(req.query.offset, 10) : undefined;
       const q = typeof req.query.q === "string" ? req.query.q.trim() : undefined;
@@ -909,6 +909,27 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         // Branch-progress enrichment is best-effort and must never fail the
         // board load — fall through with the un-enriched task list.
       }
+
+      // FNXC:PlannerOversight 2026-07-04-00:00:
+      // FN-7531 additively attaches the transient `plannerOverseerState`
+      // snapshot for each task with an active planner-overseer observation,
+      // mirroring the `branchProgress` enrichment block directly above: it
+      // is best-effort, never fails the board load on any engine error, and
+      // omits the field entirely (rather than attaching `null`) for tasks
+      // with no active observation — the payload stays byte-identical for
+      // those tasks. Consumed by FN-7516's TaskCard badge.
+      try {
+        if (engine && tasks.length > 0) {
+          tasks = tasks.map((task) => {
+            const plannerOverseerState = engine.getPlannerOverseerRuntimeSnapshot(task.id);
+            return plannerOverseerState ? { ...task, plannerOverseerState } : task;
+          });
+        }
+      } catch {
+        // Planner-overseer-state enrichment is best-effort and must never
+        // fail the board load — fall through with the un-enriched task list.
+      }
+
       res.json(tasks);
     } catch (err: unknown) {
       if (err instanceof ApiError) {

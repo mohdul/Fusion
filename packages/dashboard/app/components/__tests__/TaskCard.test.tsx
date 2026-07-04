@@ -260,6 +260,35 @@ describe("TaskCard", () => {
     expect(__test_areTaskCardPropsEqual(base as any, withGitLab as any)).toBe(false);
   });
 
+  it("repaints the memoized card when plannerOverseerState changes, and renders nothing when absent", () => {
+    const idleTask = makeTask({ plannerOverseerState: undefined });
+    const watchingTask = makeTask({
+      plannerOverseerState: {
+        state: "watching",
+        oversightLevel: "autonomous",
+        watchedStage: "executor",
+        signal: "progressing",
+        attemptCount: 0,
+        attemptLimit: 3,
+        pendingConfirmation: false,
+        observedAt: 1700000000000,
+      },
+    });
+
+    expect(
+      __test_areTaskCardPropsEqual({ task: idleTask } as any, { task: watchingTask } as any),
+    ).toBe(false);
+    expect(
+      __test_areTaskCardPropsEqual({ task: watchingTask } as any, { task: watchingTask } as any),
+    ).toBe(true);
+
+    const { rerender } = render(<TaskCard task={idleTask} onOpenDetail={noop} addToast={noop} />);
+    expect(screen.queryByTestId("planner-overseer-state-badge")).not.toBeInTheDocument();
+
+    rerender(<TaskCard task={watchingTask} onOpenDetail={noop} addToast={noop} />);
+    expect(screen.getByTestId("planner-overseer-state-badge")).toBeInTheDocument();
+  });
+
   it("shows an Answer-questions button when awaiting user input and opens the workflow tab", async () => {
     const onOpenDetailWithTab = vi.fn();
     render(

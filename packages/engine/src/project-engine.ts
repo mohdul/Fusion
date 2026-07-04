@@ -12,8 +12,10 @@ import type {
   ResearchModelSettings,
   ResearchSynthesisRequest,
   ResearchSynthesisResult,
+  PlannerOverseerRuntimeSnapshot,
 } from "@fusion/core";
 import { allowsAutoMergeProcessing, compareTasksByPriorityThenAgeAndId, getTaskHardMergeBlocker, isSharedBranchGroupMemberIntegration, isWorkspaceTask, normalizeMergerMode, resolveEffectivePlannerOversightLevel, resolveEffectiveSettings, resolveMaxAutoMergeRetries, sortTasksByPriorityThenAgeAndId } from "@fusion/core";
+import { assemblePlannerOverseerRuntimeSnapshot } from "./planner-overseer-runtime-snapshot.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { InProcessRuntime } from "./runtimes/in-process-runtime.js";
@@ -1024,6 +1026,21 @@ export class ProjectEngine {
   /** Get the bounded PlannerRecoveryController (if initialized). See FN-7512. */
   getPlannerRecoveryController(): PlannerRecoveryController | undefined {
     return this.plannerRecoveryController;
+  }
+
+  /**
+   * FNXC:PlannerOversight 2026-07-04-00:00:
+   * FN-7531 read-only accessor assembling the transient, serializable
+   * `PlannerOverseerRuntimeSnapshot` for one task from the FN-7511
+   * `PlannerOverseerMonitor`'s latest observation plus the FN-7512/FN-7513
+   * `PlannerRecoveryController`'s attempt/pending-confirmation registries.
+   * Never mutates either subsystem, never throws (any failure degrades to
+   * `null` so a hot request path like `GET /api/tasks` is never put at
+   * risk), and returns `null` when there is no active observation for the
+   * task (nothing to show on the card).
+   */
+  getPlannerOverseerRuntimeSnapshot(taskId: string): PlannerOverseerRuntimeSnapshot | null {
+    return assemblePlannerOverseerRuntimeSnapshot(taskId, this.plannerOverseer, this.plannerRecoveryController);
   }
 
   /**

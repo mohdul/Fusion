@@ -1560,6 +1560,42 @@ same settings self-healing already gates lifecycle mutation on.
 **Downstream ownership (not this layer):** the dashboard UI/badges surfacing withheld state (FN-7515+),
 a persisted intervention timeline (FN-7519), and richer run-audit/activity presentation (FN-7520).
 
+### Planner overseer runtime-state exposure (FN-7531)
+
+/*
+FNXC:PlannerOversight 2026-07-04-00:00:
+FN-7531 closes the data-exposure gap FN-7516 needed: the planner overseer's runtime state (FN-7511's
+`PlannerOverseerMonitor` observations, FN-7512/FN-7513's `PlannerRecoveryController` attempt/pending-
+confirmation registries) was engine-side and in-memory only. This task adds a lightweight, serializable
+snapshot and surfaces it on the `GET /api/tasks` payload so task cards can render an indicator without
+a second round-trip.
+*/
+
+`packages/core/src/planner-overseer-state.ts` declares the externally-meaningful five-value enum
+`PLANNER_OVERSEER_STATES` (`idle | watching | steering | recovering | awaiting-confirmation`), the
+serializable `PlannerOverseerRuntimeSnapshot` interface (`state`, `oversightLevel`, `watchedStage?`,
+`signal?`, `attemptCount?`, `attemptLimit?`, `pendingConfirmation?`, `observedAt?` — `watchedStage`/
+`signal` are kept as bare `string` so the engine's stage taxonomy is not pulled into `@fusion/core`),
+and the pure, never-throw `derivePlannerOverseerState(input)`. Precedence: `oversightLevel === "off"`
+or no active observation → `"idle"`; a pending confirmation → `"awaiting-confirmation"` (wins over an
+in-flight recovery attempt); a recorded recovery attempt → `"recovering"`; `"steer"` level → `"steering"`;
+otherwise (`observe`/`autonomous` watching, no attempts/pending) → `"watching"`.
+
+`ProjectEngine.getPlannerOverseerRuntimeSnapshot(taskId)` (delegating to the pure
+`assemblePlannerOverseerRuntimeSnapshot` helper in `packages/engine/src/planner-overseer-runtime-snapshot.ts`
+for testability) reads the latest observation from `PlannerOverseerMonitor.getObservations(taskId)` plus
+`PlannerRecoveryController.getPendingConfirmations(taskId)`/`getAttemptCount(taskId, stage)`, and returns
+`null` (never throws) when there is no active observation for the task. `GET /tasks`
+(`register-task-workflow-routes.ts`) additively enriches each returned task with `plannerOverseerState`
+when the engine snapshot is non-null — best-effort, mirroring the existing `branchProgress` enrichment
+block right beside it: any engine error is swallowed and the un-enriched list is returned, and tasks with
+no active observation omit the field entirely (byte-identical payload). `Task.plannerOverseerState?` is a
+transient field — engine-populated at serialization time, never persisted to the store or task.json.
+
+FN-7516's `TaskCard` renders the badge/affordance; this task only provides the field, the engine
+accessor, and (since FN-7516 had not yet landed consumption) a minimal guarded read plus a
+memo-comparator entry so the card repaints on state change.
+
 ---
 
 ## 11) Multi-Project Architecture

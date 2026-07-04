@@ -715,7 +715,13 @@ function areTaskCardPropsEqual(previous: TaskCardProps, next: TaskCardProps): bo
     areTaskBadgeInfosEqual(previousTask.issueInfo, nextTask.issueInfo) &&
     // FNXC:GitHubTracking 2026-07-01-00:00: Context-menu tracking actions depend on githubTracking.enabled, so memoized cards must repaint when a PATCH enables tracking and remove the now-ineligible menu item.
     JSON.stringify(previousTask.githubTracking ?? null) === JSON.stringify(nextTask.githubTracking ?? null) &&
-    JSON.stringify(previousTask.gitlabTracking ?? null) === JSON.stringify(nextTask.gitlabTracking ?? null)
+    JSON.stringify(previousTask.gitlabTracking ?? null) === JSON.stringify(nextTask.gitlabTracking ?? null) &&
+    // FNXC:PlannerOversight 2026-07-04-00:00: FN-7531 exposes the transient, engine-populated
+    // `plannerOverseerState` snapshot on the board payload; repaint the card whenever the
+    // overseer state changes (idle/watching/steering/recovering/awaiting-confirmation) so a
+    // consumer's badge stays live. FN-7516 owns the visual affordance/design; this task only
+    // provides a minimal, type-safe, guarded read.
+    JSON.stringify(previousTask.plannerOverseerState ?? null) === JSON.stringify(nextTask.plannerOverseerState ?? null)
   );
 }
 
@@ -2506,6 +2512,25 @@ function TaskCardComponent({
               })}
             </span>
           )}
+        {/*
+          FNXC:PlannerOversight 2026-07-04-00:00:
+          FN-7531 provides `task.plannerOverseerState` (transient, engine-populated on the
+          board payload) plus a repaint-correct memo comparator; FN-7516 owns the styled
+          badge/design and surface-by-surface rendering. This is a minimal, type-safe,
+          guarded read only — nothing renders for an absent field or the "idle" state.
+        */}
+        {task.plannerOverseerState && task.plannerOverseerState.state !== "idle" && (
+          <span
+            className="card-status-badge card-planner-overseer-state"
+            title={t("tasks.plannerOverseerStateTitle", "Planner overseer: {{state}}", {
+              state: task.plannerOverseerState.state,
+            })}
+            data-testid="planner-overseer-state-badge"
+            data-planner-overseer-state={task.plannerOverseerState.state}
+          >
+            {task.plannerOverseerState.state}
+          </span>
+        )}
         {showStalledReview && stalledReview && (
           <span
             className="card-status-badge card-status-badge--in-review stalled-review"

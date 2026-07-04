@@ -1,4 +1,5 @@
 import type { InReviewStallSignal } from "./in-review-stall.js";
+import type { PlannerOverseerRuntimeSnapshot } from "./planner-overseer-state.js";
 import type { ModelPricing } from "./model-pricing.js";
 import type { InReviewStalledSignal } from "./in-review-stalled.js";
 import type { StalePausedReviewSignal } from "./stale-paused-review.js";
@@ -2473,6 +2474,17 @@ export interface Task {
    *  "inherit workflow default" — see `resolveEffectivePlannerOversightLevel` in
    *  workflow-settings-resolver.ts for precedence. */
   plannerOversightLevel?: PlannerOversightLevel;
+  /**
+   * FNXC:PlannerOversight 2026-07-04-00:00:
+   * FN-7531 transient, engine-populated snapshot of the planner overseer's
+   * current runtime state (idle/watching/steering/recovering/awaiting-
+   * confirmation), assembled from the FN-7511 `PlannerOverseerMonitor` +
+   * FN-7512/FN-7513 `PlannerRecoveryController` registries. Attached
+   * best-effort to the `GET /api/tasks` payload (mirroring the additive
+   * `branchProgress` board-payload convention) — NEVER written to the
+   * store or task.json. Consumed by FN-7516's `TaskCard` badge.
+   */
+  plannerOverseerState?: PlannerOverseerRuntimeSnapshot;
   /** Explicitly assigned agent ID for task-agent linking. Distinct from Agent.taskId active execution state. */
   assignedAgentId?: string;
   /** Per-task node override. When set, this task routes to the specified node instead of the project's default node. Undefined means use the project default. Use empty string to explicitly clear. */
