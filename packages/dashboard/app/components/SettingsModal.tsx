@@ -2537,6 +2537,11 @@ export function SettingsModal({
         githubAuthToken: form.githubAuthToken?.trim() || undefined,
         prTitlePromptInstructions: form.prTitlePromptInstructions?.trim() || undefined,
         prDescriptionPromptInstructions: form.prDescriptionPromptInstructions?.trim() || undefined,
+        /*
+        FNXC:MergeSettings 2026-07-04-09:18:
+        Push target text is meaningful only when direct post-merge pushing is enabled. Hiding the input must not keep submitting a stale remote/branch from the form state; clearing it lets project settings fall back to the default origin target when the toggle is disabled.
+        */
+        pushRemote: form.pushAfterMerge ? form.pushRemote?.trim() || undefined : undefined,
         overlapIgnorePaths: (form.overlapIgnorePaths ?? []).map((path) => path.trim()).filter((path) => path.length > 0),
         worktreeCopyFiles: normalizedWorktreeCopyFiles.length > 0 || initialScopedValues?.project?.worktreeCopyFiles !== undefined
           ? normalizedWorktreeCopyFiles

@@ -43,6 +43,7 @@ const defaultSettings = {
 vi.mock("../../api", () => ({
   fetchProjects: vi.fn(() => Promise.resolve([])),
   fetchGitRemotes: vi.fn(() => Promise.resolve({ remotes: [] })),
+  fetchGitBranches: vi.fn(() => Promise.resolve([])),
   fetchSettings: vi.fn(() => Promise.resolve({ ...defaultSettings })),
   fetchSettingsByScope: vi.fn(() => Promise.resolve({ global: { ...defaultSettings }, project: {} })),
   updateSettings: vi.fn(() => Promise.resolve({ ...defaultSettings })),
@@ -149,7 +150,7 @@ vi.mock("../../hooks/useMemoryBackendStatus", () => ({
   })),
 }));
 
-import { fetchSettings } from "../../api";
+import { fetchSettings, updateSettings } from "../../api";
 
 function mockSettingsViewport(matches: boolean): void {
   Object.defineProperty(window, "matchMedia", {
@@ -286,6 +287,33 @@ describe("SettingsModal mobile adaptations", () => {
 
     expect(await findByText(/Memory lives in/)).toBeTruthy();
     expect(getByLabelText("Memory File")).toBeTruthy();
+  });
+
+  it("keeps push remote reachable and clears its hidden shell on mobile", async () => {
+    mockSettingsViewport(true);
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 375 });
+    const user = userEvent.setup();
+    const { getByLabelText, queryByLabelText, getByRole, queryByText } = render(<SettingsModal onClose={vi.fn()} addToast={vi.fn()} />);
+    await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
+
+    await user.selectOptions(getByLabelText("Settings Section"), "merge");
+    await user.click(getByRole("checkbox", { name: /push to remote after merge/i }));
+
+    const pushRemote = getByLabelText("Push Remote");
+    expect(pushRemote).toHaveAttribute("placeholder", "origin");
+    await user.type(pushRemote, "upstream main");
+
+    await user.click(getByRole("checkbox", { name: /push to remote after merge/i }));
+
+    expect(queryByLabelText("Push Remote")).toBeNull();
+    expect(queryByText("Git remote to push to")).toBeNull();
+
+    await user.click(getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(updateSettings).toHaveBeenCalled());
+
+    const payload = vi.mocked(updateSettings).mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.pushAfterMerge).toBe(false);
+    expect(payload).not.toHaveProperty("pushRemote");
   });
 
   it("keeps research settings controls inside mobile containment wrappers", async () => {

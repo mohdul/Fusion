@@ -448,6 +448,34 @@ describe("PUT /settings", () => {
     expect(store.updateSettings).toHaveBeenCalledWith({ maxConcurrent: 8 });
   });
 
+  it("persists push-after-merge remote target through PUT and subsequent GET", async () => {
+    const updatedSettings = {
+      ...DEFAULT_SETTINGS,
+      pushAfterMerge: true,
+      pushRemote: "upstream main",
+    };
+    (store.updateSettings as ReturnType<typeof vi.fn>).mockResolvedValue(updatedSettings);
+    (store.getSettingsFast as ReturnType<typeof vi.fn>).mockResolvedValue(updatedSettings);
+
+    const updateRes = await REQUEST(
+      buildApp(),
+      "PUT",
+      "/api/settings",
+      JSON.stringify({ pushAfterMerge: true, pushRemote: "upstream main" }),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(updateRes.status).toBe(200);
+    expect(store.updateSettings).toHaveBeenCalledWith({ pushAfterMerge: true, pushRemote: "upstream main" });
+    expect(updateRes.body.pushAfterMerge).toBe(true);
+    expect(updateRes.body.pushRemote).toBe("upstream main");
+
+    const getRes = await GET(buildApp(), "/api/settings");
+    expect(getRes.status).toBe(200);
+    expect(getRes.body.pushAfterMerge).toBe(true);
+    expect(getRes.body.pushRemote).toBe("upstream main");
+  });
+
   it("passes defaultAgentPermissionPolicy toolRules through settings updates", async () => {
     const payload = {
       defaultAgentPermissionPolicy: {
