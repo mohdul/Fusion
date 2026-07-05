@@ -4598,7 +4598,7 @@ export function TaskDetailContent({
                 // Intervention Timeline from the inline oversight cluster into this
                 // Activity segment. Reachable only via the dropdown, which already gates
                 // on oversightActive, so no `hidden` prop is needed here.
-                <div className="detail-activity" role="tabpanel">
+                <div className="detail-activity detail-activity--interventions" role="tabpanel">
                   <PlannerInterventionTimeline taskId={task.id} projectId={projectId} />
                 </div>
               ) : (

@@ -604,6 +604,44 @@ describe("Intervention Timeline relocation into the Activity dropdown (FN-7571)"
       expect(screen.getByRole("menuitem", { name: "Live" })).toHaveAttribute("aria-current", "true");
     });
 
+    it("gives the Interventions Activity container the full-width modifier while Feed keeps the toggle-reserving container (FN-7581)", async () => {
+      // FNXC:PlannerOversight 2026-07-05-00:00: FN-7581 regression — the Interventions
+      // segment's `.detail-activity` container must carry `detail-activity--interventions`
+      // so it stops reserving `padding-inline-end` for the `.activity-expand-toggle--overlay`
+      // button it never renders (the FN-7519 timeline was inset from the right edge on
+      // mobile as a result). Feed (the only other segment sharing the raw `.detail-activity`
+      // wrapper and rendering that overlay toggle) must NOT carry the modifier since it still
+      // needs the reserved padding to keep the toggle from covering its content. (Live mounts
+      // its own overlay toggle inside TaskChatTab and never wraps in `.detail-activity` at all.)
+      render(
+        <TaskDetailModal
+          task={makeTask({ id: "FN-215", column: "in-progress", plannerOversightLevel: "autonomous", plannerOverseerState: activeSnapshot })}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
+          addToast={noop}
+        />,
+      );
+
+      await screen.findByTestId("detail-overseer-nudge");
+
+      openActivityViewMenu();
+      fireEvent.click(screen.getByRole("menuitem", { name: "Feed" }));
+
+      const feedContainer = (await screen.findByText("Feed")).closest(".detail-activity");
+      expect(feedContainer).not.toBeNull();
+      expect(feedContainer).not.toHaveClass("detail-activity--interventions");
+
+      openActivityViewMenu();
+      fireEvent.click(screen.getByRole("menuitem", { name: "Interventions" }));
+
+      const interventionsContainer = (await screen.findByTestId("planner-intervention-timeline")).closest(".detail-activity");
+      expect(interventionsContainer).not.toBeNull();
+      expect(interventionsContainer).toHaveClass("detail-activity--interventions");
+    });
+
     it("still renders the empty state inside the Activity segment when there are no interventions", async () => {
       render(
         <TaskDetailModal
