@@ -498,7 +498,23 @@ export class MissionExecutionLoop extends EventEmitter {
       if (result.status === "pass") {
         await this.handleValidationPass(feature.id, run.id, result.summary);
       } else if (result.status === "fail") {
-        await this.handleValidationFail(feature.id, run.id, result);
+        // A "fail" verdict is only trustworthy once the linked task's code has
+        // actually landed (done/archived). If the task is still mid-pipeline
+        // (in-review PR, external merge train, deferred base sync), the
+        // validator judged a checkout that predates the merge — route to the
+        // inconclusive outcome (R21, no Fix Feature) and let a later validation
+        // judge the merged code. Missing task / unknown column falls through to
+        // the normal fail handling (defer only on affirmative evidence).
+        const premergeColumn = await this.getPremergeTaskColumn(feature.taskId);
+        if (premergeColumn) {
+          await this.handleValidationInconclusive(
+            feature.id,
+            run.id,
+            `linked task ${feature.taskId} is still "${premergeColumn}" (code not merged yet) — validation deferred`,
+          );
+        } else {
+          await this.handleValidationFail(feature.id, run.id, result);
+        }
       } else if (result.status === "inconclusive") {
         // R21 — "verification could not run" is distinct from "behavior observed
         // wrong". An infra-driven inconclusive (no isolating backend, timeout,
@@ -514,6 +530,21 @@ export class MissionExecutionLoop extends EventEmitter {
     } finally {
       this.activeValidations.delete(feature.id);
     }
+  }
+
+  /**
+   * Resolve the linked task's column when it affirmatively shows the task has
+   * NOT completed yet (any column other than "done"/"archived"). Returns null
+   * when the task is completed, missing, unlinked, or unreadable — i.e. every
+   * case where a fail verdict should be trusted. Fails open on purpose: the
+   * guard may only ever defer a fail, never suppress one on missing data.
+   */
+  private async getPremergeTaskColumn(taskId: string | undefined): Promise<string | null> {
+    if (!taskId) return null;
+    const linkedTask = await this.taskStore.getTask(taskId).catch(() => null);
+    const column = linkedTask?.column;
+    if (!column || column === "done" || column === "archived") return null;
+    return column;
   }
 
   /**

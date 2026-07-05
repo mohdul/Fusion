@@ -1878,6 +1878,142 @@ describe("MissionExecutionLoop", () => {
     });
   });
 
+  // ── premerge guard (fail verdict while the linked task is unmerged) ──────
+
+  describe("premerge guard", () => {
+    function primeFailVerdict() {
+      const failResponse = JSON.stringify({
+        status: "fail",
+        assertions: [{ assertionId: "CA-1", passed: false, message: "Failed", expected: "ok", actual: "not ok" }],
+        summary: "Assertion failed",
+      });
+      mockSessionHolder.session.state.messages = [
+        { role: "user", content: "Validate this" },
+        { role: "assistant", content: failResponse },
+      ];
+    }
+
+    function primeFeature() {
+      const feature = createMockFeature({
+        loopState: "implementing",
+        taskId: "FN-001",
+        id: "F-001",
+        implementationAttemptCount: 1,
+      });
+      missionStore._setFeature(feature);
+      missionStore.getFeatureByTaskId = vi.fn().mockReturnValue(feature);
+      missionStore.listAssertionsForFeature = vi.fn().mockReturnValue(makeAssertions(1));
+      return feature;
+    }
+
+    it("should defer a fail to inconclusive while the linked task is not done/archived", async () => {
+      primeFeature();
+      primeFailVerdict();
+
+      // The linked task is still in review — its code has not merged yet, so
+      // the validator judged a checkout that predates the work.
+      taskStore._setTask({ id: "FN-001", title: "Test", description: "Implementation", log: [], column: "in-review" });
+
+      loop = new MissionExecutionLoop({
+        taskStore: taskStore as any,
+        missionStore: missionStore as any,
+        rootDir: "/tmp",
+      });
+      const emitSpy = vi.spyOn(loop, "emit");
+      loop.start();
+
+      await loop.processTaskOutcome("FN-001");
+
+      // Routed to the inconclusive outcome — no Fix Feature minted (R21)
+      expect(missionStore.createGeneratedFixFeature).not.toHaveBeenCalled();
+      expect(missionStore.completeValidatorRun).toHaveBeenCalledWith(
+        expect.any(String),
+        "blocked",
+        expect.stringContaining("code not merged yet"),
+      );
+      expect(emitSpy).toHaveBeenCalledWith(
+        "validation:inconclusive",
+        expect.objectContaining({
+          featureId: "F-001",
+          reason: expect.stringContaining('"in-review"'),
+        }),
+      );
+      expect(emitSpy).not.toHaveBeenCalledWith("validation:failed", expect.anything());
+
+      // The infra-failure marker keeps deferred fails separable from real ones
+      expect(missionStore.logMissionEvent).toHaveBeenCalledWith(
+        expect.any(String),
+        "warning",
+        expect.stringContaining("Verification inconclusive"),
+        expect.objectContaining({
+          code: "verification_inconclusive",
+          outcome: "inconclusive",
+          infraFailure: true,
+        }),
+      );
+    });
+
+    it("should run the normal fail path once the linked task is done", async () => {
+      primeFeature();
+      primeFailVerdict();
+
+      taskStore._setTask({ id: "FN-001", title: "Test", description: "Implementation", log: [], column: "done" });
+
+      loop = new MissionExecutionLoop({
+        taskStore: taskStore as any,
+        missionStore: missionStore as any,
+        rootDir: "/tmp",
+      });
+      const emitSpy = vi.spyOn(loop, "emit");
+      loop.start();
+
+      await loop.processTaskOutcome("FN-001");
+
+      expect(missionStore.createGeneratedFixFeature).toHaveBeenCalledWith(
+        "F-001",
+        expect.any(String),
+        expect.arrayContaining(["CA-1"]),
+        expect.any(String),
+      );
+      expect(emitSpy).toHaveBeenCalledWith(
+        "validation:failed",
+        expect.objectContaining({ featureId: "F-001" }),
+      );
+      expect(emitSpy).not.toHaveBeenCalledWith("validation:inconclusive", expect.anything());
+    });
+
+    it("should fail open (normal fail path) when the linked task cannot be read", async () => {
+      primeFeature();
+
+      loop = new MissionExecutionLoop({
+        taskStore: taskStore as any,
+        missionStore: missionStore as any,
+        rootDir: "/tmp",
+      });
+      // Bypass the AI session (runValidation also reads the task, without a
+      // catch) so the rejecting getTask below only exercises the guard.
+      vi.spyOn(loop as any, "runValidation").mockResolvedValue({
+        status: "fail",
+        assertions: [{ assertionId: "CA-1", passed: false, message: "Failed", expected: "ok", actual: "not ok" }],
+        summary: "Assertion failed",
+      });
+      taskStore.getTask = vi.fn().mockRejectedValue(new Error("store unavailable"));
+
+      const emitSpy = vi.spyOn(loop, "emit");
+      loop.start();
+
+      await loop.processTaskOutcome("FN-001");
+
+      // Unknown task state must never suppress a fail — only defer on
+      // affirmative evidence of an unmerged column.
+      expect(missionStore.createGeneratedFixFeature).toHaveBeenCalled();
+      expect(emitSpy).toHaveBeenCalledWith(
+        "validation:failed",
+        expect.objectContaining({ featureId: "F-001" }),
+      );
+    });
+  });
+
   // ── handleValidationBlocked ───────────────────────────────────────────────
 
   describe("handleValidationBlocked", () => {
