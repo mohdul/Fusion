@@ -382,7 +382,7 @@ start → ask (ask-user: "Anything to refine?")
                                        the PR review loop)
 ```
 
-Each turn, the user is asked to refine; once they reply "looks good" (or whatever the condition matches), the exit-gate routes the task out of the brainstorm loop. This is a documented composition, not a registered built-in workflow — copy the shape into a custom workflow's IR via `fn_workflow_create`/`fn_workflow_update`.
+Each turn, the user is asked to refine; once they reply "looks good" (or whatever the condition matches), the exit-gate routes the task out of the brainstorm loop. This composition is also available as a discoverable built-in: `builtin:brainstorming` (FN-7584) registers exactly this shape — `ask-user` → a refine prompt step → `exit-gate`-on-approval — ahead of the unmodified default Coding plan/execute/review/merge spine, selectable directly from the workflow picker. Copy the shape into a custom workflow's IR via `fn_workflow_create`/`fn_workflow_update` when you need a different downstream pipeline than the standard coding one.
 
 #### Workflow-defined custom task fields
 

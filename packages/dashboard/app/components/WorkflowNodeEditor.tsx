@@ -4754,7 +4754,23 @@ function InnerEditor({
                         "This workflow is waiting for your input.",
                       )}
                       value={String(selectedNode.data.config?.question ?? "")}
-                      onChange={(e) => updateSelectedData({ config: { question: e.target.value } })}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        // FNXC:WorkflowAskUser 2026-07-05-02:00: validateAskUserAndExitGateNodes
+                        // rejects a PRESENT-but-empty `question` (only an ABSENT question falls
+                        // back to the engine default). Clearing the textarea back to "" must
+                        // therefore delete the key, not persist `question: ""`, or the node
+                        // silently becomes unsavable the moment an author reverts to the
+                        // documented "leave blank for the default" behavior.
+                        updateSelectedData({
+                          config: (prev) => {
+                            const next = { ...prev };
+                            if (value.trim() === "") delete next.question;
+                            else next.question = value;
+                            return next;
+                          },
+                        });
+                      }}
                     />
                   </label>
                   <p className="wf-inspector-note wf-inspector-note--info">
