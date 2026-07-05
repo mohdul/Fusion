@@ -6647,9 +6647,21 @@ export class TaskExecutor {
    * placement re-walks earlier read-only nodes until CU-U5 checkpoints land.
    */
   private async runAwaitInputNode(node: WorkflowIrNode, live: TaskDetail): Promise<WorkflowNodeResult> {
-    const question = typeof node.config?.prompt === "string" && node.config.prompt.trim()
-      ? node.config.prompt.trim()
-      : "This workflow is waiting for your input.";
+    /*
+    FNXC:WorkflowAskUser 2026-07-05-00:00:
+    FN-7579's `ask-user` node is the first-class discoverable surface over this
+    SAME park/resume plumbing that a `prompt` node with `config.awaitInput: true`
+    already used. Question resolution order: `config.question` (the ask-user
+    node's dedicated field) first, then `config.prompt` (back-compat with the
+    original awaitInput alias), then the shared default string. Nothing below
+    this line branches on node.kind — both node kinds share one pause/resume
+    contract so behavior can never drift between them.
+    */
+    const question = typeof node.config?.question === "string" && node.config.question.trim()
+      ? node.config.question.trim()
+      : typeof node.config?.prompt === "string" && node.config.prompt.trim()
+        ? node.config.prompt.trim()
+        : "This workflow is waiting for your input.";
     const marker = `workflow-input:${node.id}`;
 
     const steering = Array.isArray(live.steeringComments) ? live.steeringComments : [];
@@ -7187,7 +7199,10 @@ export class TaskExecutor {
     if (staleInput === "clear") live = await this.store.getTask(nodeTask.id);
 
     // Await-input nodes never run a session — they pause for the user.
-    if (cfg.awaitInput === true) {
+    // FNXC:WorkflowAskUser 2026-07-05-00:00: `ask-user` is the dedicated,
+    // discoverable node kind for this same pause; `prompt` + `config.awaitInput:
+    // true` remains a back-compat alias (both route to the identical runner).
+    if (cfg.awaitInput === true || node.kind === "ask-user") {
       return this.runAwaitInputNode(node, live);
     }
 

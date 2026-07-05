@@ -356,6 +356,34 @@ Parallelism is opt-in *per step by the planner*, not asserted by the workflow au
 
 Notification delivery is intentionally best-effort: a missing/unconfigured notification service, an empty `event`, or a provider delivery failure is logged/audited but does not fail the workflow node. Providers receive the rendered title/message in notification metadata so ntfy and webhook notifications can show workflow-specific copy. `workflow-notify` is **not** part of the default ntfy event allowlist; add it to `ntfyEvents` or the provider `events` filter when you want workflow-authored notifications delivered.
 
+#### `ask-user` node — chat reach-out (FN-7579)
+
+`ask-user` (`{ question? }`) reaches out to the user from inside a running task: it parks the task with `status: "awaiting-user-input"`, `paused: true`, and `pausedReason` carrying a `workflow-input:<nodeId>@<pauseEpochMs>: <question>` marker; the question surfaces in the task chat/detail (and via the `planning-awaiting-input` notification). Once the user replies (a steering comment at/after the pause watermark) and unpauses the task, the node resumes, clears its marker, and publishes the answer downstream at context key `input:<nodeId>` (readable by, for example, a downstream `exit-gate`'s condition). `question` falls back to `config.prompt`, then the shared default string ("This workflow is waiting for your input.") when both are omitted.
+
+`ask-user` is a first-class, discoverable promotion of plumbing that already existed: a `prompt` node with `config.awaitInput: true` pauses/resumes identically (`runAwaitInputNode`). That shape remains a **fully supported back-compat alias** — existing workflows using it are unaffected — `ask-user` is simply the dedicated palette entry and IR node kind for new authoring.
+
+#### `exit-gate` node — early workflow termination (FN-7579)
+
+`exit-gate` (`{ condition? }`) lets a workflow route directly to the terminal `end` node instead of always walking the full graph. It is validated to always have a (transitive, non-rework) path to `end` so it can never strand the graph, but it is **not** itself an `end` node — only a router onto one.
+
+With no `condition`, an exit-gate always exits (`outcome:exit`). With a `condition` (the same shape as a `loop` node's `exitWhen`: `{ type: "output-contains", nodeId?, value }` or `{ type: "output-matches", nodeId?, pattern, flags? }`), the gate reads `context["input:<nodeId>"]` — the same key an `ask-user` node's answer is published under — and exits (`outcome:exit`) when it matches, or falls through (`outcome:continue`) otherwise. Route `outcome:exit` to `end` and `outcome:continue` back into the loop (or onward) as needed. A malformed condition (bad regex, missing referenced value) degrades to "no match" rather than throwing.
+
+#### Brainstorming / chat reach-out composition
+
+Compose `ask-user` + `exit-gate` for a brainstorming phase that loops until the user approves, then proceeds:
+
+```
+start → ask (ask-user: "Anything to refine?")
+     → exit (exit-gate: condition { type: "output-contains", nodeId: "ask", value: "looks good" })
+         ── outcome:exit ──→ end   (or onward into the normal plan/execute path)
+         ── outcome:continue ──→ ask   (rework edge back to the ask-user node; mark the ask-user
+                                       node `config.reworkRegion: true` and the edge `kind: "rework"`,
+                                       mirroring the top-level rework-region convention U6 uses for
+                                       the PR review loop)
+```
+
+Each turn, the user is asked to refine; once they reply "looks good" (or whatever the condition matches), the exit-gate routes the task out of the brainstorm loop. This is a documented composition, not a registered built-in workflow — copy the shape into a custom workflow's IR via `fn_workflow_create`/`fn_workflow_update`.
+
 #### Workflow-defined custom task fields
 
 Workflows declare typed task fields via IR `fields: [{ id, name, type, required?, default?, options?, render? }]` (`type ∈ string | text | number | boolean | enum | multi-enum | date | url`; `options` for enum kinds; `render.placement ∈ card | detail | detail-section`, `render.widget`, `render.badge`). Values live in `tasks.customFields` and are validated through a single store authority (`updateTaskCustomFields`) with typed rejections (offending `fieldId` + `code`). Editing or switching a workflow **orphans** (never destroys) values for removed/incompatible fields — orphans are retained and shown under a detail disclosure. The task UI renders the schema dynamically (detail-form widgets by type, up to 3 card badges by placement). Agents read/write fields via `fn_task_update`'s `custom_fields` patch; authors set them via `fn_workflow_create/update`. Field values are surfaced in task/session context.
