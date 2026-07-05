@@ -7658,7 +7658,9 @@
     "provenance": {
       "createdBy": "Created by",
       "createdVia": "Created via",
-      "parentTaskOf": "of"
+      "parentTaskOf": "of",
+      "createdToUndo": "Created to undo",
+      "undoTask": "Undo task"
     },
     "recoveryState": "Recovery state",
     "refine": {
@@ -8233,6 +8235,9 @@
     "unarchived": "Unarchived {{taskId}}",
     "unarchiveFailed": "Failed to unarchive {{taskId}}: {{error}}",
     "unarchiveTask": "Unarchive task",
+    "undoOf": "Undo of {{id}}",
+    "undoOfTitle": "Created to undo {{id}}",
+    "undoTask": "Undo task: {{id}}",
     "updated": "Updated {{taskId}}",
     "updateFailed": "Failed to update {{taskId}}: {{error}}",
     "uploadFailed": "Failed to upload: {{files}}",

@@ -33,6 +33,7 @@ import { getFreshBatchData } from "../hooks/useBatchBadgeFetch";
 import { useTaskDiffStats } from "../hooks/useTaskDiffStats";
 import { useAgentsMapCache } from "../hooks/useAgentsMapCache";
 import { isTaskStuck } from "../utils/taskStuck";
+import { getRevertOfId } from "../utils/taskRevert";
 import { getStalledReviewSignal } from "../utils/taskStalledReview";
 import { getInReviewStallCopy, shouldShowInReviewStallBadge } from "../utils/inReviewStallCopy";
 import { getStalePausedReviewCopy, shouldShowStalePausedReviewBadge } from "../utils/stalePausedReviewCopy";
@@ -792,6 +793,10 @@ function areTaskCardPropsEqual(previous: TaskCardProps, next: TaskCardProps): bo
     previousTask.sourceMetadata?.agentName === nextTask.sourceMetadata?.agentName &&
     previousTask.sourceMetadata?.nearDuplicateOf === nextTask.sourceMetadata?.nearDuplicateOf &&
     previousTask.sourceMetadata?.nearDuplicateDismissed === nextTask.sourceMetadata?.nearDuplicateDismissed &&
+    // FNXC:TaskRevert 2026-07-04-00:00: repaint the "Undo of <id>" footer chip
+    // (FN-7555) when the revert-of marker changes.
+    previousTask.sourceMetadata?.revertOf === nextTask.sourceMetadata?.revertOf &&
+    previousTask.sourceParentTaskId === nextTask.sourceParentTaskId &&
     previousTask.stalledReview?.reason === nextTask.stalledReview?.reason &&
     previousTask.stalledReview?.heuristic === nextTask.stalledReview?.heuristic &&
     previousTask.stalledReview?.matchCount === nextTask.stalledReview?.matchCount &&
@@ -1313,6 +1318,17 @@ function TaskCardComponent({
     && task.column !== "archived"
     && task.column !== "done"
     && nearDuplicateCanonicalInactive !== true;
+  /**
+   * FNXC:TaskRevert 2026-07-04-00:00:
+   * FN-7555 forward affordance: an AI-undo task (`sourceMetadata.revertOf` set by
+   * `createAiUndoTask`) shows a compact "Undo of <sourceId>" footer chip regardless
+   * of this card's own column, mirroring the detail view's provenance line. The
+   * reverse ("source has an open undo task") chip is intentionally NOT rendered
+   * here — TaskCard does not receive the full `tasks` list, so a per-card reverse
+   * scan is unavailable; that direction is covered by TaskDetailModal only.
+   */
+  const revertOfId = getRevertOfId(task.sourceMetadata, task.sourceParentTaskId, task.sourceType);
+  const showUndoOfChip = Boolean(revertOfId);
   const branchMetadata = useMemo(() => getVisibleTaskCardBranches(task), [task.id, task.branch, task.baseBranch]);
   const hasBranchMetadata = Boolean(branchMetadata.branch || branchMetadata.baseBranch);
   const isAgentCreated = isAgentCreatedTask(task);
@@ -3164,7 +3180,7 @@ function TaskCardComponent({
           </>
         );
       })()}
-      {(filesChangedButton || isGitHubImportedTask || timeIndicator || showNearDuplicateChip || ((showTrackingIndicator || showLinkedIssueChipForImport) && githubTrackedIssue) || (task.retrySummary?.total ?? 0) > 0) && (
+      {(filesChangedButton || isGitHubImportedTask || timeIndicator || showNearDuplicateChip || showUndoOfChip || ((showTrackingIndicator || showLinkedIssueChipForImport) && githubTrackedIssue) || (task.retrySummary?.total ?? 0) > 0) && (
         <div className={`card-footer-row${chipFarRight ? " card-footer-row--chip-far-right" : ""}`}>
           {filesChangedButton}
           {isGitHubImportedTask && !showLinkedIssueChipForImport && (
@@ -3176,8 +3192,17 @@ function TaskCardComponent({
               <ProviderIcon provider="github" size="sm" />
             </span>
           )}
-          {(timeIndicator || showNearDuplicateChip || ((showTrackingIndicator || showLinkedIssueChipForImport) && githubTrackedIssue) || (task.retrySummary?.total ?? 0) > 0) && (
+          {(timeIndicator || showNearDuplicateChip || showUndoOfChip || ((showTrackingIndicator || showLinkedIssueChipForImport) && githubTrackedIssue) || (task.retrySummary?.total ?? 0) > 0) && (
             <div className="card-footer-row-right">
+              {showUndoOfChip && (
+                <span
+                  className="card-undo-chip"
+                  title={t("tasks.undoOfTitle", "Created to undo {{id}}", { id: String(revertOfId) })}
+                  aria-label={t("tasks.undoOfTitle", "Created to undo {{id}}", { id: String(revertOfId) })}
+                >
+                  <span>{t("tasks.undoOf", "Undo of {{id}}", { id: String(revertOfId) })}</span>
+                </span>
+              )}
               {showNearDuplicateChip && (
                 <>
                   <span

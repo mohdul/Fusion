@@ -5366,6 +5366,52 @@ describe("TaskCard near-duplicate chip", () => {
   });
 });
 
+/**
+ * FNXC:TaskRevert 2026-07-04-00:00:
+ * FN-7555 forward affordance coverage. Mirrors the near-duplicate chip test shape
+ * above: an AI-undo task (`sourceMetadata.revertOf` set by `createAiUndoTask`) shows
+ * an "Undo of <id>" footer chip; an ordinary task without that marker renders no chip
+ * and no empty footer shell.
+ */
+describe("TaskCard undo-of chip", () => {
+  it("renders undo-of chip when sourceMetadata.revertOf is present", () => {
+    render(
+      <TaskCard
+        task={makeTask({ sourceMetadata: { revertOf: "FN-1234" } })}
+        onOpenDetail={noop}
+        addToast={noop}
+      />,
+    );
+
+    expect(screen.getByText("Undo of FN-1234")).toBeInTheDocument();
+  });
+
+  it("renders no undo-of chip and no empty footer shell for an ordinary task", () => {
+    render(
+      <TaskCard
+        task={makeTask({ sourceMetadata: undefined })}
+        onOpenDetail={noop}
+        addToast={noop}
+      />,
+    );
+
+    expect(screen.queryByText(/Undo of/)).toBeNull();
+    expect(document.querySelector(".card-undo-chip")).toBeNull();
+  });
+
+  it("does not throw and renders nothing for malformed sourceMetadata.revertOf", () => {
+    render(
+      <TaskCard
+        task={makeTask({ sourceMetadata: { revertOf: 12345 as any } })}
+        onOpenDetail={noop}
+        addToast={noop}
+      />,
+    );
+
+    expect(screen.queryByText(/Undo of/)).toBeNull();
+  });
+});
+
 describe("TaskCard memo comparator provenance behavior", () => {
   it("returns false when prAuthAvailable changes", () => {
     const task = makeTask({ column: "in-review" });

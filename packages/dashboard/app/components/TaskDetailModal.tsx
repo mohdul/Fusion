@@ -21,6 +21,7 @@ import {
 } from "@fusion/core";
 import { resolveEffectivePlannerOversightLevel } from "../../../core/src/workflow-settings-resolver";
 import { isNearDuplicateCanonicalInactive } from "../../../core/src/near-duplicate-canonical";
+import { getRevertOfId, findOpenUndoTaskForSource } from "../utils/taskRevert";
 import { resolveEffectiveAutoMerge } from "../../../core/src/task-merge";
 import { uploadAttachment, deleteAttachment, updateTask, repairOverlapBlocker, pauseTask, unpauseTask, fetchTaskDetail, fetchSettings, fetchTaskEffectiveSettings, fetchGlobalSettings, requestSpecRevision, rebuildTaskSpec, approvePlan, rejectPlan, refineTask, fetchWorkflowResults, assignTask, fetchAgents, fetchAgent, refreshPrStatus, fetchBoardWorkflows, updateTaskCustomFields, summarizeTitle, fetchWorkflowSettingValues, nudgeOverseer, stopOverseer, explainOverseer, api } from "../api";
 import type { BoardWorkflowsPayload, WorkflowFieldDefinition, CustomFieldRejection } from "../api";
@@ -772,6 +773,21 @@ export function TaskDetailContent({
     sourceAgentName: sourceAgent?.name,
     t,
   });
+  /**
+   * FNXC:TaskRevert 2026-07-04-00:00:
+   * Forward direction (FN-7555): when this task IS an AI-undo task (`sourceMetadata.revertOf`
+   * set by `createAiUndoTask`), surface a "Created to undo <sourceId>" provenance clause with
+   * a clickable link to the source task, alongside — not replacing — the base provenance label.
+   */
+  const revertOfId = getRevertOfId(workingTask.sourceMetadata, workingTask.sourceParentTaskId, workingTask.sourceType);
+  /**
+   * FNXC:TaskRevert 2026-07-04-00:00:
+   * Reverse direction (FN-7555): scan the loaded `tasks` list for the most recent OPEN undo
+   * task pointing back at this task via `revertOf`. Mirrors `TaskStore.findOpenRevertTaskForSource`
+   * (open board columns only) so a done/archived/soft-deleted prior undo attempt never renders as
+   * an active "Undo task" link — that would be a stale/leftover affordance.
+   */
+  const openUndoTask = findOpenUndoTaskForSource(tasks, workingTask.id);
 
   // Sync activeTab when the caller changes initialTab (e.g. opening a different tab)
   useEffect(() => {
@@ -4176,6 +4192,36 @@ export function TaskDetailContent({
                       ) : (
                         ""
                       )}
+                    </span>
+                  </div>
+                )}
+                {revertOfId && (
+                  <div className="detail-provenance detail-revert-of-row">
+                    <GitBranch aria-hidden="true" />
+                    <span>
+                      {t("taskDetail.provenance.createdToUndo", "Created to undo")}{" "}
+                      <button
+                        type="button"
+                        className="detail-provenance-link"
+                        onClick={() => handleDepClick(revertOfId)}
+                      >
+                        {revertOfId}
+                      </button>
+                    </span>
+                  </div>
+                )}
+                {openUndoTask && (
+                  <div className="detail-provenance detail-undo-task-row">
+                    <GitBranch aria-hidden="true" />
+                    <span>
+                      {t("taskDetail.provenance.undoTask", "Undo task")}:{" "}
+                      <button
+                        type="button"
+                        className="detail-provenance-link"
+                        onClick={() => handleDepClick(openUndoTask.id)}
+                      >
+                        {openUndoTask.id}
+                      </button>
                     </span>
                   </div>
                 )}

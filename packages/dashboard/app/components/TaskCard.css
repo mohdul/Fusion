@@ -1039,6 +1039,43 @@ The execution-time badge is part of the footer's bottom-right chip cluster, so i
   .card-duplicate-chip {
     max-width: 100%;
   }
+
+  .card-undo-chip {
+    max-width: 100%;
+  }
+}
+
+/*
+FNXC:TaskRevert 2026-07-04-00:00:
+FN-7555's "Undo of <id>" chip is purely informational (not a warning/error), so it
+reuses the neutral `.card-time-indicator` token pair instead of the near-duplicate
+chip's `--color-warning` tokens. Layout (padding/height/radius/font) still matches
+`.card-duplicate-chip` for visual consistency in the footer row.
+*/
+.card-undo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+  padding: var(--space-xs) var(--space-sm);
+  height: var(--card-chip-height);
+  min-height: var(--card-chip-height);
+  border: var(--btn-border-width) solid color-mix(in srgb, var(--text-muted) 30%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.card-undo-chip > span {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  transform: translateY(1px);
 }
 
 .card-github-tracking-chip .provider-icon svg {
