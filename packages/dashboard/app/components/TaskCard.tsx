@@ -20,7 +20,7 @@ import { resolveEffectiveAutoMerge } from "../../../core/src/task-merge";
 // resolver — like resolveEffectiveAutoMerge above — must be imported from its source module
 // directly rather than the package barrel.
 import { resolveEffectivePlannerOversightLevel } from "../../../core/src/workflow-settings-resolver";
-import { addressPrFeedback, fetchTaskDetail, uploadAttachment, fetchMission, fetchAgent, rebuildTaskSpec, refreshPrStatus, fetchWorkflowSettingValues, type WorkflowFieldDefinition } from "../api";
+import { addressPrFeedback, fetchTaskDetail, uploadAttachment, fetchMission, fetchAgent, rebuildTaskSpec, refreshPrStatus, fetchWorkflowSettingValues, type WorkflowFieldDefinition, type RevertTaskOptions, type RevertTaskResult } from "../api";
 import { GitHubBadge } from "./GitHubBadge";
 import { GitLabBadge } from "./GitLabBadge";
 import { PrCreateModal } from "./PrCreateModal";
@@ -489,6 +489,14 @@ interface TaskCardProps {
   ) => Promise<Task>;
   onArchiveTask?: (id: string, options?: { removeLineageReferences?: boolean }) => Promise<Task>;
   onUnarchiveTask?: (id: string) => Promise<Task>;
+  /*
+  FNXC:TaskRevert 2026-07-05-00:00 (FN-7525):
+  Threaded alongside onArchiveTask/onUnarchiveTask; the source task's column
+  is never mutated by the caller as a side effect. Absent when the parent
+  does not support revert (undefined -> no button rendered, mirroring the
+  onArchiveTask guard).
+  */
+  onRevertTask?: (id: string, body?: RevertTaskOptions) => Promise<RevertTaskResult>;
   onDeleteTask?: (id: string, options?: {
     removeDependencyReferences?: boolean;
     removeLineageReferences?: boolean;
@@ -710,6 +718,7 @@ function areTaskCardPropsEqual(previous: TaskCardProps, next: TaskCardProps): bo
     previous.onUpdateTask === next.onUpdateTask &&
     previous.onArchiveTask === next.onArchiveTask &&
     previous.onUnarchiveTask === next.onUnarchiveTask &&
+    previous.onRevertTask === next.onRevertTask &&
     previous.onDeleteTask === next.onDeleteTask &&
     previous.onPauseTask === next.onPauseTask &&
     previous.onRetryTask === next.onRetryTask &&
@@ -851,6 +860,7 @@ function TaskCardComponent({
   onUpdateTask,
   onArchiveTask,
   onUnarchiveTask,
+  onRevertTask,
   onDeleteTask,
   onPauseTask,
   onRetryTask,
@@ -1861,6 +1871,83 @@ function TaskCardComponent({
     });
   }, [addToast, onUnarchiveTask, task.id]);
 
+  /*
+  FNXC:TaskRevert 2026-07-05-00:00 (FN-7525):
+  Revertable guard: a card is only offered a Revert affordance when it sits in
+  done/archived AND it has a landed commit to revert. Absent `mergeDetails` (no
+  merge ever recorded, e.g. a no-op/no-commits-expected task) means there is
+  nothing to revert — treat it as not-revertable rather than erroring at click
+  time. This mirrors the parent FN-7501 issue's "undo a change" framing: only
+  tasks that actually changed the tree are revertable.
+  */
+  const isRevertable = (task.column === "done" || task.column === "archived")
+    && Boolean(task.mergeDetails?.commitSha);
+
+  /*
+  FNXC:TaskRevert 2026-07-05-00:00 (FN-7525):
+  Revert click handler: calls the API in "auto" mode (git-first, AI-undo
+  fallback on conflict/unsupported). Never silently AI-forks a `needsHuman`
+  result (e.g. autoMerge-off) — that is surfaced as an informational toast so a
+  human can decide, per the FN-7524 route contract. The SOURCE task's column is
+  never mutated here as a side effect of a revert.
+  */
+  const handleRevertClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (!onRevertTask) return;
+
+    void onRevertTask(task.id, { mode: "auto" }).then(async (result) => {
+      if (result.mode === "ai") {
+        addToast(result.alreadyOpen
+          ? t("tasks.revertAlreadyOpen", "An undo task is already open: {{id}}", { id: result.createdTaskId })
+          : t("tasks.revertAiCreated", "Created undo task {{id}}", { id: result.createdTaskId }), "success");
+        return;
+      }
+
+      if (result.alreadyReverted) {
+        addToast(t("tasks.revertAlreadyReverted", "{{taskId}} was already reverted", { taskId: task.id }), "info");
+        return;
+      }
+
+      if (result.needsHuman) {
+        addToast(t("tasks.revertNeedsHuman", "Cannot auto-revert {{taskId}}: {{reason}}", { taskId: task.id, reason: result.reason || t("tasks.revertNeedsHumanDefault", "human review required") }), "error");
+        return;
+      }
+
+      if (result.clean && result.revertCommitSha) {
+        addToast(t("tasks.reverted", "Reverted {{taskId}} in commit {{sha}}", { taskId: task.id, sha: result.revertCommitSha.slice(0, 12) }), "success");
+        return;
+      }
+
+      if (!result.clean || result.unsupported) {
+        const confirmed = await confirm({
+          title: t("tasks.revertConflictTitle", "Revert Conflict"),
+          message: t("tasks.revertConflictMessage", "Git revert conflicts with later changes. Create an AI task to undo this?"),
+        });
+        if (!confirmed) return;
+
+        try {
+          const aiResult = await onRevertTask(task.id, { mode: "ai" });
+          if (aiResult.mode === "ai") {
+            addToast(aiResult.alreadyOpen
+              ? t("tasks.revertAlreadyOpen", "An undo task is already open: {{id}}", { id: aiResult.createdTaskId })
+              : t("tasks.revertAiCreated", "Created undo task {{id}}", { id: aiResult.createdTaskId }), "success");
+          }
+        } catch (aiErr) {
+          addToast(getErrorMessage(aiErr), "error");
+        }
+        return;
+      }
+
+      addToast(t("tasks.revertFailed", "Failed to revert {{taskId}}", { taskId: task.id }), "error");
+    }).catch((err) => {
+      addToast(getErrorMessage(err), "error");
+    });
+  }, [addToast, confirm, onRevertTask, t, task.id]);
+
+  const handleTaskActionRevert = useCallback(() => {
+    handleRevertClick({ stopPropagation() {} } as React.MouseEvent<HTMLButtonElement>);
+  }, [handleRevertClick]);
+
   const handleDeleteClick = useCallback(async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     if (!onDeleteTask) return;
@@ -2244,7 +2331,7 @@ function TaskCardComponent({
     task.prInfo,
   ]);
   const contextMenuActions = useMemo<TaskMenuActionDescriptor[]>(() => {
-    if (!onDeleteTask && !onArchiveTask && !onUnarchiveTask && !onDuplicateTask && !onRetryTask && !onResetTask && !onPauseTask && !onUnpauseTask && !onMergeTask && !onMoveTask && !onOpenRefine && !onUpdateTask) {
+    if (!onDeleteTask && !onArchiveTask && !onUnarchiveTask && !onRevertTask && !onDuplicateTask && !onRetryTask && !onResetTask && !onPauseTask && !onUnpauseTask && !onMergeTask && !onMoveTask && !onOpenRefine && !onUpdateTask) {
       return [];
     }
     const actions = [...taskActionMenuModel.actions];
@@ -2253,6 +2340,21 @@ function TaskCardComponent({
     }
     if (task.column === "archived" && onUnarchiveTask) {
       actions.push({ id: "unarchive", label: t("tasks.unarchive", "Unarchive"), onSelect: handleTaskActionUnarchive });
+    }
+    /*
+    FNXC:TaskRevert 2026-07-05-00:00 (FN-7525):
+    Context-menu Revert entry for done/archived, mirroring the archive/unarchive
+    entries above. Disabled (rather than omitted) when the task lacks a landed
+    commit to revert, so the menu communicates WHY the affordance is inert
+    instead of silently hiding it.
+    */
+    if ((task.column === "done" || task.column === "archived") && onRevertTask) {
+      actions.push({
+        id: "revert",
+        label: t("tasks.revert", "Revert"),
+        disabled: !isRevertable,
+        onSelect: isRevertable ? handleTaskActionRevert : undefined,
+      });
     }
     if (taskActionMenuModel.reviewAction) {
       actions.push({ id: taskActionMenuModel.reviewAction.id, label: taskActionMenuModel.reviewAction.label, disabled: taskActionMenuModel.reviewAction.disabled, onSelect: taskActionMenuModel.reviewAction.onSelect });
@@ -2267,7 +2369,7 @@ function TaskCardComponent({
       }
     }
     return actions.filter((action) => action.tone === "note" || action.disabled === true || Boolean(action.onSelect));
-  }, [handleTaskActionArchive, handleTaskActionMove, handleTaskActionUnarchive, onArchiveTask, onDeleteTask, onDuplicateTask, onMergeTask, onMoveTask, onOpenRefine, onPauseTask, onResetTask, onRetryTask, onUnarchiveTask, onUnpauseTask, onUpdateTask, t, task.column, taskActionMenuModel.actions, taskActionMenuModel.moveTransitions, taskActionMenuModel.reviewAction]);
+  }, [handleTaskActionArchive, handleTaskActionMove, handleTaskActionRevert, handleTaskActionUnarchive, isRevertable, onArchiveTask, onDeleteTask, onDuplicateTask, onMergeTask, onMoveTask, onOpenRefine, onPauseTask, onResetTask, onRetryTask, onRevertTask, onUnarchiveTask, onUnpauseTask, onUpdateTask, t, task.column, taskActionMenuModel.actions, taskActionMenuModel.moveTransitions, taskActionMenuModel.reviewAction]);
   const hasContextMenuActions = contextMenuActions.length > 0;
 
   const closeContextMenu = useCallback(() => {
@@ -2968,6 +3070,25 @@ function TaskCardComponent({
               aria-label={t("tasks.unarchiveTask", "Unarchive task")}
             >
               {t("tasks.unarchive", "Unarchive")}
+            </button>
+          )}
+          {/*
+          FNXC:TaskRevert 2026-07-05-00:00 (FN-7525):
+          Inline Revert affordance for done/archived cards (parent FN-7501). Rendered
+          only when the task actually has a landed commit to revert (`isRevertable`)
+          — omitted (not disabled) here to avoid an empty button shell on cards with
+          nothing to revert, matching the "omit inline / disable in menu" split called
+          out in the task spec. Reuses `card-archive-btn`'s tokenized styling via a
+          shared class so no new one-off CSS/colors are introduced.
+          */}
+          {(task.column === "done" || task.column === "archived") && onRevertTask && isRevertable && (
+            <button
+              className="card-archive-btn card-revert-btn"
+              onClick={handleRevertClick}
+              title={t("tasks.revertTask", "Revert this task's changes")}
+              aria-label={t("tasks.revertTask", "Revert this task's changes")}
+            >
+              {t("tasks.revert", "Revert")}
             </button>
           )}
           {task.column === "in-progress" && onMoveTask && (

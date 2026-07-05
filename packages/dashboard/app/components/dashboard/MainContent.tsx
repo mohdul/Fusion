@@ -130,6 +130,7 @@ export function MainContent({
   retryTask,
   archiveTask,
   unarchiveTask,
+  revertTask,
   deleteTask,
   archiveAllDone,
   loadArchivedTasks,
@@ -723,6 +724,7 @@ export function MainContent({
             onMergeTask={mergeTask}
             onArchiveTask={archiveTask}
             onUnarchiveTask={unarchiveTask}
+            onRevertTask={revertTask}
             onDeleteTask={deleteTask}
             onArchiveAllDone={archiveAllDone}
             onLoadArchivedTasks={loadArchivedTasks}
@@ -828,6 +830,7 @@ export function MainContent({
           onMergeTask={mergeTask}
           onArchiveTask={archiveTask}
           onUnarchiveTask={unarchiveTask}
+          onRevertTask={revertTask}
           onDeleteTask={deleteTask}
           onArchiveAllDone={archiveAllDone}
           onLoadArchivedTasks={loadArchivedTasks}
@@ -865,6 +868,7 @@ export function MainContent({
         onPauseTask={pauseTask}
         onUnpauseTask={unpauseTask}
         onArchiveTask={archiveTask}
+        onRevertTask={revertTask}
         onMergeTask={mergeTask}
         onResetTask={resetTask}
         onDuplicateTask={duplicateTask}

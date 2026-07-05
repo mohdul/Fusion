@@ -1132,6 +1132,157 @@ describe("TaskCard", () => {
     expect(screen.getByLabelText("Unarchive task")).toBeDefined();
   });
 
+  /*
+  FNXC:TaskRevert 2026-07-05-00:00 (FN-7525):
+  Coverage for the Revert affordance: presence/absence on done + archived
+  cards (inline row + context menu), the disabled/omitted no-commit-to-revert
+  guard, the auto→clean-success path, and the auto→conflict→confirm→AI-undo
+  fallback path.
+  */
+  describe("Revert affordance", () => {
+    it("renders the inline Revert button for a done card with a landed commit", () => {
+      render(
+        <TaskCard
+          task={makeTask({ column: "done", mergeDetails: { commitSha: "abc123def456" } as any })}
+          onOpenDetail={noop}
+          addToast={noop}
+          onRevertTask={vi.fn(async () => ({ mode: "git", clean: true, revertCommitSha: "deadbeef" }) as any)}
+        />,
+      );
+
+      expect(screen.getByLabelText("Revert this task's changes")).toBeDefined();
+    });
+
+    it("renders the inline Revert button for an archived card with a landed commit", () => {
+      render(
+        <TaskCard
+          task={makeTask({ column: "archived", mergeDetails: { commitSha: "abc123def456" } as any })}
+          onOpenDetail={noop}
+          addToast={noop}
+          onRevertTask={vi.fn(async () => ({ mode: "git", clean: true, revertCommitSha: "deadbeef" }) as any)}
+        />,
+      );
+
+      expect(screen.getByLabelText("Revert this task's changes")).toBeDefined();
+    });
+
+    it("omits the Revert button when onRevertTask is not provided", () => {
+      render(
+        <TaskCard
+          task={makeTask({ column: "done", mergeDetails: { commitSha: "abc123def456" } as any })}
+          onOpenDetail={noop}
+          addToast={noop}
+        />,
+      );
+
+      expect(screen.queryByLabelText("Revert this task's changes")).toBeNull();
+    });
+
+    it("omits the inline Revert button when the task has no landed commit", () => {
+      render(
+        <TaskCard
+          task={makeTask({ column: "done", mergeDetails: undefined })}
+          onOpenDetail={noop}
+          addToast={noop}
+          onRevertTask={vi.fn(async () => ({ mode: "git", clean: true, revertCommitSha: "deadbeef" }) as any)}
+        />,
+      );
+
+      expect(screen.queryByLabelText("Revert this task's changes")).toBeNull();
+    });
+
+    it("shows a disabled Revert context-menu entry when the task has no landed commit", () => {
+      render(
+        <TaskCard
+          task={makeTask({ column: "done", mergeDetails: undefined })}
+          onOpenDetail={noop}
+          addToast={noop}
+          onRevertTask={vi.fn(async () => ({ mode: "git", clean: true, revertCommitSha: "deadbeef" }) as any)}
+        />,
+      );
+
+      fireEvent.contextMenu(document.querySelector(".card")!, { clientX: 24, clientY: 28 });
+      const menuItem = screen.getByRole("menuitem", { name: "Revert" });
+      expect(menuItem).toBeDisabled();
+    });
+
+    it("shows the Revert context-menu entry for done and archived cards", () => {
+      render(
+        <TaskCard
+          task={makeTask({ column: "done", mergeDetails: { commitSha: "abc123def456" } as any })}
+          onOpenDetail={noop}
+          addToast={noop}
+          onRevertTask={vi.fn(async () => ({ mode: "git", clean: true, revertCommitSha: "deadbeef" }) as any)}
+        />,
+      );
+
+      fireEvent.contextMenu(document.querySelector(".card")!, { clientX: 24, clientY: 28 });
+      expect(screen.getByRole("menuitem", { name: "Revert" })).toBeDefined();
+    });
+
+    it("calls onRevertTask in auto mode and toasts the revert commit sha on a clean result", async () => {
+      const addToast = vi.fn();
+      const onRevertTask = vi.fn(async () => ({ mode: "git", clean: true, revertCommitSha: "deadbeef1234" }) as any);
+
+      render(
+        <TaskCard
+          task={makeTask({ column: "done", mergeDetails: { commitSha: "abc123def456" } as any })}
+          onOpenDetail={noop}
+          addToast={addToast}
+          onRevertTask={onRevertTask}
+        />,
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText("Revert this task's changes"));
+      });
+
+      await waitFor(() => {
+        expect(onRevertTask).toHaveBeenCalledWith("FN-001", { mode: "auto" });
+      });
+      await waitFor(() => {
+        expect(addToast).toHaveBeenCalledWith(
+          expect.stringContaining("deadbeef1234"),
+          "success",
+        );
+      });
+    });
+
+    it("opens a confirm dialog on conflict and falls back to mode: ai, surfacing the created task id", async () => {
+      const addToast = vi.fn();
+      const onRevertTask = vi.fn()
+        .mockResolvedValueOnce({ mode: "git", clean: false, conflicts: [{}] } as any)
+        .mockResolvedValueOnce({ mode: "ai", createdTaskId: "FN-999" } as any);
+      mockConfirm.mockResolvedValueOnce(true);
+
+      render(
+        <TaskCard
+          task={makeTask({ column: "done", mergeDetails: { commitSha: "abc123def456" } as any })}
+          onOpenDetail={noop}
+          addToast={addToast}
+          onRevertTask={onRevertTask}
+        />,
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText("Revert this task's changes"));
+      });
+
+      await waitFor(() => {
+        expect(mockConfirm).toHaveBeenCalled();
+      });
+      await waitFor(() => {
+        expect(onRevertTask).toHaveBeenNthCalledWith(2, "FN-001", { mode: "ai" });
+      });
+      await waitFor(() => {
+        expect(addToast).toHaveBeenCalledWith(
+          expect.stringContaining("FN-999"),
+          "success",
+        );
+      });
+    });
+  });
+
   it("keeps two-button delete flow for non-done task", async () => {
     const onDeleteTask = vi.fn(async () => makeTask());
     mockConfirm.mockResolvedValueOnce(false);

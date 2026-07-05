@@ -24,6 +24,7 @@ import { isNearDuplicateCanonicalInactive } from "../../../core/src/near-duplica
 import { getRevertOfId, findOpenUndoTaskForSource } from "../utils/taskRevert";
 import { resolveEffectiveAutoMerge } from "../../../core/src/task-merge";
 import { uploadAttachment, deleteAttachment, updateTask, repairOverlapBlocker, pauseTask, unpauseTask, fetchTaskDetail, fetchSettings, fetchTaskEffectiveSettings, fetchGlobalSettings, requestSpecRevision, rebuildTaskSpec, approvePlan, rejectPlan, refineTask, fetchWorkflowResults, assignTask, fetchAgents, fetchAgent, refreshPrStatus, fetchBoardWorkflows, updateTaskCustomFields, summarizeTitle, fetchWorkflowSettingValues, nudgeOverseer, stopOverseer, explainOverseer, api } from "../api";
+import type { RevertTaskOptions, RevertTaskResult } from "../api";
 import type { BoardWorkflowsPayload, WorkflowFieldDefinition, CustomFieldRejection } from "../api";
 import { WorkflowIcon } from "./WorkflowIcon";
 import { ApiRequestError } from "../api";
@@ -347,6 +348,8 @@ export interface TaskDetailModalProps {
     allowResurrection?: boolean;
   }) => Promise<Task>;
   onArchiveTask?: (id: string, options?: { removeLineageReferences?: boolean }) => Promise<Task>;
+  /* FNXC:TaskRevert 2026-07-05-00:00 (FN-7525): threaded alongside onArchiveTask; never mutates the source task's column. */
+  onRevertTask?: (id: string, body?: RevertTaskOptions) => Promise<RevertTaskResult>;
   onMergeTask: (id: string) => Promise<MergeResult>;
   onRetryTask?: (id: string) => Promise<Task>;
   onResetTask?: (id: string) => Promise<Task>;
@@ -615,6 +618,7 @@ export function TaskDetailContent({
   onMoveTask,
   onDeleteTask,
   onArchiveTask,
+  onRevertTask,
   onMergeTask,
   onRetryTask,
   onResetTask,
@@ -2584,6 +2588,68 @@ export function TaskDetailContent({
       addToast(getErrorMessage(err), "error");
     }
   }, [onArchiveTask, confirm, task.id, nearDuplicateOf, addToast, requestClose]);
+
+  /*
+  FNXC:TaskRevert 2026-07-05-00:00 (FN-7525):
+  Detail-view Revert action, mirroring TaskCard's `handleRevertClick`: calls the
+  API in "auto" mode, surfaces a clean-git success toast with the revert commit
+  sha, an info toast for `alreadyReverted`, an error toast (never a silent AI
+  fork) for `needsHuman`, and otherwise confirms before falling back to the
+  AI-undo task on conflict/unsupported. The source task's column is never
+  mutated as a side effect.
+  */
+  const isRevertable = (task.column === "done" || task.column === "archived")
+    && Boolean(task.mergeDetails?.commitSha);
+
+  const handleRevertTask = useCallback(async () => {
+    if (!onRevertTask) return;
+    try {
+      const result = await onRevertTask(task.id, { mode: "auto" });
+
+      if (result.mode === "ai") {
+        addToast(result.alreadyOpen
+          ? t("tasks.revertAlreadyOpen", "An undo task is already open: {{id}}", { id: result.createdTaskId })
+          : t("tasks.revertAiCreated", "Created undo task {{id}}", { id: result.createdTaskId }), "success");
+        return;
+      }
+
+      if (result.alreadyReverted) {
+        addToast(t("tasks.revertAlreadyReverted", "{{taskId}} was already reverted", { taskId: task.id }), "info");
+        return;
+      }
+
+      if (result.needsHuman) {
+        addToast(t("tasks.revertNeedsHuman", "Cannot auto-revert {{taskId}}: {{reason}}", { taskId: task.id, reason: result.reason || t("tasks.revertNeedsHumanDefault", "human review required") }), "error");
+        return;
+      }
+
+      if (result.clean && result.revertCommitSha) {
+        addToast(t("tasks.reverted", "Reverted {{taskId}} in commit {{sha}}", { taskId: task.id, sha: result.revertCommitSha.slice(0, 12) }), "success");
+        return;
+      }
+
+      if (!result.clean || result.unsupported) {
+        const confirmed = await confirm({
+          title: t("tasks.revertConflictTitle", "Revert Conflict"),
+          message: t("tasks.revertConflictMessage", "Git revert conflicts with later changes. Create an AI task to undo this?"),
+          cancelLabel: t("common.cancel", "Cancel"),
+        });
+        if (!confirmed) return;
+
+        const aiResult = await onRevertTask(task.id, { mode: "ai" });
+        if (aiResult.mode === "ai") {
+          addToast(aiResult.alreadyOpen
+            ? t("tasks.revertAlreadyOpen", "An undo task is already open: {{id}}", { id: aiResult.createdTaskId })
+            : t("tasks.revertAiCreated", "Created undo task {{id}}", { id: aiResult.createdTaskId }), "success");
+        }
+        return;
+      }
+
+      addToast(t("tasks.revertFailed", "Failed to revert {{taskId}}", { taskId: task.id }), "error");
+    } catch (err) {
+      addToast(getErrorMessage(err), "error");
+    }
+  }, [onRevertTask, confirm, task.id, addToast, t]);
 
   const isTaskPaused = task.paused || task.userPaused;
   /*
@@ -5679,6 +5745,25 @@ export function TaskDetailContent({
                   title={t("taskDetail.delete.ariaLabel", "Delete task")}
                 >
                   {t("taskDetail.delete.btn", "Delete")}
+                </button>
+              )}
+
+              {/*
+              FNXC:TaskRevert 2026-07-05-00:00 (FN-7525):
+              Detail-view Revert button for done/archived tasks, mirroring the
+              standalone triage Delete button above. Rendered (not just menu-only)
+              because the detail view is the primary surface for reviewing a
+              completed task's outcome. Omitted — not disabled — when the task has
+              no landed commit to revert, avoiding an empty button shell.
+              */}
+              {(task.column === "done" || task.column === "archived") && onRevertTask && isRevertable && (
+                <button
+                  className="btn btn-sm"
+                  onClick={() => void handleRevertTask()}
+                  aria-label={t("tasks.revertTask", "Revert this task's changes")}
+                  title={t("tasks.revertTask", "Revert this task's changes")}
+                >
+                  {t("tasks.revert", "Revert")}
                 </button>
               )}
 

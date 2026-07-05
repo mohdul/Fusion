@@ -1446,9 +1446,17 @@ executing. These map 1:1 to the unified progress status so the dot color encodes
   opacity: 1;
 }
 
-/* Archive/Unarchive buttons */
+/* Archive/Unarchive/Revert buttons */
+/*
+FNXC:TaskRevert 2026-07-05-00:00 (FN-7525):
+.card-revert-btn shares the .card-archive-btn/.card-unarchive-btn tokenized
+look (no one-off px/hex) — it's applied alongside .card-archive-btn on the
+markup so no separate ruleset was strictly required, but it's declared here
+too so future divergence doesn't have to rediscover the shared selector group.
+*/
 .card-archive-btn,
-.card-unarchive-btn {
+.card-unarchive-btn,
+.card-revert-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1468,19 +1476,22 @@ executing. These map 1:1 to the unified progress status so the dot color encodes
 }
 
 .card:hover .card-archive-btn,
-.card:hover .card-unarchive-btn {
+.card:hover .card-unarchive-btn,
+.card:hover .card-revert-btn {
   opacity: 1;
 }
 
 .card-archive-btn:hover,
-.card-unarchive-btn:hover {
+.card-unarchive-btn:hover,
+.card-revert-btn:hover {
   background: var(--card-hover);
   color: var(--text);
   border-color: color-mix(in srgb, var(--border) 70%, var(--text) 30%);
 }
 
 .card-archive-btn:focus,
-.card-unarchive-btn:focus {
+.card-unarchive-btn:focus,
+.card-revert-btn:focus {
   opacity: 1;
   outline: 1px solid var(--todo);
   outline-offset: 1px;
@@ -1658,7 +1669,8 @@ executing. These map 1:1 to the unified progress status so the dot color encodes
 
   /* FN-4351/FN-3965: keep secondary actions visible on touch, but compact per WCAG 2.5.8 because the card tap surface is the primary target for opening task detail. */
   .card-archive-btn,
-  .card-unarchive-btn {
+  .card-unarchive-btn,
+  .card-revert-btn {
     opacity: 1;
   }
 

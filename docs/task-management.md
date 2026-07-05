@@ -162,6 +162,16 @@ These appear in task activity history; run-audit entries are emitted where run c
 
 Recovery is reversible: restore archived tasks via dashboard **Unarchive** or `fn_task_unarchive`.
 
+#### Revert/Undo affordance (FN-7525)
+
+Done and Archived task cards (board card inline row + context menu, the detail view, and the list context menu) expose a **Revert** action alongside Archive/Unarchive when the task has a landed commit to revert. Clicking it calls `POST /tasks/:id/revert` in `"auto"` mode:
+
+- A clean git revert shows a success toast naming the created revert commit sha.
+- A conflicting/unsupported git result opens a confirm dialog offering to create an AI-undo task; confirming re-calls the route in `"ai"` mode and surfaces the created task id (or that an undo task is already open).
+- A `needsHuman` result (e.g. auto-merge is off) is surfaced as an informational/error toast, never silently forked into an AI task.
+
+The source task's column/lifecycle is never mutated as a side effect of a revert; the Revert affordance is absent when the task has no landed commit or when the hosting surface does not support it.
+
 ### 2) Plan Mode (AI interview)
 
 On desktop/tablet, open **Planning** from the left sidebar to start or resume a planning session. You can also hand a draft from the board quick-entry row or New Task dialog to Planning with the **Plan** action.
