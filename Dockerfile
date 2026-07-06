@@ -9,7 +9,6 @@ RUN apt-get update \
 
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
-COPY plugins/fusion-plugin-linear-import/package.json ./plugins/fusion-plugin-linear-import/package.json
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/cli/package.json ./packages/cli/package.json
 COPY packages/cli-alias/package.json ./packages/cli-alias/package.json
@@ -41,6 +40,7 @@ COPY plugins/fusion-plugin-whatsapp-chat/package.json ./plugins/fusion-plugin-wh
 COPY plugins/fusion-plugin-roadmap/package.json ./plugins/fusion-plugin-roadmap/package.json
 COPY plugins/fusion-plugin-even-realities-glasses/package.json ./plugins/fusion-plugin-even-realities-glasses/package.json
 COPY plugins/fusion-plugin-reports/package.json ./plugins/fusion-plugin-reports/package.json
+COPY plugins/fusion-plugin-linear-import/package.json ./plugins/fusion-plugin-linear-import/package.json
 
 RUN pnpm install --frozen-lockfile
 
@@ -71,13 +71,13 @@ COPY packages/engine/package.json ./packages/engine/package.json
 RUN pnpm install --frozen-lockfile --prod \
   --filter @runfusion/fusion
 
-COPY --from=builder /app/packages/core/dist ./packages/core/dist
-COPY --from=builder /app/packages/engine/dist ./packages/engine/dist
-COPY --from=builder /app/packages/dashboard/dist ./packages/dashboard/dist
-COPY --from=builder /app/packages/cli/dist ./packages/cli/dist
+COPY --chown=node:node --from=builder /app/packages/core/dist ./packages/core/dist
+COPY --chown=node:node --from=builder /app/packages/engine/dist ./packages/engine/dist
+COPY --chown=node:node --from=builder /app/packages/dashboard/dist ./packages/dashboard/dist
+COPY --chown=node:node --from=builder /app/packages/cli/dist ./packages/cli/dist
 
 # @runfusion/fusion references typebox at runtime via the bundled CLI.
-COPY --from=builder /app/node_modules/.pnpm/typebox@*/node_modules/typebox /project/node_modules/typebox
+COPY --chown=node:node --from=builder /app/node_modules/.pnpm/typebox@*/node_modules/typebox /project/node_modules/typebox
 
 RUN chown node:node /project
 
