@@ -42,7 +42,8 @@ COPY plugins/fusion-plugin-even-realities-glasses/package.json ./plugins/fusion-
 COPY plugins/fusion-plugin-reports/package.json ./plugins/fusion-plugin-reports/package.json
 COPY plugins/fusion-plugin-linear-import/package.json ./plugins/fusion-plugin-linear-import/package.json
 
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
 
 COPY . .
 RUN pnpm build
@@ -54,8 +55,7 @@ LABEL org.opencontainers.image.description="AI-orchestrated task board"
 ENV NODE_ENV=production
 ENV PORT=4040
 
-# Integration and auth variables. Set the real values in Coolify,
-# these empty defaults just make them visible/detectable.
+# Integration and auth variables. Set real values in Coolify.
 ENV FUSION_DASHBOARD_TOKEN=""
 ENV GITHUB_TOKEN=""
 ENV GH_TOKEN=""
@@ -80,8 +80,9 @@ COPY packages/core/package.json ./packages/core/package.json
 COPY packages/dashboard/package.json ./packages/dashboard/package.json
 COPY packages/engine/package.json ./packages/engine/package.json
 
-RUN pnpm install --frozen-lockfile --prod \
-  --filter @runfusion/fusion
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile --prod \
+    --filter @runfusion/fusion
 
 COPY --chown=node:node --from=builder /app/packages/core/dist ./packages/core/dist
 COPY --chown=node:node --from=builder /app/packages/engine/dist ./packages/engine/dist
@@ -95,6 +96,11 @@ COPY --chown=node:node --from=builder /app/node_modules/.pnpm/typebox@*/node_mod
 RUN mkdir -p node_modules/@fusion \
   && ln -s ../../packages/core node_modules/@fusion/core \
   && ln -s ../../packages/engine node_modules/@fusion/engine
+
+# State directories backed by Coolify volume mounts.
+# Pre-created and owned by node so named volumes inherit correct ownership.
+RUN mkdir -p /home/node/.fusion /project/.fusion \
+  && chown -R node:node /home/node/.fusion /project/.fusion
 
 RUN chown node:node /project
 
