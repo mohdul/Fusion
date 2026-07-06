@@ -9,6 +9,7 @@ RUN apt-get update \
 
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
+COPY plugins/fusion-plugin-linear-import/package.json ./plugins/fusion-plugin-linear-import/package.json
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/cli/package.json ./packages/cli/package.json
 COPY packages/cli-alias/package.json ./packages/cli-alias/package.json
