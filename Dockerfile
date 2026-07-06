@@ -54,8 +54,20 @@ LABEL org.opencontainers.image.description="AI-orchestrated task board"
 ENV NODE_ENV=production
 ENV PORT=4040
 
+# Integration and auth variables. Set the real values in Coolify,
+# these empty defaults just make them visible/detectable.
+ENV FUSION_DASHBOARD_TOKEN=""
+ENV GITHUB_TOKEN=""
+ENV GH_TOKEN=""
+ENV ANTHROPIC_API_KEY=""
+ENV OPENAI_API_KEY=""
+
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git \
+  && apt-get install -y --no-install-recommends git curl ca-certificates \
+  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends gh \
   && rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
@@ -78,12 +90,13 @@ COPY --chown=node:node --from=builder /app/packages/cli/dist ./packages/cli/dist
 
 # @runfusion/fusion references typebox at runtime via the bundled CLI.
 COPY --chown=node:node --from=builder /app/node_modules/.pnpm/typebox@*/node_modules/typebox /project/node_modules/typebox
+
+# Make workspace packages resolvable for runtime-loaded plugins
 RUN mkdir -p node_modules/@fusion \
   && ln -s ../../packages/core node_modules/@fusion/core \
   && ln -s ../../packages/engine node_modules/@fusion/engine
-  
-RUN chown node:node /project
 
+RUN chown node:node /project
 
 USER node
 
