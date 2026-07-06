@@ -78,8 +78,12 @@ COPY --chown=node:node --from=builder /app/packages/cli/dist ./packages/cli/dist
 
 # @runfusion/fusion references typebox at runtime via the bundled CLI.
 COPY --chown=node:node --from=builder /app/node_modules/.pnpm/typebox@*/node_modules/typebox /project/node_modules/typebox
-
+RUN mkdir -p node_modules/@fusion \
+  && ln -s ../../packages/core node_modules/@fusion/core \
+  && ln -s ../../packages/engine node_modules/@fusion/engine
+  
 RUN chown node:node /project
+
 
 USER node
 
