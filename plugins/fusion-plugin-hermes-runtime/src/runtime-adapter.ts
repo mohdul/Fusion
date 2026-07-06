@@ -51,10 +51,12 @@ export class HermesRuntimeAdapter implements AgentRuntime {
   }
 
   async createSession(options: AgentRuntimeOptions): Promise<AgentSessionResult> {
+    const messages: unknown[] = [];
     const session: HermesStreamSession = {
       model: undefined,
       systemPrompt: options.systemPrompt,
-      messages: [],
+      messages,
+      state: { messages },
       apiKey: undefined,
       thinkingLevel: undefined,
       sessionId: "",
@@ -82,12 +84,14 @@ export class HermesRuntimeAdapter implements AgentRuntime {
     const promptWithContext = resumeId
       ? prompt
       : `${session.fusedSystemPrompt}\n\nUser request:\n${prompt}`;
+    session.messages.push({ role: "user", content: prompt });
     const result = await invokeHermesCli(promptWithContext, this.settings, resumeId);
 
     session.sessionId = result.sessionId;
     session.lastModelDescription = this.describeFromSettings();
 
     if (result.body) {
+      session.messages.push({ role: "assistant", content: result.body });
       session.callbacks.onText?.(result.body);
     }
   }

@@ -115,7 +115,9 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
     }
     const projectStore = await getOrCreateProjectStore(projectId);
     const chatStore = getOrCreateScopedChatStore(projectStore);
-    return getOrCreateScopedChatManager(projectStore, chatStore, options?.pluginRunner);
+    const engine = options?.engineManager?.getEngine(projectId);
+    const pluginRunner = engine?.getPluginRunner?.() ?? options?.pluginRunner;
+    return getOrCreateScopedChatManager(projectStore, chatStore, pluginRunner);
   }
   function validateModelPair(modelProvider: unknown, modelId: unknown): { modelProvider?: string; modelId?: string } {
     let normalizedProvider: string | undefined;
